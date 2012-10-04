@@ -302,6 +302,17 @@ public:
    */
   void ToggleLoginScreen() { m_usingLoginScreen = !m_usingLoginScreen; };
 
+  /*! \brief Specify the profile to load on startup
+   If the login screen is enabled, this has no effect
+   \param iProfile the profile ID, or -1 to login the last loaded profile
+   */
+  void SetAutoLogin(int iProfile) { m_autoLoginProfile = iProfile; };
+
+  /*! \brief Returns the auto login setting
+   \return int the profile index, or -1 if no auto login is set
+   */
+  int GetAutoLogin() { return m_autoLoginProfile; };
+
   /*! \brief Are we the master user?
    \return true if the current profile is the master user, false otherwise
    */
@@ -410,6 +421,7 @@ private:
   std::vector<CProfile> m_vecProfiles;
   std::map<CStdString, int> m_watchMode;
   bool m_usingLoginScreen;
+  int m_autoLoginProfile;
   unsigned int m_lastUsedProfile;
   unsigned int m_currentProfile;
   int m_nextIdProfile; // for tracking the next available id to give to a new profile to ensure id's are not re-used
