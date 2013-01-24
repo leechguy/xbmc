@@ -60,11 +60,13 @@ public:
                          OPERATOR_NOT_IN_THE_LAST,
                          OPERATOR_TRUE,
                          OPERATOR_FALSE,
+                         OPERATOR_BETWEEN,
                          OPERATOR_END
                        };
 
   enum FIELD_TYPE { TEXT_FIELD = 0,
                     BROWSEABLE_FIELD,
+                    BROWSEABLE_NUMERIC_FIELD,
                     NUMERIC_FIELD,
                     DATE_FIELD,
                     PLAYLIST_FIELD,
@@ -87,14 +89,15 @@ public:
   static CStdString           TranslateOperator(SEARCH_OPERATOR oper);
 
   static CStdString           GetLocalizedField(Field field);
-  static CStdString           GetLocalizedOrder(SortBy order);
   static CStdString           GetLocalizedOperator(SEARCH_OPERATOR oper);
   static std::vector<Field>   GetFields(const CStdString &type);
   static std::vector<SortBy>  GetOrders(const CStdString &type);
   static FIELD_TYPE           GetFieldType(Field field);
 
-  CStdString                  GetLocalizedRule(const CStdString &type) const;
-  CStdString                  GetLocalizedParameter(const CStdString &type) const;
+  CStdString                  GetLocalizedRule() const;
+  CStdString                  GetParameter() const;
+  void                        SetParameter(const CStdString &value);
+  void                        SetParameter(const std::vector<CStdString> &values);
 
   Field                       m_field;
   SEARCH_OPERATOR             m_operator;
@@ -137,6 +140,7 @@ public:
 private:
   friend class CSmartPlaylist;
   friend class CGUIDialogSmartPlaylistEditor;
+  friend class CGUIDialogMediaFilter;
 
   Combination m_type;
   CSmartPlaylistRuleCombinations m_combinations;
@@ -159,6 +163,8 @@ public:
   TiXmlElement *OpenAndReadName(const CStdString &path);
   bool LoadFromXML(TiXmlElement *root, const CStdString &encoding = "UTF-8");
 
+  void Reset();
+
   void SetName(const CStdString &name);
   void SetType(const CStdString &type); // music, video, mixed
   const CStdString& GetName() const { return m_playlistName; };
@@ -173,8 +179,9 @@ public:
   void SetOrder(SortBy order) { m_orderField = order; };
   SortBy GetOrder() const { return m_orderField; };
 
-  void SetOrderAscending(bool orderAscending) { m_orderAscending = orderAscending; };
-  bool GetOrderAscending() const { return m_orderAscending; };
+  void SetOrderAscending(bool orderAscending) { m_orderDirection = orderAscending ? SortOrderAscending : SortOrderDescending; };
+  bool GetOrderAscending() const { return m_orderDirection != SortOrderDescending; };
+  SortOrder GetOrderDirection() const { return m_orderDirection; }
 
   /*! \brief get the where clause for a playlist
    We handle playlists inside playlists separately in order to ensure we don't introduce infinite loops
@@ -191,8 +198,10 @@ public:
   static void GetAvailableFields(const std::string &type, std::vector<std::string> &fieldList);
   static void GetAvailableOperators(std::vector<std::string> &operatorList);
 
+  bool IsEmpty(bool ignoreSortAndLimit = true) const;
 private:
   friend class CGUIDialogSmartPlaylistEditor;
+  friend class CGUIDialogMediaFilter;
 
   TiXmlElement* readName();
   TiXmlElement *readNameFromXml(const CStdString &xml);
@@ -205,7 +214,7 @@ private:
   // order information
   unsigned int m_limit;
   SortBy m_orderField;
-  bool m_orderAscending;
+  SortOrder m_orderDirection;
 
   CXBMCTinyXML m_xmlDoc;
 };

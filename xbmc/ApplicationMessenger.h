@@ -30,6 +30,7 @@
 #include "PlatformDefs.h"
 
 #include <queue>
+#include "utils/GlobalsHandling.h"
 
 class CFileItem;
 class CFileItemList;
@@ -71,7 +72,6 @@ namespace MUSIC_INFO
 
 #define TMSG_PICTURE_SHOW         220
 #define TMSG_PICTURE_SLIDESHOW    221
-#define TMSG_SLIDESHOW_SCREENSAVER  222
 
 #define TMSG_SHUTDOWN             300
 #define TMSG_POWERDOWN            301
@@ -87,8 +87,7 @@ namespace MUSIC_INFO
 #define TMSG_SETLANGUAGE          311
 #define TMSG_RENDERER_FLUSH       312
 #define TMSG_INHIBITIDLESHUTDOWN  313
-
-#define TMSG_HTTPAPI              400
+#define TMSG_LOADPROFILE          314
 
 #define TMSG_NETWORKMESSAGE         500
 
@@ -140,6 +139,12 @@ struct ThreadMessageCallback
   void *userptr;
 };
 
+class CApplicationMessenger;
+namespace xbmcutil
+{
+   template<class T> class GlobalsSingleton;
+}
+
 class CApplicationMessenger
 {
 public:
@@ -160,7 +165,7 @@ public:
   void MediaPlay(const CFileItem &item);
   void MediaPlay(const CFileItemList &item, int song = 0);
   void MediaPlay(int playlistid, int song = -1);
-  void MediaStop(bool bWait = true);
+  void MediaStop(bool bWait = true, int playlistid = -1);
   void MediaPause();
   void MediaRestart(bool bWait);
 
@@ -182,7 +187,7 @@ public:
 
   void PlayFile(const CFileItem &item, bool bRestart = false); // thread safe version of g_application.PlayFile()
   void PictureShow(std::string filename);
-  void PictureSlideShow(std::string pathname, bool bScreensaver = false, bool addTBN = false);
+  void PictureSlideShow(std::string pathname, bool addTBN = false);
   void SetGUILanguage(const std::string &strLanguage);
   void Shutdown();
   void Powerdown();
@@ -204,9 +209,10 @@ public:
   //! \brief Set the currently currently item
   void SetCurrentItem(const CFileItem& item);
 
+  void LoadProfile(unsigned int idx);
+
   CStdString GetResponse();
   int SetResponse(CStdString response);
-  void HttpApi(std::string cmd, bool wait = false);
   void ExecBuiltIn(const CStdString &command, bool wait = false);
 
   void NetworkMessage(DWORD dwMessage, DWORD dwParam = 0);
@@ -236,12 +242,13 @@ public:
   bool SetupDisplay();
   bool DestroyDisplay();
 
+  virtual ~CApplicationMessenger();
 private:
   // private construction, and no assignements; use the provided singleton methods
+   friend class xbmcutil::GlobalsSingleton<CApplicationMessenger>;
   CApplicationMessenger();
   CApplicationMessenger(const CApplicationMessenger&);
   CApplicationMessenger const& operator=(CApplicationMessenger const&);
-  virtual ~CApplicationMessenger();
   void ProcessMessage(ThreadMessage *pMsg);
 
   std::queue<ThreadMessage*> m_vecMessages;
@@ -250,3 +257,8 @@ private:
   CCriticalSection m_critBuffer;
   CStdString bufferResponse;
 };
+
+XBMC_GLOBAL_REF(CApplicationMessenger,s_messenger);
+#define s_messenger XBMC_GLOBAL_USE(CApplicationMessenger)
+
+

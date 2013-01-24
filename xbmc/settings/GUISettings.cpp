@@ -18,6 +18,7 @@
  *
  */
 
+#include "network/Network.h"
 #include "GUISettings.h"
 #include <limits.h>
 #include <float.h>
@@ -278,7 +279,7 @@ void CGUISettings::Initialize()
   AddGroup(SETTINGS_WEATHER, 8);
   CSettingsCategory* wea = AddCategory(SETTINGS_WEATHER, "weather", 16000);
   AddInt(NULL, "weather.currentlocation", 0, 1, 1, 1, 3, SPIN_CONTROL_INT_PLUS);
-  AddDefaultAddon(wea, "weather.addon", 24027, "weather.wunderground", ADDON_SCRIPT_WEATHER);
+  AddDefaultAddon(wea, "weather.addon", 24029, "weather.wunderground", ADDON_SCRIPT_WEATHER);
   AddString(wea, "weather.addonsettings", 21417, "", BUTTON_CONTROL_STANDARD, true);
 
   // My Music Settings
@@ -329,7 +330,6 @@ void CGUISettings::Initialize()
 
   CSettingsCategory* scr = AddCategory(SETTINGS_MUSIC, "scrobbler", 15221);
   AddBool(scr, "scrobbler.lastfmsubmit", 15201, false);
-  AddBool(scr, "scrobbler.lastfmsubmitradio", 15250, false);
   AddString(scr,"scrobbler.lastfmusername", 15202, "", EDIT_CONTROL_INPUT, false, 15202);
   AddString(scr,"scrobbler.lastfmpass", 15203, "", EDIT_CONTROL_MD5_INPUT, false, 15203);
   AddSeparator(scr, "scrobbler.sep1");
@@ -379,7 +379,7 @@ void CGUISettings::Initialize()
   AddString(kar, "karaoke.font", 22030, "arial.ttf", SPIN_CONTROL_TEXT);
   AddInt(kar, "karaoke.fontheight", 22031, 36, 16, 2, 74, SPIN_CONTROL_TEXT); // use text as there is a disk based lookup needed
   map<int,int> colors;
-  for (int i = KARAOKE_COLOR_START; i <= KARAOKE_COLOR_END; i++)
+  for (int i = KARAOKE_COLOR_START; i < KARAOKE_COLOR_END; i++)
     colors.insert(make_pair(22040 + i, i));
   AddInt(kar, "karaoke.fontcolors", 22032, KARAOKE_COLOR_START, colors, SPIN_CONTROL_TEXT);
   AddString(kar, "karaoke.charset", 22033, "DEFAULT", SPIN_CONTROL_TEXT);
@@ -445,7 +445,7 @@ void CGUISettings::Initialize()
   AddInt(vs, "videoscreen.vsync", 13105, DEFAULT_VSYNC, vsync, SPIN_CONTROL_TEXT);
 
   AddString(vs, "videoscreen.guicalibration",214,"", BUTTON_CONTROL_STANDARD);
-#ifndef HAS_DX
+#if defined(HAS_GL)
   // Todo: Implement test pattern for DX
   AddString(vs, "videoscreen.testpattern",226,"", BUTTON_CONTROL_STANDARD);
 #endif
@@ -470,8 +470,8 @@ void CGUISettings::Initialize()
   map<int,int> channelLayout;
   for(int layout = AE_CH_LAYOUT_2_0; layout < AE_CH_LAYOUT_MAX; ++layout)
     channelLayout.insert(make_pair(34100+layout, layout));
-  AddInt(ao, "audiooutput.channellayout", 34100, AE_CH_LAYOUT_2_0, channelLayout, SPIN_CONTROL_TEXT);
-  AddBool(ao, "audiooutput.normalizelevels", 346, false);
+  AddInt(ao, "audiooutput.channels", 34100, AE_CH_LAYOUT_2_0, channelLayout, SPIN_CONTROL_TEXT);
+  AddBool(ao, "audiooutput.normalizelevels", 346, true);
   AddBool(ao, "audiooutput.stereoupmix", 252, false);
 
 #if defined(TARGET_DARWIN_IOS)
@@ -546,8 +546,6 @@ void CGUISettings::Initialize()
 #endif
 #if defined(HAS_SDL_JOYSTICK)
   AddBool(in, "input.enablejoystick", 35100, true);
-  AddBool(in, "input.disablejoystickwithimon", 35101, true);
-  GetSetting("input.disablejoystickwithimon")->SetVisible(false);
 #endif
 
   CSettingsCategory* net = AddCategory(SETTINGS_SYSTEM, "network", 798);
@@ -609,7 +607,9 @@ void CGUISettings::Initialize()
   else
   {
     shutdown.insert(make_pair(13009,POWERSTATE_QUIT));
+#if !defined(TARGET_DARWIN_IOS)
     shutdown.insert(make_pair(13014,POWERSTATE_MINIMIZE));
+#endif
     AddInt(pwm, "powermanagement.shutdownstate", 13008, POWERSTATE_QUIT, shutdown, SPIN_CONTROL_TEXT);
   }
 
@@ -662,6 +662,9 @@ void CGUISettings::Initialize()
   AddString(vdl, "videolibrary.import", 648, "", BUTTON_CONTROL_STANDARD);
 
   CSettingsCategory* vp = AddCategory(SETTINGS_VIDEOS, "videoplayer", 14086);
+
+  AddBool(vp, "videoplayer.autoplaynextitem", 13433, false);
+  AddSeparator(vp, "videoplayer.sep1");
 
   map<int, int> renderers;
   renderers.insert(make_pair(13416, RENDER_METHOD_AUTO));
@@ -716,11 +719,7 @@ void CGUISettings::Initialize()
   adjustTypes.insert(make_pair(36036, ADJUST_REFRESHRATE_ON_STARTSTOP));
 
 #if !defined(TARGET_DARWIN_IOS)
-#if defined(TARGET_RASPBERRY_PI)
-  AddBool(vp, "videoplayer.adjustrefreshrate", 170, true);
-#else
   AddInt(vp, "videoplayer.adjustrefreshrate", 170, ADJUST_REFRESHRATE_OFF, adjustTypes, SPIN_CONTROL_TEXT);
-#endif
 //  AddBool(vp, "videoplayer.adjustrefreshrate", 170, false);
   AddInt(vp, "videoplayer.pauseafterrefreshchange", 13550, 0, 0, 1, MAXREFRESHCHANGEDELAY, SPIN_CONTROL_TEXT);
 #else
@@ -826,6 +825,7 @@ void CGUISettings::Initialize()
 
   CSettingsCategory* srvUpnp = AddCategory(SETTINGS_SERVICE, "upnp", 20187);
   AddBool(srvUpnp, "services.upnpserver", 21360, false);
+  AddBool(srvUpnp, "services.upnpannounce", 20188, true);
   AddBool(srvUpnp, "services.upnprenderer", 21881, false);
 
 #ifdef HAS_WEB_SERVER
@@ -872,6 +872,7 @@ void CGUISettings::Initialize()
   AddGroup(SETTINGS_APPEARANCE, 480);
   CSettingsCategory* laf = AddCategory(SETTINGS_APPEARANCE,"lookandfeel", 166);
   AddDefaultAddon(laf, "lookandfeel.skin",166,DEFAULT_SKIN, ADDON_SKIN);
+  AddString(laf, "lookandfeel.skinsettings", 21417, "", BUTTON_CONTROL_STANDARD);
   AddString(laf, "lookandfeel.skintheme",15111,"SKINDEFAULT", SPIN_CONTROL_TEXT);
   AddString(laf, "lookandfeel.skincolors",14078, "SKINDEFAULT", SPIN_CONTROL_TEXT);
   AddString(laf, "lookandfeel.font",13303,"Default", SPIN_CONTROL_TEXT);
@@ -883,8 +884,8 @@ void CGUISettings::Initialize()
   AddString(laf, "lookandfeel.rssedit", 21450, "", BUTTON_CONTROL_STANDARD);
 
   CSettingsCategory* loc = AddCategory(SETTINGS_APPEARANCE, "locale", 14090);
-  AddString(loc, "locale.language",248,"english", SPIN_CONTROL_TEXT);
-  AddString(loc, "locale.country", 20026, "USA", SPIN_CONTROL_TEXT);
+  AddString(loc, "locale.language",248,"English", SPIN_CONTROL_TEXT);
+  AddString(loc, "locale.country", 20026, "USA (12h)", SPIN_CONTROL_TEXT);
   AddString(loc, "locale.charset", 14091, "DEFAULT", SPIN_CONTROL_TEXT); // charset is set by the language file
 
   bool use_timezone = false;
@@ -922,10 +923,10 @@ void CGUISettings::Initialize()
   AddBool(fl, "filelists.showhidden", 21330, false);
 
   CSettingsCategory* ss = AddCategory(SETTINGS_APPEARANCE, "screensaver", 360);
-  AddInt(ss, "screensaver.time", 355, 3, 1, 1, 60, SPIN_CONTROL_INT_PLUS, MASK_MINS);
   AddDefaultAddon(ss, "screensaver.mode", 356, "screensaver.xbmc.builtin.dim", ADDON_SCREENSAVER);
   AddString(ss, "screensaver.settings", 21417, "", BUTTON_CONTROL_STANDARD);
   AddString(ss, "screensaver.preview", 1000, "", BUTTON_CONTROL_STANDARD);
+  AddInt(ss, "screensaver.time", 355, 3, 1, 1, 60, SPIN_CONTROL_INT_PLUS, MASK_MINS);
   AddSeparator(ss, "screensaver.sep1");
   AddBool(ss, "screensaver.usemusicvisinstead", 13392, true);
   AddBool(ss, "screensaver.usedimonpause", 22014, true);
@@ -942,7 +943,7 @@ void CGUISettings::Initialize()
   AddBool(pvr, "pvrmanager.enabled", 449, false);
   AddSeparator(pvr, "pvrmanager.sep1");
   AddBool(pvr, "pvrmanager.syncchannelgroups", 19221, true);
-  AddBool(pvr, "pvrmanager.backendchannelorder", 19231, false);
+  AddBool(pvr, "pvrmanager.backendchannelorder", 19231, true);
   AddBool(pvr, "pvrmanager.usebackendchannelnumbers", 19234, false);
   AddSeparator(pvr, "pvrmanager.sep2");
   AddString(pvr, "pvrmanager.channelmanager", 19199, "", BUTTON_CONTROL_STANDARD);
@@ -956,16 +957,15 @@ void CGUISettings::Initialize()
   AddBool(pvrm, "pvrmenu.infotimeout", 19179, true);
   AddBool(pvrm, "pvrmenu.closechannelosdonswitch", 19229, false);
   AddInt(pvrm, "pvrmenu.infotime", 19184, 5, 1, 1, 10, SPIN_CONTROL_INT_PLUS, MASK_SECS);
-  AddBool(pvrm, "pvrmenu.hidevideolength", 19169, true);
   AddSeparator(pvrm, "pvrmenu.sep1");
   AddString(pvrm, "pvrmenu.iconpath", 19018, "", BUTTON_CONTROL_PATH_INPUT, false, 657);
   AddString(pvrm, "pvrmenu.searchicons", 19167, "", BUTTON_CONTROL_STANDARD);
 
   CSettingsCategory* pvre = AddCategory(SETTINGS_PVR, "epg", 19069);
-  AddInt(pvre, "epg.defaultguideview", 19065, GUIDE_VIEW_NOW, GUIDE_VIEW_CHANNEL, 1, GUIDE_VIEW_TIMELINE, SPIN_CONTROL_TEXT);
-  AddInt(pvre, "epg.daystodisplay", 19182, 2, 1, 1, 14, SPIN_CONTROL_INT_PLUS, MASK_DAYS);
+  AddInt(pvre, "epg.defaultguideview", 19065, GUIDE_VIEW_TIMELINE, GUIDE_VIEW_CHANNEL, 1, GUIDE_VIEW_TIMELINE, SPIN_CONTROL_TEXT);
+  AddInt(pvre, "epg.daystodisplay", 19182, 3, 1, 1, 14, SPIN_CONTROL_INT_PLUS, MASK_DAYS);
   AddSeparator(pvre, "epg.sep1");
-  AddInt(pvre, "epg.epgupdate", 19071, 120, 15, 15, 480, SPIN_CONTROL_INT_PLUS, MASK_MINS);
+  AddInt(pvre, "epg.epgupdate", 19071, 120, 15, 15, 2880, SPIN_CONTROL_INT_PLUS, MASK_MINS);
   AddBool(pvre, "epg.preventupdateswhileplayingtv", 19230, false);
   AddBool(pvre, "epg.ignoredbforclient", 19072, false);
   AddBool(pvre, "epg.hidenoinfoavailable", 19268, true);
@@ -974,14 +974,14 @@ void CGUISettings::Initialize()
   CSettingsCategory* pvrp = AddCategory(SETTINGS_PVR, "pvrplayback", 19177);
   AddBool(pvrp, "pvrplayback.playminimized", 19171, true);
   AddInt(pvrp, "pvrplayback.startlast", 19189, START_LAST_CHANNEL_OFF, START_LAST_CHANNEL_OFF, 1, START_LAST_CHANNEL_ON, SPIN_CONTROL_TEXT);
-  AddBool(pvrp, "pvrplayback.switchautoclose", 19168, true);
   AddBool(pvrp, "pvrplayback.signalquality", 19037, true);
   AddSeparator(pvrp, "pvrplayback.sep1");
-  AddInt(pvrp, "pvrplayback.scantime", 19170, 15, 1, 1, 60, SPIN_CONTROL_INT_PLUS, MASK_SECS);
-  AddInt(pvrp, "pvrplayback.channelentrytimeout", 19073, 0, 0, 250, 2000, SPIN_CONTROL_INT_PLUS, MASK_MS);
+  AddInt(pvrp, "pvrplayback.scantime", 19170, 10, 1, 1, 60, SPIN_CONTROL_INT_PLUS, MASK_SECS);
+  AddBool(pvrp, "pvrplayback.confirmchannelswitch", 19281, false);
+  AddInt(pvrp, "pvrplayback.channelentrytimeout", 19073, 0, 0, 250, 10000, SPIN_CONTROL_INT_PLUS, MASK_MS);
 
   CSettingsCategory* pvrr = AddCategory(SETTINGS_PVR, "pvrrecord", 19043);
-  AddInt(pvrr, "pvrrecord.instantrecordtime", 19172, 180, 1, 1, 720, SPIN_CONTROL_INT_PLUS, MASK_MINS);
+  AddInt(pvrr, "pvrrecord.instantrecordtime", 19172, 120, 1, 1, 720, SPIN_CONTROL_INT_PLUS, MASK_MINS);
   AddInt(pvrr, "pvrrecord.defaultpriority", 19173, 50, 1, 1, 100, SPIN_CONTROL_INT_PLUS);
   AddInt(pvrr, "pvrrecord.defaultlifetime", 19174, 99, 1, 1, 365, SPIN_CONTROL_INT_PLUS, MASK_DAYS);
   AddInt(pvrr, "pvrrecord.marginstart", 19175, 2, 0, 1, 60, SPIN_CONTROL_INT_PLUS, MASK_MINS);
@@ -993,7 +993,7 @@ void CGUISettings::Initialize()
   AddBool(pvrpwr, "pvrpowermanagement.enabled", 305, false);
   AddSeparator(pvrpwr, "pvrpowermanagement.sep1");
   AddInt(pvrpwr, "pvrpowermanagement.backendidletime", 19244, 15, 0, 5, 360, SPIN_CONTROL_INT_PLUS, MASK_MINS, TEXT_OFF);
-  AddString(pvrpwr, "pvrpowermanagement.setwakeupcmd", 19245, "/usr/bin/setwakeup.sh", EDIT_CONTROL_INPUT, true);
+  AddString(pvrpwr, "pvrpowermanagement.setwakeupcmd", 19245, "", EDIT_CONTROL_INPUT, true);
   AddInt(pvrpwr, "pvrpowermanagement.prewakeup", 19246, 15, 0, 1, 60, SPIN_CONTROL_INT_PLUS, MASK_MINS, TEXT_OFF);
   AddSeparator(pvrpwr, "pvrpowermanagement.sep2");
   AddBool(pvrpwr, "pvrpowermanagement.dailywakeup", 19247, false);
@@ -1004,6 +1004,9 @@ void CGUISettings::Initialize()
   AddSeparator(pvrpa, "pvrparental.sep1");
   AddString(pvrpa, "pvrparental.pin", 19261, "", EDIT_CONTROL_HIDDEN_NUMBER_VERIFY_NEW, true);
   AddInt(pvrpa, "pvrparental.duration", 19260, 300, 5, 5, 1200, SPIN_CONTROL_INT_PLUS, MASK_SECS);
+
+  CSettingsCategory* pvrc = AddCategory(SETTINGS_PVR, "pvrclient", 19279);
+  AddString(pvrc, "pvrclient.menuhook", 19280, "", BUTTON_CONTROL_STANDARD);
 }
 
 CGUISettings::~CGUISettings(void)
@@ -1070,15 +1073,13 @@ void CGUISettings::AddBool(CSettingsCategory* cat, const char *strSetting, int i
 bool CGUISettings::GetBool(const char *strSetting) const
 {
   ASSERT(settingsMap.size());
-  CStdString lower(strSetting);
-  lower.ToLower();
-  constMapIter it = settingsMap.find(lower);
+  constMapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   { // old category
     return ((CSettingBool*)(*it).second)->GetData();
   }
   // Backward compatibility (skins use this setting)
-  if (lower == "lookandfeel.enablemouse")
+  if (strncmp(strSetting, "lookandfeel.enablemouse", 23) == 0)
     return GetBool("input.enablemouse");
   // Assert here and write debug output
   CLog::Log(LOGDEBUG,"Error: Requested setting (%s) was not found.  It must be case-sensitive", strSetting);
@@ -1088,7 +1089,7 @@ bool CGUISettings::GetBool(const char *strSetting) const
 void CGUISettings::SetBool(const char *strSetting, bool bSetting)
 {
   ASSERT(settingsMap.size());
-  mapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  mapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   { // old category
     ((CSettingBool*)(*it).second)->SetData(bSetting);
@@ -1128,7 +1129,7 @@ void CGUISettings::AddFloat(CSettingsCategory* cat, const char *strSetting, int 
 float CGUISettings::GetFloat(const char *strSetting) const
 {
   ASSERT(settingsMap.size());
-  constMapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  constMapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   {
     return ((CSettingFloat *)(*it).second)->GetData();
@@ -1142,7 +1143,7 @@ float CGUISettings::GetFloat(const char *strSetting) const
 void CGUISettings::SetFloat(const char *strSetting, float fSetting)
 {
   ASSERT(settingsMap.size());
-  mapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  mapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   {
     ((CSettingFloat *)(*it).second)->SetData(fSetting);
@@ -1202,7 +1203,7 @@ int CGUISettings::GetInt(const char *strSetting) const
 {
   ASSERT(settingsMap.size());
 
-  constMapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  constMapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   {
     return ((CSettingInt *)(*it).second)->GetData();
@@ -1216,7 +1217,7 @@ int CGUISettings::GetInt(const char *strSetting) const
 void CGUISettings::SetInt(const char *strSetting, int iSetting)
 {
   ASSERT(settingsMap.size());
-  mapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  mapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   {
     ((CSettingInt *)(*it).second)->SetData(iSetting);
@@ -1256,7 +1257,7 @@ void CGUISettings::AddDefaultAddon(CSettingsCategory* cat, const char *strSettin
 const CStdString &CGUISettings::GetString(const char *strSetting, bool bPrompt /* = true */) const
 {
   ASSERT(settingsMap.size());
-  constMapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  constMapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   {
     CSettingString* result = ((CSettingString *)(*it).second);
@@ -1290,7 +1291,7 @@ const CStdString &CGUISettings::GetString(const char *strSetting, bool bPrompt /
 void CGUISettings::SetString(const char *strSetting, const char *strData)
 {
   ASSERT(settingsMap.size());
-  mapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  mapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
   {
     ((CSettingString *)(*it).second)->SetData(strData);
@@ -1307,7 +1308,7 @@ void CGUISettings::SetString(const char *strSetting, const char *strData)
 CSetting *CGUISettings::GetSetting(const char *strSetting)
 {
   ASSERT(settingsMap.size());
-  mapIter it = settingsMap.find(CStdString(strSetting).ToLower());
+  mapIter it = settingsMap.find(strSetting);
   if (it != settingsMap.end())
     return (*it).second;
   else
@@ -1352,10 +1353,46 @@ void CGUISettings::GetSettingsGroup(CSettingsCategory* cat, vecSettings &setting
 
 void CGUISettings::LoadXML(TiXmlElement *pRootElement, bool hideSettings /* = false */)
 { // load our stuff...
+  bool updated = false;
+
   for (mapIter it = settingsMap.begin(); it != settingsMap.end(); it++)
   {
     LoadFromXML(pRootElement, it, hideSettings);
   }
+
+  // check if we are updating to Frodo and need to update from
+  // audiooutput.channellayout to audiooutput.channels
+  TiXmlNode *channelNode = pRootElement->FirstChild("audiooutput");
+  if (channelNode != NULL)
+  {
+    channelNode = channelNode->FirstChild("channellayout");
+    CSettingInt* channels = (CSettingInt*)GetSetting("audiooutput.channels");
+    if (channelNode != NULL && channelNode->FirstChild() != NULL && channels != NULL)
+    {
+      channels->FromString(channelNode->FirstChild()->ValueStr());
+      if (channels->GetData() < AE_CH_LAYOUT_MAX - 1)
+        channels->SetData(channels->GetData() + 1);
+
+      // let's just reset the audiodevice settings as well
+      std::string audiodevice = GetString("audiooutput.audiodevice");
+      CAEFactory::VerifyOutputDevice(audiodevice, false);
+      SetString("audiooutput.audiodevice", audiodevice.c_str());
+
+      updated = true;
+    }
+  }
+
+  // and fix the videoscreen.screenmode if necessary
+  std::string screenmode = GetString("videoscreen.screenmode");
+  // in Eden there was no character ("i" or "p") indicating interlaced/progressive
+  // at the end so we just add a "p" and assume progressive
+  if (screenmode.size() == 20)
+  {
+    screenmode += "p";
+    SetString("videoscreen.screenmode", screenmode.c_str());
+    updated = true;
+  }
+
   // Get hardware based stuff...
   CLog::Log(LOGNOTICE, "Getting hardware information now...");
   // FIXME: Check if the hardware supports it (if possible ;)
@@ -1399,6 +1436,7 @@ void CGUISettings::LoadXML(TiXmlElement *pRootElement, bool hideSettings /* = fa
     {
       timezone = g_timezone.GetOSConfiguredTimezone();
       SetString("locale.timezone", timezone);
+      updated = true;
     }
     g_timezone.SetTimezone(timezone);
   }
@@ -1415,6 +1453,16 @@ void CGUISettings::LoadXML(TiXmlElement *pRootElement, bool hideSettings /* = fa
     g_langInfo.SetSubtitleLanguage(streamLanguage);
   else
     g_langInfo.SetSubtitleLanguage("");
+
+  // we no longer ship the built-in slideshow screensaver, replace it if it's still in use
+  if (GetString("screensaver.mode") == "screensaver.xbmc.builtin.slideshow")
+  {
+    SetString("screensaver.mode", "screensaver.xbmc.builtin.dim");
+    updated = true;
+  }
+
+  if (updated)
+    g_settings.Save();
 }
 
 void CGUISettings::LoadFromXML(TiXmlElement *pRootElement, mapIter &it, bool advanced /* = false */)

@@ -41,6 +41,7 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogProgress.h"
 #include "URL.h"
+#include "pvr/PVRManager.h"
 
 using namespace std;
 using namespace XFILE;
@@ -332,6 +333,12 @@ bool CAddonInstaller::CheckDependencies(const AddonPtr &addon)
         return false;
       }
     }
+    // prevent infinite loops
+    if (dep && dep->ID() == addon->ID())
+    {
+      CLog::Log(LOGERROR, "Addon %s depends on itself, ignoring", addon->ID().c_str());
+      return false;
+    }
     // at this point we have our dep, or the dep is optional (and we don't have it) so check that it's OK as well
     // TODO: should we assume that installed deps are OK?
     if (dep && !CheckDependencies(dep))
@@ -353,6 +360,9 @@ void CAddonInstaller::UpdateRepos(bool force, bool wait)
     }
     return;
   }
+  // don't run repo update jobs while on the login screen which runs under the master profile
+  if((g_windowManager.GetActiveWindow() & WINDOW_ID_MASK) == WINDOW_LOGIN_SCREEN)
+    return;
   if (!force && m_repoUpdateWatch.IsRunning() && m_repoUpdateWatch.GetElapsedSeconds() < 600)
     return;
   m_repoUpdateWatch.StartZero();
@@ -388,7 +398,8 @@ void CAddonInstaller::PrunePackageCache()
 {
   std::map<CStdString,CFileItemList*> packs;
   int64_t size = EnumeratePackageFolder(packs);
-  if (size < g_advancedSettings.m_addonPackageFolderSize)
+  int64_t limit = g_advancedSettings.m_addonPackageFolderSize*1024*1024;
+  if (size < limit)
     return;
 
   // Prune packages
@@ -403,13 +414,13 @@ void CAddonInstaller::PrunePackageCache()
   }
   items.Sort(SORT_METHOD_SIZE,SortOrderDescending);
   int i=0;
-  while (size > g_advancedSettings.m_addonPackageFolderSize && i < items.Size())
+  while (size > limit && i < items.Size())
   {
     size -= items[i]->m_dwSize;
     CFileUtils::DeleteItem(items[i++],true);
   }
 
-  if (size > g_advancedSettings.m_addonPackageFolderSize)
+  if (size > limit)
   {
     // 2. Remove the oldest packages (leaving least 1 for each add-on)
     items.Clear();
@@ -421,7 +432,7 @@ void CAddonInstaller::PrunePackageCache()
     }
     items.Sort(SORT_METHOD_DATE,SortOrderAscending);
     i=0;
-    while (size > g_advancedSettings.m_addonPackageFolderSize && i < items.Size())
+    while (size > limit && i < items.Size())
     {
       size -= items[i]->m_dwSize;
       CFileUtils::DeleteItem(items[i++],true);
@@ -545,10 +556,24 @@ bool CAddonInstallJob::OnPreInstall()
 
   if (m_addon->Type() == ADDON_SERVICE)
   {
-    boost::shared_ptr<CService> service = boost::dynamic_pointer_cast<CService>(m_addon);
+    CAddonDatabase database;
+    database.Open();
+    bool running = !database.IsAddonDisabled(m_addon->ID()); //grab a current state
+    database.DisableAddon(m_addon->ID(),false); // enable it so we can remove it??
+    // regrab from manager to have the correct path set
+    AddonPtr addon;
+    ADDON::CAddonMgr::Get().GetAddon(m_addon->ID(), addon);
+    boost::shared_ptr<CService> service = boost::dynamic_pointer_cast<CService>(addon);
     if (service)
       service->Stop();
-    return true;
+    CAddonMgr::Get().RemoveAddon(m_addon->ID()); // remove it
+    return running;
+  }
+
+  if (m_addon->Type() == ADDON_PVRDLL)
+  {
+    // stop the pvr manager, so running pvr add-ons are stopped and closed
+    PVR::CPVRManager::Get().Stop();
   }
   return false;
 }
@@ -650,9 +675,18 @@ void CAddonInstallJob::OnPostInstall(bool reloadAddon)
 
   if (m_addon->Type() == ADDON_SERVICE)
   {
-    boost::shared_ptr<CService> service = boost::dynamic_pointer_cast<CService>(m_addon);
-    if (service)
-      service->Start();
+    CAddonDatabase database;
+    database.Open();
+    database.DisableAddon(m_addon->ID(),!reloadAddon); //return it into state it was before OnPreInstall()
+    if (reloadAddon) // reload/start it if it was running
+    {
+      // regrab from manager to have the correct path set
+      AddonPtr addon; 
+      CAddonMgr::Get().GetAddon(m_addon->ID(), addon);
+      boost::shared_ptr<CService> service = boost::dynamic_pointer_cast<CService>(addon);
+      if (service)
+        service->Start();
+    }
   }
 
   if (m_addon->Type() == ADDON_REPOSITORY)
@@ -660,6 +694,12 @@ void CAddonInstallJob::OnPostInstall(bool reloadAddon)
     VECADDONS addons;
     addons.push_back(m_addon);
     CJobManager::GetInstance().AddJob(new CRepositoryUpdateJob(addons), &CAddonInstaller::Get());
+  }
+
+  if (m_addon->Type() == ADDON_PVRDLL)
+  {
+    // (re)start the pvr manager
+    PVR::CPVRManager::Get().Start(true);
   }
 }
 
@@ -715,6 +755,17 @@ CAddonUnInstallJob::CAddonUnInstallJob(const AddonPtr &addon)
 
 bool CAddonUnInstallJob::DoWork()
 {
+  if (m_addon->Type() == ADDON_PVRDLL)
+  {
+    // stop the pvr manager, so running pvr add-ons are stopped and closed
+    PVR::CPVRManager::Get().Stop();
+  }
+  if (m_addon->Type() == ADDON_SERVICE)
+  {
+    boost::shared_ptr<CService> service = boost::dynamic_pointer_cast<CService>(m_addon);
+    if (service)
+      service->Stop();
+  }
   if (!CAddonInstallJob::DeleteAddon(m_addon->Path()))
     return false;
 
@@ -746,4 +797,10 @@ void CAddonUnInstallJob::OnPostUnInstall()
 
   if (bSave)
     CFavourites::Save(items);
+
+  if (m_addon->Type() == ADDON_PVRDLL)
+  {
+    if (g_guiSettings.GetBool("pvrmanager.enabled"))
+      PVR::CPVRManager::Get().Start(true);
+  }
 }

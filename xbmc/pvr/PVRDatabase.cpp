@@ -369,11 +369,12 @@ int CPVRDatabase::Get(CPVRChannelGroupInternal &results)
         channel->m_strStreamURL            = m_pDS->fv("sStreamURL").get_asString();
         channel->m_iClientEncryptionSystem = m_pDS->fv("iEncryptionSystem").get_asInt();
         channel->m_iEpgId                  = m_pDS->fv("idEpg").get_asInt();
+        channel->UpdateEncryptionName();
 
 #if PVRDB_DEBUGGING
         CLog::Log(LOGDEBUG, "PVR - %s - channel '%s' loaded from the database", __FUNCTION__, channel->m_strChannelName.c_str());
 #endif
-        PVRChannelGroupMember newMember = { channel, m_pDS->fv("iChannelNumber").get_asInt() };
+        PVRChannelGroupMember newMember = { channel, (unsigned int)m_pDS->fv("iChannelNumber").get_asInt() };
         results.m_members.push_back(newMember);
 
         m_pDS->next();
@@ -608,8 +609,19 @@ bool CPVRDatabase::RemoveStaleChannelsFromGroup(const CPVRChannelGroup &group)
   if (!group.IsInternalGroup())
   {
     /* First remove channels that don't exist in the main channels table */
-    CStdString strWhereClause = FormatSQL("idChannel IN (SELECT map_channelgroups_channels.idChannel FROM map_channelgroups_channels LEFT JOIN channels on map_channelgroups_channels.idChannel = channels.idChannel WHERE channels.idChannel IS NULL)");
-    bDelete = DeleteValues("map_channelgroups_channels", strWhereClause);
+
+    // XXX work around for frodo: fix this up so it uses one query for all db types
+    // mysql doesn't support subqueries when deleting and sqlite doesn't support joins when deleting
+    if (g_advancedSettings.m_databaseTV.type.Equals("mysql"))
+    {
+      CStdString strQuery = FormatSQL("DELETE m FROM map_channelgroups_channels m LEFT JOIN channels c ON (c.idChannel = m.idChannel) WHERE c.idChannel IS NULL");
+      bDelete = ExecuteQuery(strQuery);
+    }
+    else
+    {
+      CStdString strWhereClause = FormatSQL("idChannel IN (SELECT m.idChannel FROM map_channelgroups_channels m LEFT JOIN channels on m.idChannel = channels.idChannel WHERE channels.idChannel IS NULL)");
+      bDelete = DeleteValues("map_channelgroups_channels", strWhereClause);
+    }
   }
 
   if (group.m_members.size() > 0)
@@ -717,7 +729,7 @@ int CPVRDatabase::Get(CPVRChannelGroup &group)
 #if PVRDB_DEBUGGING
           CLog::Log(LOGDEBUG, "PVR - %s - channel '%s' loaded from the database", __FUNCTION__, channel->m_strChannelName.c_str());
 #endif
-          PVRChannelGroupMember newMember = { channel, iChannelNumber };
+          PVRChannelGroupMember newMember = { channel, (unsigned int)iChannelNumber };
           group.m_members.push_back(newMember);
           iReturn++;
         }
@@ -762,7 +774,10 @@ bool CPVRDatabase::PersistChannels(CPVRChannelGroup &group)
       bReturn &= Persist(*member.channel, m_sqlite || !member.channel->IsNew());
     }
   }
-  return CommitInsertQueries();
+
+  bReturn &= CommitInsertQueries();
+
+  return bReturn;
 }
 
 bool CPVRDatabase::PersistGroupMembers(CPVRChannelGroup &group)
@@ -832,6 +847,12 @@ int CPVRDatabase::GetClientId(const CStdString &strClientUid)
     return -1;
 
   return atol(strValue.c_str());
+}
+
+bool CPVRDatabase::ResetEPG(void)
+{
+  CStdString strQuery = FormatSQL("UPDATE channels SET idEpg = 0");
+  return ExecuteQuery(strQuery);
 }
 
 bool CPVRDatabase::Persist(CPVRChannelGroup &group)

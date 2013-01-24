@@ -28,16 +28,16 @@ namespace XBMCAddon
   {
     unsigned long File::read(void* buffer, unsigned long numBytes)
     {
-      DelayedCallGuard dg;
+      DelayedCallGuard dg(languageHook);
       if (!numBytes)
-        numBytes = file->GetLength();
+        numBytes = (unsigned long)file->GetLength();
       return (unsigned long)file->Read(buffer, numBytes);
     }
 
     bool File::write(const char* pBuffer)
     {
-      DelayedCallGuard dg;
-      return file->Write( (void*) pBuffer, strlen( pBuffer ) + 1 ) > 0;
+      DelayedCallGuard dg(languageHook);
+      return file->Write( (void*) pBuffer, strlen( pBuffer ) ) > 0;
     }
 
   }

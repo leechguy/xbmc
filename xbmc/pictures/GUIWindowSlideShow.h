@@ -27,9 +27,10 @@
 #include "threads/Event.h"
 #include "SlideShowPicture.h"
 #include "DllImageLib.h"
-#include "SortFileItem.h"
+#include "utils/SortUtils.h"
 
 class CFileItemList;
+class CVariant;
 
 class CGUIWindowSlideShow;
 
@@ -79,7 +80,7 @@ public:
   void AddFromPath(const CStdString &strPath, bool bRecursive,
                    SORT_METHOD method=SORT_METHOD_LABEL, 
                    SortOrder order = SortOrderAscending, const CStdString &strExtensions="");
-  void StartSlideShow(bool screensaver=false);
+  void StartSlideShow();
   bool InSlideShow() const;
   virtual bool OnMessage(CGUIMessage& message);
   virtual EVENT_RESULT OnMouseEvent(const CPoint &point, const CMouseEvent &event);  
@@ -114,6 +115,7 @@ private:
   void AnnouncePlaylistRemove(int pos);
   void AnnouncePlaylistClear();
   void AnnouncePlaylistAdd(const CFileItemPtr& item, int pos);
+  void AnnouncePropertyChanged(const std::string &strProperty, const CVariant &value);
 
   int m_iCurrentSlide;
   int m_iNextSlide;
@@ -126,7 +128,6 @@ private:
 
   bool m_bShuffled;
   bool m_bSlideShow;
-  bool m_bScreensaver;
   bool m_bPause;
   bool m_bPlayingVideo;
   bool m_bErrorMessage;

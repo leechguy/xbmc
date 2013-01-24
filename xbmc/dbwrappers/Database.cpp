@@ -26,6 +26,7 @@
 #include "filesystem/File.h"
 #include "utils/AutoPtrHandle.h"
 #include "utils/log.h"
+#include "utils/SortUtils.h"
 #include "utils/URIUtils.h"
 #include "sqlitedataset.h"
 #include "DatabaseManager.h"
@@ -203,6 +204,11 @@ CStdString CDatabase::GetSingleValue(const CStdString &strTable, const CStdStrin
   return GetSingleValue(query, m_pDS);
 }
 
+CStdString CDatabase::GetSingleValue(const CStdString &query)
+{
+  return GetSingleValue(query, m_pDS);
+}
+
 bool CDatabase::DeleteValues(const CStdString &strTable, const CStdString &strWhereClause /* = CStdString() */)
 {
   bool bReturn = true;
@@ -281,7 +287,7 @@ bool CDatabase::QueueInsertQuery(const CStdString &strQuery)
 
 bool CDatabase::CommitInsertQueries()
 {
-  bool bReturn = false;
+  bool bReturn = true;
 
   if (m_bMultiWrite)
   {
@@ -290,10 +296,10 @@ bool CDatabase::CommitInsertQueries()
       m_bMultiWrite = false;
       m_pDS2->post();
       m_pDS2->clear_insert_sql();
-      bReturn = true;
     }
     catch(...)
     {
+      bReturn = false;
       CLog::Log(LOGERROR, "%s - failed to execute queries",
           __FUNCTION__);
     }
@@ -547,6 +553,8 @@ bool CDatabase::UpdateVersion(const CStdString &dbName)
     CLog::Log(LOGERROR, "Can't open the database %s as it is a NEWER version than what we were expecting?", dbName.c_str());
     return false;
   }
+  else 
+    CLog::Log(LOGNOTICE, "Running database version %s", dbName.c_str());
   return true;
 }
 
@@ -702,9 +710,15 @@ bool CDatabase::BuildSQL(const CStdString &strQuery, const Filter &filter, CStdS
 
 bool CDatabase::BuildSQL(const CStdString &strBaseDir, const CStdString &strQuery, Filter &filter, CStdString &strSQL, CDbUrl &dbUrl)
 {
+  SortDescription sorting;
+  return BuildSQL(strBaseDir, strQuery, filter, strSQL, dbUrl, sorting);
+}
+
+bool CDatabase::BuildSQL(const CStdString &strBaseDir, const CStdString &strQuery, Filter &filter, CStdString &strSQL, CDbUrl &dbUrl, SortDescription &sorting /* = SortDescription() */)
+{
   // parse the base path to get additional filters
   dbUrl.Reset();
-  if (!dbUrl.FromString(strBaseDir) || !GetFilter(dbUrl, filter))
+  if (!dbUrl.FromString(strBaseDir) || !GetFilter(dbUrl, filter, sorting))
     return false;
 
   return BuildSQL(strQuery, filter, strSQL);

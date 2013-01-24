@@ -135,10 +135,9 @@ namespace PVR
      * @brief Add a channel to this container.
      * @param channel The channel to add.
      * @param iChannelNumber The channel number of the channel number to add. Use -1 to add it at the end.
-     * @param bSortAndRenumber Set to false to keep the channel list unsorted after adding a new channel.
      * @return True if the channel was added, false otherwise.
      */
-    virtual bool AddToGroup(CPVRChannel &channel, int iChannelNumber = 0, bool bSortAndRenumber = true);
+    virtual bool AddToGroup(CPVRChannel &channel, int iChannelNumber = 0);
 
     /*!
      * @brief Change the name of this group.
@@ -181,6 +180,12 @@ namespace PVR
     bool IsRadio(void) const { return m_bRadio; }
 
     /*!
+     * @brief True if sorting should be prevented when adding/updating channels to the group.
+     * @return True if sorting should be prevented when adding/updating channels to the group.
+     */
+    bool PreventSortAndRenumber(void) const;
+
+    /*!
      * @brief The database ID of this group.
      * @return The database ID of this group.
      */
@@ -204,6 +209,12 @@ namespace PVR
     int GroupType(void) const;
 
     /*!
+     * @brief Set if sorting and renumbering should happen after adding/updating channels to group.
+     * @param bPreventSortAndRenumber The new sorting and renumbering prevention value for this group.
+     */
+    void SetPreventSortAndRenumber(bool bPreventSortAndRenumber = true);
+
+    /*!
      * @brief The name of this group.
      * @return The name of this group.
      */
@@ -214,14 +225,10 @@ namespace PVR
     //@{
 
     /*!
-     * @brief Sort the current channel list by client channel number.
+     * @brief Sort the group and fix up channel numbers.
+     * @return True when numbering changed, false otherwise
      */
-    void SortByClientChannelNumber(void);
-
-    /*!
-     * @brief Sort the current channel list by channel number.
-     */
-    void SortByChannelNumber(void);
+    bool SortAndRenumber(void);
 
     //@}
 
@@ -372,7 +379,18 @@ namespace PVR
      */
     CPVRChannelPtr GetByClient(int iUniqueChannelId, int iClientID) const;
 
+    void SetSelectedGroup(bool bSetTo);
+    bool IsSelectedGroup(void) const;
+
   protected:
+    /*!
+     * @brief Set a new channel icon path if the path exists
+     * @param channel The channel to change
+     * @param strIconPath The new path
+     * @return True if the path exists, false otherwise
+     */
+    bool SetChannelIconPath(CPVRChannelPtr channel, const std::string& strIconPath);
+
     /*!
      * @brief Load the channels stored in the database.
      * @param bCompress If true, compress the database after storing the channels.
@@ -402,9 +420,9 @@ namespace PVR
 
     /*!
      * @brief Load the channels from the database.
-     * @return The amount of channels that were added or -1 if an error occured.
+     * @return True when loaded successfully, false otherwise.
      */
-    virtual int Load(void);
+    virtual bool Load(void);
 
     /*!
      * @brief Clear this channel list.
@@ -413,15 +431,25 @@ namespace PVR
 
     /*!
      * @brief Load the channels from the clients.
-     * @return The amount of channels that were added.
+     * @return True when loaded successfully, false otherwise.
      */
-    virtual int LoadFromClients(void);
+    virtual bool LoadFromClients(void);
 
     /*!
      * @brief Remove invalid channels and updates the channel numbers.
      * @return True if something changed, false otherwise.
      */
     virtual bool Renumber(void);
+
+    /*!
+     * @brief Sort the current channel list by client channel number.
+     */
+    void SortByClientChannelNumber(void);
+
+    /*!
+     * @brief Sort the current channel list by channel number.
+     */
+    void SortByChannelNumber(void);
 
     /*!
      * @brief Get the previous or next channel in this group.
@@ -455,6 +483,8 @@ namespace PVR
     bool             m_bChanged;                    /*!< true if anything changed in this group that hasn't been persisted, false otherwise */
     bool             m_bUsingBackendChannelOrder;   /*!< true to use the channel order from backends, false otherwise */
     bool             m_bUsingBackendChannelNumbers; /*!< true to use the channel numbers from 1 backend, false otherwise */
+    bool             m_bSelectedGroup;              /*!< true when this is the selected group, false otherwise */
+    bool             m_bPreventSortAndRenumber;     /*!< true when sorting and renumbering should not be done after adding/updating channels to the group */
     std::vector<PVRChannelGroupMember> m_members;
     CCriticalSection m_critSection;
   };

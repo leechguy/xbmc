@@ -107,6 +107,9 @@ bool CScraperUrl::ParseElement(const TiXmlElement* element)
     if (szSeason)
       url.m_season = atoi(szSeason);
   }
+  const char *aspect = element->Attribute("aspect");
+  if (aspect)
+    url.m_aspect = aspect;
 
   m_url.push_back(url);
 
@@ -149,11 +152,11 @@ bool CScraperUrl::ParseString(CStdString strUrl)
   return true;
 }
 
-const CScraperUrl::SUrlEntry CScraperUrl::GetFirstThumb() const
+const CScraperUrl::SUrlEntry CScraperUrl::GetFirstThumb(const std::string &type) const
 {
   for (vector<SUrlEntry>::const_iterator iter=m_url.begin();iter != m_url.end();++iter)
   {
-    if (iter->m_type == URL_TYPE_GENERAL)
+    if (iter->m_type == URL_TYPE_GENERAL && (type.empty() || type == "thumb" || iter->m_aspect == type))
       return *iter;
   }
 
@@ -165,11 +168,12 @@ const CScraperUrl::SUrlEntry CScraperUrl::GetFirstThumb() const
   return result;
 }
 
-const CScraperUrl::SUrlEntry CScraperUrl::GetSeasonThumb(int season) const
+const CScraperUrl::SUrlEntry CScraperUrl::GetSeasonThumb(int season, const std::string &type) const
 {
   for (vector<SUrlEntry>::const_iterator iter=m_url.begin();iter != m_url.end();++iter)
   {
-    if (iter->m_type == URL_TYPE_SEASON && iter->m_season == season)
+    if (iter->m_type == URL_TYPE_SEASON && iter->m_season == season &&
+       (type.empty() || type == "thumb" || iter->m_aspect == type))
       return *iter;
   }
 
@@ -181,13 +185,15 @@ const CScraperUrl::SUrlEntry CScraperUrl::GetSeasonThumb(int season) const
   return result;
 }
 
-void CScraperUrl::GetSeasonThumbs(map<int, string> &thumbs) const
+unsigned int CScraperUrl::GetMaxSeasonThumb() const
 {
+  unsigned int maxSeason = 0;
   for (vector<SUrlEntry>::const_iterator iter=m_url.begin();iter != m_url.end();++iter)
   {
-    if (iter->m_type == URL_TYPE_SEASON && thumbs.find(iter->m_season) == thumbs.end())
-      thumbs.insert(make_pair(iter->m_season, GetThumbURL(*iter)));
+    if (iter->m_type == URL_TYPE_SEASON && iter->m_season > 0 && (unsigned int)iter->m_season > maxSeason)
+      maxSeason = iter->m_season;
   }
+  return maxSeason;
 }
 
 bool CScraperUrl::Get(const SUrlEntry& scrURL, std::string& strHTML, XFILE::CCurlFile& http, const CStdString& cacheContext)
@@ -303,14 +309,17 @@ CStdString CScraperUrl::GetThumbURL(const CScraperUrl::SUrlEntry &entry)
   return entry.m_url + "|Referer=" + spoof;
 }
 
-void CScraperUrl::GetThumbURLs(std::vector<CStdString> &thumbs, int season) const
+void CScraperUrl::GetThumbURLs(std::vector<CStdString> &thumbs, const std::string &type, int season) const
 {
   for (vector<SUrlEntry>::const_iterator iter = m_url.begin(); iter != m_url.end(); ++iter)
   {
-    if ((iter->m_type == CScraperUrl::URL_TYPE_GENERAL && season == -1)
-     || (iter->m_type == CScraperUrl::URL_TYPE_SEASON && iter->m_season == season))
+    if (iter->m_aspect == type || type.empty() || type == "thumb" || iter->m_aspect.empty())
     {
-      thumbs.push_back(GetThumbURL(*iter));
+      if ((iter->m_type == CScraperUrl::URL_TYPE_GENERAL && season == -1)
+       || (iter->m_type == CScraperUrl::URL_TYPE_SEASON && iter->m_season == season))
+      {
+        thumbs.push_back(GetThumbURL(*iter));
+      }
     }
   }
 }

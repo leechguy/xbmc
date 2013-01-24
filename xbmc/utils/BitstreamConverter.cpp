@@ -174,7 +174,7 @@ int CBitstreamConverter::nal_bs_read_ue(nal_bitstream *bs)
   return ((1 << i) - 1 + nal_bs_read(bs, i));
 }
 
-void CBitstreamConverter::parseh264_sps(uint8_t *sps, uint32_t sps_size, bool *interlaced, int32_t *max_ref_frames)
+void CBitstreamConverter::parseh264_sps(const uint8_t *sps, const uint32_t sps_size, bool *interlaced, int32_t *max_ref_frames)
 {
   nal_bitstream bs;
   sps_info_struct sps_info;
@@ -460,7 +460,8 @@ bool CBitstreamConverter::Open(enum CodecID codec, uint8_t *in_extradata, int in
         // valid avcC atom data always starts with the value 1 (version)
         if ( *in_extradata != 1 )
         {
-          if (in_extradata[0] == 0 && in_extradata[1] == 0 && in_extradata[2] == 0 && in_extradata[3] == 1)
+          if ( (in_extradata[0] == 0 && in_extradata[1] == 0 && in_extradata[2] == 0 && in_extradata[3] == 1) ||
+               (in_extradata[0] == 0 && in_extradata[1] == 0 && in_extradata[2] == 1) )
           {
             CLog::Log(LOGINFO, "CBitstreamConverter::Open annexb to bitstream init\n");
             // video content is from x264 or from bytestream h264 (AnnexB format)
@@ -535,7 +536,10 @@ void CBitstreamConverter::Close(void)
       m_sps_pps_context.sps_pps_data = NULL;
     }
     if(m_convertBuffer)
+    {
       free(m_convertBuffer);
+      m_convertBuffer = NULL;
+    }
     m_convertSize       = 0;
   }
 
@@ -698,11 +702,17 @@ int CBitstreamConverter::GetConvertSize()
 
 uint8_t *CBitstreamConverter::GetExtraData()
 {
-  return m_extradata;
+  if(m_convert_bitstream)
+    return m_sps_pps_context.sps_pps_data;
+  else
+    return m_extradata;
 }
 int CBitstreamConverter::GetExtraSize()
 {
-  return m_extrasize;
+  if(m_convert_bitstream)
+    return m_sps_pps_context.size;
+  else
+    return m_extrasize;
 }
 
 bool CBitstreamConverter::BitstreamConvertInit(void *in_extradata, int in_extrasize)

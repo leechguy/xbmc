@@ -15,7 +15,7 @@
 #import <sys/param.h> /* for MAXPATHLEN */
 #import <unistd.h>
 
-#import "CocoaInterface.h"
+#import "osx/CocoaInterface.h"
 //hack around problem with xbmc's typedef int BOOL
 // and obj-c's typedef unsigned char BOOL
 #define BOOL XBMC_BOOL 
@@ -25,7 +25,7 @@
 #import "storage/osx/DarwinStorageProvider.h"
 #undef BOOL
 
-#import "HotKeyController.h"
+#import "osx/HotKeyController.h"
 
 // For some reaon, Apple removed setAppleMenu from the headers in 10.4,
 // but the method still is there and works. To avoid warnings, we declare
@@ -417,7 +417,7 @@ static void setupWindowMenu(void)
   [pool release];
 }
 
-#define VK_SLEEP            0x5F
+#define VK_SLEEP            0x143
 #define VK_VOLUME_MUTE      0xAD
 #define VK_VOLUME_DOWN      0xAE
 #define VK_VOLUME_UP        0xAF
@@ -428,7 +428,7 @@ static void setupWindowMenu(void)
 #define VK_REWIND           0x9D
 #define VK_FAST_FWD         0x9E
 
-- (void)MediaKeyPower
+- (void)powerKeyNotification
 {
   SDL_Event event;
   memset(&event, 0, sizeof(event));

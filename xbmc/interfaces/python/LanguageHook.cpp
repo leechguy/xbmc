@@ -21,10 +21,12 @@
 
 
 #include "LanguageHook.h"
+#include "CallbackHandler.h"
 #include "XBPython.h"
 
 #include "interfaces/legacy/AddonUtils.h"
 #include "utils/GlobalsHandling.h"
+#include "PyContext.h"
 
 namespace XBMCAddon
 {
@@ -32,97 +34,79 @@ namespace XBMCAddon
   {
     static AddonClass::Ref<LanguageHook> instance;
 
-    static CCriticalSection ccrit;
-    static bool isInited = false;
-    static xbmcutil::InitFlag flag(isInited);
+    static CCriticalSection hooksMutex;
+    static std::map<PyInterpreterState*,AddonClass::Ref<LanguageHook> > hooks;
 
     // vtab instantiation
-    LanguageHook::~LanguageHook() { }
-
-    struct MutableInteger
+    LanguageHook::~LanguageHook()
     {
-      MutableInteger() : value(0) {}
-      int value;
-    };
+      TRACE;
+      XBMCAddon::LanguageHook::deallocating();
+    }
 
-    void LanguageHook::makePendingCalls()
+    void LanguageHook::MakePendingCalls()
     {
+      TRACE;
       PythonCallbackHandler::makePendingCalls();
     }
 
-    void LanguageHook::delayedCallOpen()
+    void LanguageHook::DelayedCallOpen()
     {
       TRACE;
-
-      // TODO: add a check for null of _save. If it's not null there's 
-      //  a problem.
-
-      MutableInteger* count = tlsCount.get();
-      if (count == NULL)
-      {
-        count = new MutableInteger();
-        tlsCount.set(count);
-      }
-
-      // increment the count
-      count->value++;
-      int curlevel = count->value;
-      if (curlevel == 1)
-      {
-        PyThreadState* _save;
-        // this macro sets _save
-        Py_UNBLOCK_THREADS
-        pyThreadStateTls.set(_save);
-      }
+      PyGILLock::releaseGil();
     }
 
-    void LanguageHook::delayedCallClose()
+    void LanguageHook::DelayedCallClose()
     {
       TRACE;
-
-      // here we ASSUME that the open was called.
-      MutableInteger* count = tlsCount.get();
-      count->value--;
-      int curlevel = count->value;
-
-      // this is a hack but ...
-      if (curlevel < 0)
-      {
-        CLog::Log(LOGERROR, "PythonCallbackHandler delay has closed more than opened");
-        count->value = 0;
-      }
-
-      if (curlevel == 0)
-      {
-        PyThreadState* _save = pyThreadStateTls.get();
-        if (_save != NULL)
-        {
-          Py_BLOCK_THREADS
-        }
-        _save = NULL;
-        pyThreadStateTls.set(_save);
-
-        // clear the tlsCount
-        tlsCount.set(NULL);
-        delete count;
-      }
+      PyGILLock::acquireGil();
     }
 
-    LanguageHook* LanguageHook::getInstance() 
+    void LanguageHook::RegisterMe()
     {
-      if (!isInited) // in this case we're being called from a static initializer
-      {
-        if (instance.isNull())
-          instance = new LanguageHook();
-      }
-      else
-      {
-        CSingleLock lock (ccrit);
-        if (instance.isNull())
-          instance = new LanguageHook();
-      }
+      TRACE;
+      CSingleLock lock(hooksMutex);
+      hooks[m_interp] = AddonClass::Ref<LanguageHook>(this);
+    }
 
-      return instance.get();
+    void LanguageHook::UnregisterMe()
+    {
+      TRACE;
+      CSingleLock lock(hooksMutex);
+      hooks.erase(m_interp);
+    }
+
+    static AddonClass::Ref<XBMCAddon::Python::LanguageHook> g_languageHook;
+
+    // Ok ... we're going to get it even if it doesn't exist. If it doesn't exist then
+    // we're going to assume we're not in control of the interpreter. This (apparently)
+    // can be the case. E.g. Libspotify manages to call into a script using a ctypes
+    // extention but under the control of an Interpreter we know nothing about. In
+    // cases like this we're going to use a global interpreter 
+    AddonClass::Ref<LanguageHook> LanguageHook::GetIfExists(PyInterpreterState* interp)
+    {
+      TRACE;
+      CSingleLock lock(hooksMutex);
+      std::map<PyInterpreterState*,AddonClass::Ref<LanguageHook> >::iterator iter = hooks.find(interp);
+      if (iter != hooks.end())
+        return AddonClass::Ref<LanguageHook>(iter->second);
+
+      // if we got here then we need to use the global one.
+      if (g_languageHook.isNull())
+        g_languageHook = new XBMCAddon::Python::LanguageHook();
+
+      return g_languageHook;
+    }
+
+    bool LanguageHook::IsAddonClassInstanceRegistered(AddonClass* obj)
+    {
+      for (std::map<PyInterpreterState*,AddonClass::Ref<LanguageHook> >::iterator iter = hooks.begin();
+           iter != hooks.end(); iter++)
+      {
+        if ((iter->second)->HasRegisteredAddonClassInstance(obj))
+          return true;
+      }
+      return false;
     }
 
     /**
@@ -137,13 +121,15 @@ namespace XBMCAddon
      * See PythonCallbackHandler for more details
      * See PythonCallbackHandler::PythonCallbackHandler for more details
      */
-    XBMCAddon::CallbackHandler* LanguageHook::getCallbackHandler()
+    XBMCAddon::CallbackHandler* LanguageHook::GetCallbackHandler()
     { 
+      TRACE;
       return new PythonCallbackHandler();
     }
 
-    String LanguageHook::getAddonId()
+    String LanguageHook::GetAddonId()
     {
+      TRACE;
       const char* id = NULL;
 
       // Get a reference to the main module
@@ -157,8 +143,9 @@ namespace XBMCAddon
       return id;
     }
 
-    String LanguageHook::getAddonVersion()
+    String LanguageHook::GetAddonVersion()
     {
+      TRACE;
       // Get a reference to the main module
       // and global dictionary
       PyObject* main_module = PyImport_AddModule((char*)"__main__");
@@ -170,19 +157,38 @@ namespace XBMCAddon
       return version;
     }
 
-    void LanguageHook::registerPlayerCallback(IPlayerCallback* player) { g_pythonParser.RegisterPythonPlayerCallBack(player); }
-    void LanguageHook::unregisterPlayerCallback(IPlayerCallback* player) { g_pythonParser.UnregisterPythonPlayerCallBack(player); }
-    void LanguageHook::registerMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) { g_pythonParser.RegisterPythonMonitorCallBack(monitor); }
-    void LanguageHook::unregisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) { g_pythonParser.UnregisterPythonMonitorCallBack(monitor); }
-    void LanguageHook::waitForEvent(CEvent& hEvent) { g_pythonParser.WaitForEvent(hEvent); }
+    void LanguageHook::RegisterPlayerCallback(IPlayerCallback* player) { TRACE; g_pythonParser.RegisterPythonPlayerCallBack(player); }
+    void LanguageHook::UnregisterPlayerCallback(IPlayerCallback* player) { TRACE; g_pythonParser.UnregisterPythonPlayerCallBack(player); }
+    void LanguageHook::RegisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) { TRACE; g_pythonParser.RegisterPythonMonitorCallBack(monitor); }
+    void LanguageHook::UnregisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) { TRACE; g_pythonParser.UnregisterPythonMonitorCallBack(monitor); }
 
-//    void LanguageHook::constructing(AddonClass* beingConstructed)
-//    {
-//    }
-//
-//    void LanguageHook::destructing(AddonClass* beingDestructed)
-//    {
-//    }
+    bool LanguageHook::WaitForEvent(CEvent& hEvent, unsigned int milliseconds)
+    { 
+      TRACE;
+      return g_pythonParser.WaitForEvent(hEvent,milliseconds);
+    }
 
+    void LanguageHook::RegisterAddonClassInstance(AddonClass* obj)
+    {
+      TRACE;
+      Synchronize l(*this);
+      obj->Acquire();
+      currentObjects.insert(obj);
+    }
+
+    void LanguageHook::UnregisterAddonClassInstance(AddonClass* obj)
+    {
+      TRACE;
+      Synchronize l(*this);
+      if (currentObjects.erase(obj) > 0)
+        obj->Release();
+    }
+
+    bool LanguageHook::HasRegisteredAddonClassInstance(AddonClass* obj)
+    {
+      TRACE;
+      Synchronize l(*this);
+      return currentObjects.find(obj) != currentObjects.end();
+    }
   }
 }

@@ -29,7 +29,7 @@
 #include "utils/ISerializable.h"
 #include "utils/ISortable.h"
 #include "XBDateTime.h"
-#include "SortFileItem.h"
+#include "utils/SortUtils.h"
 #include "utils/LabelFormatter.h"
 #include "GUIPassword.h"
 #include "threads/CriticalSection.h"
@@ -99,7 +99,7 @@ public:
   void Reset();
   const CFileItem& operator=(const CFileItem& item);
   virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
+  virtual void Serialize(CVariant& value) const;
   virtual void ToSortable(SortItem &sortable);
   virtual bool IsFileItem() const { return true; };
 
@@ -173,7 +173,6 @@ public:
   void FillInDefaultIcon();
   void SetFileSizeLabel();
   virtual void SetLabel(const CStdString &strLabel);
-  virtual void SetLabel2(const CStdString &strLabel);
   CURL GetAsUrl() const;
   int GetVideoContentType() const; /* return VIDEODB_CONTENT_TYPE, but don't want to include videodb in this header */
   bool IsLabelPreformated() const { return m_bLabelPreformated; }
@@ -273,6 +272,24 @@ public:
    */
   CStdString GetLocalFanart() const;
 
+  /*! \brief Assemble the filename of a particular piece of local artwork for an item.
+             No file existence check is typically performed.
+   \param artFile the art file to search for.
+   \param useFolder whether to look in the folder for the art file. Defaults to false.
+   \return the path to the local artwork.
+   \sa FindLocalArt
+   */
+  CStdString GetLocalArt(const std::string &artFile, bool useFolder = false) const;
+
+  /*! \brief Assemble the filename of a particular piece of local artwork for an item,
+             and check for file existence.
+   \param artFile the art file to search for.
+   \param useFolder whether to look in the folder for the art file. Defaults to false.
+   \return the path to the local artwork if it exists, empty otherwise.
+   \sa GetLocalArt
+   */
+  CStdString FindLocalArt(const std::string &artFile, bool useFolder) const;
+
   // Gets the .tbn file associated with this item
   CStdString GetTBNFile() const;
   // Gets the folder image associated with this item (defaults to folder.jpg)
@@ -289,13 +306,8 @@ public:
    */
   CStdString GetBaseMoviePath(bool useFolderNames) const;
 
-#ifdef UNIT_TESTING
-  static bool testGetBaseMoviePath();
-#endif
-
   // Gets the user thumb, if it exists
-  CStdString GetUserVideoThumb() const;
-  CStdString GetUserMusicThumb(bool alwaysCheckRemote = false) const;
+  CStdString GetUserMusicThumb(bool alwaysCheckRemote = false, bool fallbackToFolder = false) const;
 
   /*! \brief Get the path where we expect local metadata to reside.
    For a folder, this is just the existing path (eg tvshow folder)
@@ -339,6 +351,24 @@ public:
   bool IsSamePath(const CFileItem *item) const;
 
   bool IsAlbum() const;
+
+  /*! \brief Sets details using the information from the CVideoInfoTag object
+   Sets the videoinfotag and uses its information to set the label and path.
+   \param video video details to use and set
+   */
+  void SetFromVideoInfoTag(const CVideoInfoTag &video);
+  /*! \brief Sets details using the information from the CAlbum object
+   Sets the album in the music info tag and uses its information to set the
+   label and album-specific properties.
+   \param album album details to use and set
+   */
+  void SetFromAlbum(const CAlbum &album);
+  /*! \brief Sets details using the information from the CSong object
+   Sets the song in the music info tag and uses its information to set the
+   label, path, song-specific properties and artwork.
+   \param song song details to use and set
+   */
+  void SetFromSong(const CSong &song);
 
   bool m_bIsShareOrDrive;    ///< is this a root share/drive
   int m_iDriveType;     ///< If \e m_bIsShareOrDrive is \e true, use to get the share type. Types see: CMediaSource::m_iDriveType

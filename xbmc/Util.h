@@ -58,7 +58,6 @@ class CUtil
 public:
   CUtil(void);
   virtual ~CUtil(void);
-  static bool GetVolumeFromFileName(const CStdString& strFileName, CStdString& strFileTitle, CStdString& strVolumeNumber);
   static void CleanString(const CStdString& strFileName, CStdString& strTitle, CStdString& strTitleAndYear, CStdString& strYear, bool bRemoveExtension = false, bool bCleanChars = true);
   static CStdString GetTitleFromPath(const CStdString& strFileNameAndPath, bool bIsFolder = false);
   static void GetQualifiedFilename(const CStdString &strBasePath, CStdString &strFilename);
@@ -92,8 +91,6 @@ public:
   static int64_t ToInt64(uint32_t high, uint32_t low);
   static CStdString GetNextFilename(const CStdString &fn_template, int max);
   static CStdString GetNextPathname(const CStdString &path_template, int max);
-  static void TakeScreenshot();
-  static void TakeScreenshot(const CStdString &filename, bool sync);
   static void Tokenize(const CStdString& path, std::vector<CStdString>& tokens, const std::string& delimiters);
   static void StatToStatI64(struct _stati64 *result, struct stat *stat);
   static void Stat64ToStatI64(struct _stati64 *result, struct __stat64 *stat);
@@ -140,8 +137,6 @@ public:
   static CStdString MusicPlaylistsLocation();
   static CStdString VideoPlaylistsLocation();
 
-  static bool SetSysDateTimeYear(int iYear, int iMonth, int iDay, int iHour, int iMinute);
-  static int GMTZoneCalc(int iRescBiases, int iHour, int iMinute, int &iMinuteNew);
   static void GetSkinThemes(std::vector<CStdString>& vecTheme);
   static void GetRecursiveListing(const CStdString& strPath, CFileItemList& items, const CStdString& strMask, bool bUseFileDirectories=false);
   static void GetRecursiveDirsListing(const CStdString& strPath, CFileItemList& items);
@@ -149,7 +144,20 @@ public:
 
   static double AlbumRelevance(const CStdString& strAlbumTemp1, const CStdString& strAlbum1, const CStdString& strArtistTemp1, const CStdString& strArtist1);
   static bool MakeShortenPath(CStdString StrInput, CStdString& StrOutput, int iTextMaxLength);
-  static bool SupportsFileOperations(const CStdString& strPath);
+  /*! \brief Checks wether the supplied path supports Write file operations (e.g. Rename, Delete, ...)
+
+   \param strPath the path to be checked
+
+   \return true if Write file operations are supported, false otherwise
+   */
+  static bool SupportsWriteFileOperations(const CStdString& strPath);
+  /*! \brief Checks wether the supplied path supports Read file operations (e.g. Copy, ...)
+
+   \param strPath the path to be checked
+
+   \return true if Read file operations are supported, false otherwise
+   */
+  static bool SupportsReadFileOperations(const CStdString& strPath);
   static CStdString GetDefaultFolderThumb(const CStdString &folderThumb);
 
 #ifdef UNIT_TESTING

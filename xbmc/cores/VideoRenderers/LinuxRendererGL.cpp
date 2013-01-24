@@ -256,6 +256,15 @@ bool CLinuxRendererGL::ValidateRenderTarget()
     else
       CLog::Log(LOGNOTICE,"Using GL_TEXTURE_2D");
 
+    // function pointer for texture might change in
+    // call to LoadShaders
+    glFinish();
+    for (int i = 0 ; i < m_NumYV12Buffers ; i++)
+      (this->*m_textureDelete)(i);
+
+    // trigger update of video filters
+    m_scalingMethodGui = (ESCALINGMETHOD)-1;
+
      // create the yuv textures
     LoadShaders();
 
@@ -593,6 +602,7 @@ void CLinuxRendererGL::Flush()
 
   glFinish();
   m_bValidated = false;
+  m_fbo.fbo.Cleanup();
 }
 
 void CLinuxRendererGL::Update(bool bPauseDrawing)
@@ -847,7 +857,7 @@ void CLinuxRendererGL::UpdateVideoFilter()
     delete m_pVideoFilterShader;
     m_pVideoFilterShader = NULL;
   }
-  m_fbo.Cleanup();
+  m_fbo.fbo.Cleanup();
 
   VerifyGLState();
 
@@ -888,13 +898,13 @@ void CLinuxRendererGL::UpdateVideoFilter()
   case VS_SCALINGMETHOD_CUBIC:
     if (m_renderMethod & RENDER_GLSL)
     {
-      if (!m_fbo.Initialize())
+      if (!m_fbo.fbo.Initialize())
       {
         CLog::Log(LOGERROR, "GL: Error initializing FBO");
         break;
       }
 
-      if (!m_fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight, GL_RGBA))
+      if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight, GL_RGBA))
       {
         CLog::Log(LOGERROR, "GL: Error creating texture and binding to FBO");
         break;
@@ -932,7 +942,7 @@ void CLinuxRendererGL::UpdateVideoFilter()
     delete m_pVideoFilterShader;
     m_pVideoFilterShader = NULL;
   }
-  m_fbo.Cleanup();
+  m_fbo.fbo.Cleanup();
 
   SetTextureFilter(GL_LINEAR);
   m_renderQuality = RQ_SINGLEPASS;
@@ -1141,7 +1151,7 @@ void CLinuxRendererGL::UnInit()
     (this->*m_textureDelete)(i);
 
   // cleanup framebuffer object if it was in use
-  m_fbo.Cleanup();
+  m_fbo.fbo.Cleanup();
   m_bValidated = false;
   m_bImageReady = false;
   m_bConfigured = false;
@@ -1299,12 +1309,33 @@ void CLinuxRendererGL::RenderSinglePass(int index, int field)
 
 void CLinuxRendererGL::RenderMultiPass(int index, int field)
 {
+  RenderToFBO(index, field);
+  RenderFromFBO();
+}
+
+void CLinuxRendererGL::RenderToFBO(int index, int field)
+{
   YUVPLANES &planes = m_buffers[index].fields[field];
 
   if (m_reloadShaders)
   {
     m_reloadShaders = 0;
     LoadShaders(m_currentField);
+  }
+
+  if (!m_fbo.fbo.IsValid())
+  {
+    if (!m_fbo.fbo.Initialize())
+    {
+      CLog::Log(LOGERROR, "GL: Error initializing FBO");
+      return;
+    }
+
+    if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight, GL_RGBA))
+    {
+      CLog::Log(LOGERROR, "GL: Error creating texture and binding to FBO");
+      return;
+    }
   }
 
   glDisable(GL_DEPTH_TEST);
@@ -1337,7 +1368,7 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
     return;
   }
 
-  m_fbo.BeginRender();
+  m_fbo.fbo.BeginRender();
   VerifyGLState();
 
   m_pYUVShader->SetBlack(g_settings.m_currentVideoSettings.m_Brightness * 0.01f - 0.5f);
@@ -1375,15 +1406,15 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
     CLog::Log(LOGERROR, "GL: Error enabling YUV shader");
   }
 
-  float imgwidth  = planes[0].rect.x2 - planes[0].rect.x1;
-  float imgheight = planes[0].rect.y2 - planes[0].rect.y1;
+  m_fbo.width  = planes[0].rect.x2 - planes[0].rect.x1;
+  m_fbo.height = planes[0].rect.y2 - planes[0].rect.y1;
   if (m_textureTarget == GL_TEXTURE_2D)
   {
-    imgwidth  *= planes[0].texwidth;
-    imgheight *= planes[0].texheight;
+    m_fbo.width  *= planes[0].texwidth;
+    m_fbo.height *= planes[0].texheight;
   }
-  imgwidth  *= planes[0].pixpertex_x;
-  imgheight *= planes[0].pixpertex_y;
+  m_fbo.width  *= planes[0].pixpertex_x;
+  m_fbo.height *= planes[0].pixpertex_y;
 
   // 1st Pass to video frame size
   glBegin(GL_QUADS);
@@ -1396,17 +1427,17 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
   glMultiTexCoord2fARB(GL_TEXTURE0, planes[0].rect.x2, planes[0].rect.y1);
   glMultiTexCoord2fARB(GL_TEXTURE1, planes[1].rect.x2, planes[1].rect.y1);
   glMultiTexCoord2fARB(GL_TEXTURE2, planes[2].rect.x2, planes[2].rect.y1);
-  glVertex2f(imgwidth, 0.0f);
+  glVertex2f(m_fbo.width, 0.0f);
 
   glMultiTexCoord2fARB(GL_TEXTURE0, planes[0].rect.x2, planes[0].rect.y2);
   glMultiTexCoord2fARB(GL_TEXTURE1, planes[1].rect.x2, planes[1].rect.y2);
   glMultiTexCoord2fARB(GL_TEXTURE2, planes[2].rect.x2, planes[2].rect.y2);
-  glVertex2f(imgwidth, imgheight);
+  glVertex2f(m_fbo.width, m_fbo.height);
 
   glMultiTexCoord2fARB(GL_TEXTURE0, planes[0].rect.x1, planes[0].rect.y2);
   glMultiTexCoord2fARB(GL_TEXTURE1, planes[1].rect.x1, planes[1].rect.y2);
   glMultiTexCoord2fARB(GL_TEXTURE2, planes[2].rect.x1, planes[2].rect.y2);
-  glVertex2f(0.0f    , imgheight);
+  glVertex2f(0.0f    , m_fbo.height);
 
   glEnd();
   VerifyGLState();
@@ -1422,7 +1453,7 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
   glMatrixMode(GL_MODELVIEW);
   VerifyGLState();
 
-  m_fbo.EndRender();
+  m_fbo.fbo.EndRender();
 
   glActiveTextureARB(GL_TEXTURE1);
   glDisable(m_textureTarget);
@@ -1430,9 +1461,12 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
   glDisable(m_textureTarget);
   glActiveTextureARB(GL_TEXTURE0);
   glDisable(m_textureTarget);
+}
 
-  glEnable(GL_TEXTURE_2D);
-  glBindTexture(GL_TEXTURE_2D, m_fbo.Texture());
+void CLinuxRendererGL::RenderFromFBO()
+{
+  glEnable(m_textureTarget);
+  glActiveTextureARB(GL_TEXTURE0);
   VerifyGLState();
 
   // Use regular normalized texture coordinates
@@ -1445,7 +1479,7 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
     if (!m_pVideoFilterShader->GetTextureFilter(filter))
       filter = m_scalingMethod == VS_SCALINGMETHOD_NEAREST ? GL_NEAREST : GL_LINEAR;
 
-    m_fbo.SetFiltering(GL_TEXTURE_2D, filter);
+    m_fbo.fbo.SetFiltering(m_textureTarget, filter);
     m_pVideoFilterShader->SetSourceTexture(0);
     m_pVideoFilterShader->SetWidth(m_sourceWidth);
     m_pVideoFilterShader->SetHeight(m_sourceHeight);
@@ -1462,17 +1496,18 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
   else
   {
     GLint filter = m_scalingMethod == VS_SCALINGMETHOD_NEAREST ? GL_NEAREST : GL_LINEAR;
-    m_fbo.SetFiltering(GL_TEXTURE_2D, filter);
+    m_fbo.fbo.SetFiltering(m_textureTarget, filter);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
   }
 
   VerifyGLState();
 
-  imgwidth  /= m_sourceWidth;
-  imgheight /= m_sourceHeight;
+  float imgwidth = m_fbo.width / m_sourceWidth;
+  float imgheight = m_fbo.height / m_sourceHeight;
 
   glBegin(GL_QUADS);
 
-  glMultiTexCoord2fARB(GL_TEXTURE0, 0.0f    , 0.0f);
+  glMultiTexCoord2fARB(GL_TEXTURE0, 0.0f, 0.0f);
   glVertex4f(m_rotatedDestCoords[0].x, m_rotatedDestCoords[0].y, 0, 1.0f );
 
   glMultiTexCoord2fARB(GL_TEXTURE0, imgwidth, 0.0f);
@@ -1481,7 +1516,7 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
   glMultiTexCoord2fARB(GL_TEXTURE0, imgwidth, imgheight);
   glVertex4f(m_rotatedDestCoords[2].x, m_rotatedDestCoords[2].y, 0, 1.0f );
   
-  glMultiTexCoord2fARB(GL_TEXTURE0, 0.0f    , imgheight);
+  glMultiTexCoord2fARB(GL_TEXTURE0, 0.0f, imgheight);
   glVertex4f(m_rotatedDestCoords[3].x, m_rotatedDestCoords[3].y, 0, 1.0f );
 
   glEnd();
@@ -1493,6 +1528,7 @@ void CLinuxRendererGL::RenderMultiPass(int index, int field)
 
   VerifyGLState();
 
+  glBindTexture(m_textureTarget, 0);
   glDisable(m_textureTarget);
   VerifyGLState();
 }
@@ -1709,6 +1745,7 @@ bool CLinuxRendererGL::RenderCapture(CRenderCapture* capture)
       
   // new video rect is capture size
   m_destRect.SetRect(0, 0, (float)capture->GetWidth(), (float)capture->GetHeight());
+  MarkDirty();
   syncDestRectToRotatedPoints();//syncs the changed destRect to m_rotatedDestCoords
 
   //invert Y axis to get non-inverted image
@@ -2451,6 +2488,8 @@ void CLinuxRendererGL::UploadCVRefTexture(int index)
 #ifdef TARGET_DARWIN
   CVBufferRef cvBufferRef = m_buffers[index].cvBufferRef;
 
+  glEnable(m_textureTarget);
+
   if (cvBufferRef)
   {
     YUVFIELDS &fields = m_buffers[index].fields;
@@ -2467,12 +2506,9 @@ void CLinuxRendererGL::UploadCVRefTexture(int index)
       size_t        rowbytes    = CVPixelBufferGetBytesPerRow(cvBufferRef);
       unsigned char *bufferBase = (unsigned char*)CVPixelBufferGetBaseAddress(cvBufferRef);
 
-      glEnable(m_textureTarget);
       glBindTexture(m_textureTarget, plane.id);
-      glTexParameteri(m_textureTarget, GL_TEXTURE_STORAGE_HINT_APPLE , GL_STORAGE_CACHED_APPLE);
       glTexSubImage2D(m_textureTarget, 0, 0, 0, rowbytes/2, texHeight, GL_YCBCR_422_APPLE, GL_UNSIGNED_SHORT_8_8_APPLE, bufferBase);
       glBindTexture(m_textureTarget, 0);
-      glDisable(m_textureTarget);
 
       CVPixelBufferUnlockBaseAddress(cvBufferRef, kCVPixelBufferLock_ReadOnly);
     }
@@ -2486,7 +2522,6 @@ void CLinuxRendererGL::UploadCVRefTexture(int index)
       GLsizei       texHeight= IOSurfaceGetHeight(surface);
       OSType        format_type = CVPixelBufferGetPixelFormatType(cvBufferRef);
 
-      glEnable(m_textureTarget);
       glBindTexture(m_textureTarget, plane.id);
 
       if (format_type == kCVPixelFormatType_422YpCbCr8)
@@ -2497,20 +2532,19 @@ void CLinuxRendererGL::UploadCVRefTexture(int index)
           texWidth, texHeight, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0);
 
       glBindTexture(m_textureTarget, 0);
-      glDisable(m_textureTarget);
     }
 
     CVBufferRelease(cvBufferRef);
     m_buffers[index].cvBufferRef = NULL;
 
-    // Calculate Texture Source Rects
-    plane.rect   = m_sourceRect;
-    plane.width  = m_buffers[index].image.width;
-    plane.height = m_buffers[index].image.height;
     plane.flipindex = m_buffers[index].flipindex;
   }
 
   m_eventTexturesDone[index]->Set();
+
+  CalculateTextureSourceRects(index, 3);
+  glDisable(m_textureTarget);
+
 #endif
 }
 
@@ -2559,8 +2593,6 @@ bool CLinuxRendererGL::CreateCVRefTexture(int index)
     // 10.8 Mountain Lion breaks CGLTexImageIOSurface2D/GL_YCBCR_422_APPLE,
     // upload the old way.
     glBindTexture(m_textureTarget, plane.id);
-    // Set storage hint. Can also use GL_STORAGE_SHARED_APPLE see docs.
-    //glTexParameteri(m_textureTarget, GL_TEXTURE_STORAGE_HINT_APPLE , GL_STORAGE_CACHED_APPLE);
     glTexParameteri(m_textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(m_textureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     // This is necessary for non-power-of-two textures
@@ -2880,7 +2912,7 @@ void CLinuxRendererGL::ToRGBFrame(YV12Image* im, unsigned flipIndexPlane, unsign
                                                  SWS_FAST_BILINEAR | SwScaleCPUFlags(), NULL, NULL, NULL);
 
   uint8_t *dst[]       = { m_rgbBuffer, 0, 0, 0 };
-  int      dstStride[] = { m_sourceWidth * 4, 0, 0, 0 };
+  int      dstStride[] = { (int)m_sourceWidth * 4, 0, 0, 0 };
   m_dllSwScale->sws_scale(m_context, src, srcStride, 0, im->height, dst, dstStride);
 
   if (m_rgbPbo)
@@ -2960,7 +2992,7 @@ void CLinuxRendererGL::ToRGBFields(YV12Image* im, unsigned flipIndexPlaneTop, un
                                                  SWS_FAST_BILINEAR | SwScaleCPUFlags(), NULL, NULL, NULL);
   uint8_t *dstTop[]    = { m_rgbBuffer, 0, 0, 0 };
   uint8_t *dstBot[]    = { m_rgbBuffer + m_sourceWidth * m_sourceHeight * 2, 0, 0, 0 };
-  int      dstStride[] = { m_sourceWidth * 4, 0, 0, 0 };
+  int      dstStride[] = { (int)m_sourceWidth * 4, 0, 0, 0 };
 
   //convert each YUV field to an RGB field, the top field is placed at the top of the rgb buffer
   //the bottom field is placed at the bottom of the rgb buffer
@@ -3201,7 +3233,13 @@ bool CLinuxRendererGL::Supports(ERENDERFEATURE feature)
       return true;
   }
 
-  if (feature == RENDERFEATURE_ROTATION)
+  if (feature == RENDERFEATURE_STRETCH         ||
+      feature == RENDERFEATURE_CROP            ||
+      feature == RENDERFEATURE_ZOOM            ||
+      feature == RENDERFEATURE_VERTICAL_SHIFT  ||
+      feature == RENDERFEATURE_PIXEL_RATIO     ||
+      feature == RENDERFEATURE_POSTPROCESS     ||
+      feature == RENDERFEATURE_ROTATION)
     return true;
 
   return false;

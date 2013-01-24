@@ -25,7 +25,7 @@
 #include "FileItem.h"
 #include "FileURLProtocol.h"
 #include "GUIInfoManager.h"
-#include "ThumbLoader.h"
+#include "video/VideoThumbLoader.h"
 #include "Util.h"
 #include "cores/VideoRenderers/RenderFlags.h"
 #include "cores/VideoRenderers/RenderFormats.h"
@@ -46,12 +46,12 @@
 #include "utils/LangCodeExpander.h"
 #include "utils/Variant.h"
 #include "windowing/WindowingFactory.h"
-#include "windowing/egl/WinEGLPlatform.h"
 
 // for external subtitles
 #include "xbmc/cores/dvdplayer/DVDClock.h"
 #include "xbmc/cores/dvdplayer/DVDPlayerSubtitle.h"
 #include "xbmc/cores/dvdplayer/DVDDemuxers/DVDDemuxVobsub.h"
+#include "settings/VideoSettings.h"
 
 // amlogic libplayer
 #include "AMLUtils.h"
@@ -777,14 +777,36 @@ float CAMLPlayer::GetPercentage()
     return 0.0f;
 }
 
-void CAMLPlayer::SetVolume(float volume)
+void CAMLPlayer::SetMute(bool bOnOff)
 {
-  CLog::Log(LOGDEBUG, "CAMLPlayer::SetVolume(%f)", volume);
+  m_audio_mute = bOnOff;
 #if !defined(TARGET_ANDROID)
   CSingleLock lock(m_aml_csection);
-  // volume is a float percent from 0.0 to 1.0
   if (m_dll->check_pid_valid(m_pid))
-    m_dll->audio_set_volume(m_pid, volume);
+  {
+    if (m_audio_mute)
+      m_dll->audio_set_volume(m_pid, 0.0);
+    else
+      m_dll->audio_set_volume(m_pid, m_audio_volume);
+  }
+#endif
+}
+
+void CAMLPlayer::SetVolume(float volume)
+{
+  m_audio_volume = 0.0f;
+  if (volume > VOLUME_MINIMUM)
+  {
+    float dB = CAEUtil::PercentToGain(volume);
+    m_audio_volume = CAEUtil::GainToScale(dB);
+  }
+  if (m_audio_volume >= 0.99f)
+    m_audio_volume = 1.0f;
+
+#if !defined(TARGET_ANDROID)
+  CSingleLock lock(m_aml_csection);
+  if (!m_audio_mute && m_dll->check_pid_valid(m_pid))
+    m_dll->audio_set_volume(m_pid, m_audio_volume);
 #endif
 }
 
@@ -1090,6 +1112,8 @@ void CAMLPlayer::SeekTime(__int64 seek_ms)
     m_dll->player_timesearch(m_pid, (float)seek_ms/1000.0);
     WaitForSearchOK(5000);
     WaitForPlaying(5000);
+    // restore system volume setting.
+    SetVolume(m_audio_volume);
   }
 }
 
@@ -1439,6 +1463,9 @@ void CAMLPlayer::Process()
 
       // get our initial status.
       GetStatus();
+
+      // restore mute setting.
+      SetMute(g_settings.m_bMute);
 
       // restore system volume setting.
       SetVolume(g_settings.m_fVolumeLevel);
@@ -1815,8 +1842,15 @@ bool CAMLPlayer::WaitForSearchOK(int timeout_ms)
 
 bool CAMLPlayer::WaitForPlaying(int timeout_ms)
 {
+  // force the volume off in case we are starting muted
+  m_audio_mute = true;
   while (!m_bAbortRequest && (timeout_ms > 0))
   {
+#if !defined(TARGET_ANDROID)
+    // anoying that we have to hammer audio_set_volume
+    // but have to catch it before any audio comes out.
+    m_dll->audio_set_volume(m_pid, 0.0);
+#endif
     player_status pstatus = (player_status)GetPlayerSerializedState();
     if (m_log_level > 5)
       CLog::Log(LOGDEBUG, "CAMLPlayer::WaitForPlaying: %s", m_dll->player_status2str(pstatus));
@@ -2289,3 +2323,42 @@ void CAMLPlayer::RenderUpdateCallBack(const void *ctx, const CRect &SrcRect, con
   CAMLPlayer *player = (CAMLPlayer*)ctx;
   player->SetVideoRect(SrcRect, DestRect);
 }
+
+void CAMLPlayer::GetRenderFeatures(std::vector<int> &renderFeatures)
+{
+  renderFeatures.push_back(RENDERFEATURE_ZOOM);
+  renderFeatures.push_back(RENDERFEATURE_CONTRAST);
+  renderFeatures.push_back(RENDERFEATURE_BRIGHTNESS);
+  renderFeatures.push_back(RENDERFEATURE_STRETCH);
+}
+
+void CAMLPlayer::GetDeinterlaceMethods(std::vector<int> &deinterlaceMethods)
+{
+  deinterlaceMethods.push_back(VS_INTERLACEMETHOD_DEINTERLACE);
+}
+
+void CAMLPlayer::GetDeinterlaceModes(std::vector<int> &deinterlaceModes)
+{
+  deinterlaceModes.push_back(VS_DEINTERLACEMODE_AUTO);
+}
+
+void CAMLPlayer::GetScalingMethods(std::vector<int> &scalingMethods)
+{
+}
+
+void CAMLPlayer::GetAudioCapabilities(std::vector<int> &audioCaps)
+{
+  audioCaps.push_back(IPC_AUD_SELECT_STREAM);
+  audioCaps.push_back(IPC_AUD_SELECT_OUTPUT);
+#if !defined(TARGET_ANDROID)
+  audioCaps.push_back(IPC_AUD_OFFSET);
+#endif
+}
+
+void CAMLPlayer::GetSubtitleCapabilities(std::vector<int> &subCaps)
+{
+  subCaps.push_back(IPC_SUBS_EXTERNAL);
+  subCaps.push_back(IPC_SUBS_SELECT);
+  subCaps.push_back(IPC_SUBS_OFFSET);
+}
+

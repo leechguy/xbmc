@@ -242,11 +242,19 @@ bool CPVRChannelGroups::LoadUserDefinedChannelGroups(void)
   // load group members
   for (std::vector<CPVRChannelGroupPtr>::iterator it = m_groups.begin(); it != m_groups.end(); it++)
   {
-    (*it)->Load();
+    // load only user defined groups, as internal group is already loaded
+    if (!(*it)->IsInternalGroup())
+    {
+      if (!(*it)->Load())
+      {
+        CLog::Log(LOGDEBUG, "PVR - %s - failed to load channel group '%s'", __FUNCTION__, (*it)->GroupName().c_str());
+        return false;
+      }
 
-    // remove empty groups when sync with backend is enabled
-    if (bSyncWithBackends && !(*it)->IsInternalGroup() && (*it)->Size() == 0)
-      emptyGroups.push_back(*it);
+      // remove empty groups when sync with backend is enabled
+      if (bSyncWithBackends && (*it)->Size() == 0)
+        emptyGroups.push_back(*it);
+    }
   }
 
   for (std::vector<CPVRChannelGroupPtr>::iterator it = emptyGroups.begin(); it != emptyGroups.end(); it++)
@@ -271,13 +279,22 @@ bool CPVRChannelGroups::Load(void)
   // create and load the internal channel group
   CPVRChannelGroupPtr internalChannels = CPVRChannelGroupPtr(new CPVRChannelGroupInternal(m_bRadio));
   m_groups.push_back(internalChannels);
-  internalChannels->Load();
+  if (!internalChannels->Load())
+  {
+    CLog::Log(LOGERROR, "PVR - %s - failed to load channels", __FUNCTION__);
+    return false;
+  }
 
   // load the other groups from the database
-  LoadUserDefinedChannelGroups();
+  if (!LoadUserDefinedChannelGroups())
+  {
+    CLog::Log(LOGERROR, "PVR - %s - failed to load channel groups", __FUNCTION__);
+    return false;
+  }
 
   // set the internal group as selected at startup
-  SetSelectedGroup(internalChannels);
+  internalChannels->SetSelectedGroup(true);
+  m_selectedGroup = internalChannels;
 
   CLog::Log(LOGDEBUG, "PVR - %s - %d %s channel groups loaded", __FUNCTION__, (int) m_groups.size(), m_bRadio ? "radio" : "TV");
 
@@ -315,6 +332,13 @@ CPVRChannelGroupPtr CPVRChannelGroups::GetLastGroup(void) const
 
   CPVRChannelGroupPtr empty;
   return empty;
+}
+
+std::vector<CPVRChannelGroupPtr> CPVRChannelGroups::GetMembers() const
+{
+  CSingleLock lock(m_critSection);
+  std::vector<CPVRChannelGroupPtr> groups(m_groups.begin(), m_groups.end());
+  return groups;
 }
 
 int CPVRChannelGroups::GetGroupList(CFileItemList* results) const
@@ -391,7 +415,10 @@ void CPVRChannelGroups::SetSelectedGroup(CPVRChannelGroupPtr group)
   // update the selected group
   {
     CSingleLock lock(m_critSection);
+    if (m_selectedGroup)
+      m_selectedGroup->SetSelectedGroup(false);
     m_selectedGroup = group;
+    group->SetSelectedGroup(true);
   }
 
   // update the channel number cache

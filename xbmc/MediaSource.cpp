@@ -30,7 +30,7 @@ using namespace XFILE;
 
 bool CMediaSource::IsWritable() const
 {
-  return CUtil::SupportsFileOperations(strPath);
+  return CUtil::SupportsWriteFileOperations(strPath);
 }
 
 void CMediaSource::FromNameAndPaths(const CStdString &category, const CStdString &name, const vector<CStdString> &paths)
@@ -74,7 +74,6 @@ void CMediaSource::FromNameAndPaths(const CStdString &category, const CStdString
     m_iDriveType = SOURCE_TYPE_UNKNOWN;
   // check - convert to url and back again to make sure strPath is accurate
   // in terms of what we expect
-  URIUtils::AddSlashAtEnd(strPath);
   strPath = CURL(strPath).Get();
 }
 

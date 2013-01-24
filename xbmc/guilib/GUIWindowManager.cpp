@@ -520,6 +520,11 @@ void CGUIWindowManager::MarkDirty()
   m_tracker.MarkDirtyRegion(CRect(0, 0, (float)g_graphicsContext.GetWidth(), (float)g_graphicsContext.GetHeight()));
 }
 
+void CGUIWindowManager::MarkDirty(const CRect& rect)
+{
+  m_tracker.MarkDirtyRegion(rect);
+}
+
 void CGUIWindowManager::RenderPass()
 {
   CGUIWindow* pWindow = GetWindow(GetActiveWindow());
@@ -588,7 +593,25 @@ bool CGUIWindowManager::Render()
 
   m_tracker.CleanMarkedRegions();
 
+  // execute post rendering actions (finalize window closing)
+  AfterRender();
+
   return hasRendered;
+}
+
+void CGUIWindowManager::AfterRender()
+{
+  CGUIWindow* pWindow = GetWindow(GetActiveWindow());
+  if (pWindow)
+    pWindow->AfterRender();
+
+  // make copy of vector as we may remove items from it as we go
+  vector<CGUIWindow *> activeDialogs = m_activeDialogs;
+  for (iDialog it = activeDialogs.begin(); it != activeDialogs.end(); ++it)
+  {
+    if ((*it)->IsDialogRunning())
+      (*it)->AfterRender();
+  }
 }
 
 void CGUIWindowManager::FrameMove()

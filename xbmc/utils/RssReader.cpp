@@ -18,6 +18,7 @@
  *
  */
 
+#include "network/Network.h"
 #include "threads/SystemClock.h"
 #include "RssReader.h"
 #include "utils/HTMLUtil.h"
@@ -27,7 +28,7 @@
 #include "filesystem/File.h"
 #include "filesystem/CurlFile.h"
 #if defined(TARGET_DARWIN)
-#include "CocoaInterface.h"
+#include "osx/CocoaInterface.h"
 #endif
 #include "settings/Settings.h"
 #include "guilib/LocalizeStrings.h"

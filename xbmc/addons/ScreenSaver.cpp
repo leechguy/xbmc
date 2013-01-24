@@ -45,7 +45,7 @@ bool CScreenSaver::CreateScreenSaver()
   if (URIUtils::GetExtension(LibPath()).Equals(".py", false))
   {
     // Don't allow a previously-scheduled alarm to kill our new screensaver
-    g_alarmClock.Stop(PYTHON_ALARM);
+    g_alarmClock.Stop(PYTHON_ALARM, true);
 
     if (!g_pythonParser.StopScript(LibPath()))
       g_pythonParser.evalFile(LibPath(), AddonPtr(new CScreenSaver(Props())));
@@ -72,7 +72,7 @@ bool CScreenSaver::CreateScreenSaver()
   m_pInfo->presets    = strdup(CSpecialProtocol::TranslatePath(Path()).c_str());
   m_pInfo->profile    = strdup(CSpecialProtocol::TranslatePath(Profile()).c_str());
 
-  if (CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>::Create())
+  if (CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>::Create() == ADDON_STATUS_OK)
     return true;
 
   return false;

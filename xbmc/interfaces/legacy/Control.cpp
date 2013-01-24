@@ -762,7 +762,7 @@ namespace XBMCAddon
         pGUIControl->SetEnableCondition(enable);
     }
 
-    void Control::setAnimations(const std::vector< std::vector<String> >& eventAttr) throw (WindowException)
+    void Control::setAnimations(const std::vector< Tuple<String,String> >& eventAttr) throw (WindowException)
     {
       CXBMCTinyXML xmlDoc;
       TiXmlElement xmlRootElement("control");
@@ -774,13 +774,13 @@ namespace XBMCAddon
 
       for (unsigned int anim = 0; anim < eventAttr.size(); anim++)
       {
-        const std::vector<String>& pTuple = eventAttr[anim];
+        const Tuple<String,String>& pTuple = eventAttr[anim];
 
-        if (pTuple.size() != 2)
+        if (pTuple.GetNumValuesSet() != 2)
           throw WindowException("Error unpacking tuple found in list");
 
-        const String& cAttr = pTuple[0];
-        const String& cEvent = pTuple[1];
+        const String& cAttr = pTuple.first();
+        const String& cEvent = pTuple.second();
 
         TiXmlElement pNode("animation");
         CStdStringArray attrs;
@@ -1183,12 +1183,17 @@ namespace XBMCAddon
 
     void ControlList::addItemStream(const String& fileOrUrl, bool sendMessage) throw(UnimplementedException,WindowException)
     {
-      addListItem(ListItem::fromString(fileOrUrl),sendMessage);
+      internAddListItem(ListItem::fromString(fileOrUrl),sendMessage);
     }
 
     void ControlList::addListItem(const XBMCAddon::xbmcgui::ListItem* pListItem, bool sendMessage) throw(UnimplementedException,WindowException)
     {
-      if (pListItem == NULL)
+      internAddListItem(pListItem,sendMessage);
+    }
+
+    void ControlList::internAddListItem(AddonClass::Ref<ListItem> pListItem, bool sendMessage) throw (WindowException)
+    {
+      if (pListItem.isNull())
         throw WindowException("NULL ListItem passed to ControlList::addListItem");
 
       // add item to objects vector
@@ -1268,7 +1273,8 @@ namespace XBMCAddon
       if ((vecItems.size() > 0) && pGUIControl)
       {
         pGUIControl->OnMessage(msg);
-        pListItem = vecItems[msg.GetParam1()];
+        if (msg.GetParam1() >= 0 && (size_t)msg.GetParam1() < vecItems.size())
+          pListItem = vecItems[msg.GetParam1()];
       }
 
       return pListItem.get();

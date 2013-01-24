@@ -30,6 +30,7 @@
 
 #include "GraphicContext.h"
 #include "IMsgTargetCallback.h"
+#include "utils/GlobalsHandling.h"
 
 // Forward
 class CGUIFont;
@@ -78,9 +79,11 @@ public:
   bool IsFontSetUnicode(const CStdString& strFontSet);
   bool GetFirstFontSetUnicode(CStdString& strFontSet);
 
+  void ReloadTTFFonts();
+  void UnloadTTFFonts();
+
 protected:
   void RescaleFontSizeAndAspect(float *size, float *aspect, const RESOLUTION_INFO &sourceRes, bool preserveAspect) const;
-  void ReloadTTFFonts();
   void LoadFonts(const TiXmlNode* fontNode);
   CGUIFontTTFBase* GetFontFile(const CStdString& strFontFile);
   bool OpenFontFile(CXBMCTinyXML& xmlDoc);
@@ -97,5 +100,6 @@ protected:
  \ingroup textures
  \brief
  */
-extern GUIFontManager g_fontManager;
+XBMC_GLOBAL_REF(GUIFontManager, g_fontManager);
+#define g_fontManager XBMC_GLOBAL_USE(GUIFontManager)
 #endif

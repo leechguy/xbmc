@@ -46,7 +46,7 @@ using namespace std;
 CGUIEPGGridContainer::CGUIEPGGridContainer(int parentID, int controlID, float posX, float posY, float width,
                                            float height, ORIENTATION orientation, int scrollTime,
                                            int preloadItems, int timeBlocks, int rulerUnit)
-    : CGUIControl(parentID, controlID, posX, posY, width, height)
+    : IGUIContainer(parentID, controlID, posX, posY, width, height)
 {
   ControlType             = GUICONTAINER_EPGGRID;
   m_blocksPerPage         = timeBlocks;
@@ -66,7 +66,6 @@ CGUIEPGGridContainer::CGUIEPGGridContainer(int parentID, int controlID, float po
   m_item                  = NULL;
   m_lastItem              = NULL;
   m_lastChannel           = NULL;
-  m_channelWrapAround     = true; /// get from settings?
   m_orientation           = orientation;
   m_programmeLayout       = NULL;
   m_focusedProgrammeLayout= NULL;
@@ -322,7 +321,7 @@ void CGUIEPGGridContainer::Render()
     {
       /* first program starts before current view */
       int startBlock = blockOffset - 1;
-      while (m_gridIndex[channel][startBlock].item == item)
+      while (startBlock >= 0 && m_gridIndex[channel][startBlock].item == item)
         startBlock--;
 
       block = startBlock + 1;
@@ -902,19 +901,10 @@ void CGUIEPGGridContainer::ChannelScroll(int amount)
 void CGUIEPGGridContainer::ProgrammesScroll(int amount)
 {
   // increase or decrease the horizontal offset
-  int offset = m_blockOffset + amount;
-
-  if (offset > m_blocks - m_blocksPerPage)
-  {
-    offset = m_blocks - m_blocksPerPage;
-  }
-
-  if (offset < 0) offset = 0;
-
-  ScrollToBlockOffset(offset);
+  ScrollToBlockOffset(m_blockOffset + amount);
 }
 
-bool CGUIEPGGridContainer::MoveChannel(bool direction)
+bool CGUIEPGGridContainer::MoveChannel(bool direction, bool wrapAround)
 {
   if (direction)
   {
@@ -927,7 +917,7 @@ bool CGUIEPGGridContainer::MoveChannel(bool direction)
       ScrollToChannelOffset(m_channelOffset - 1);
       SetChannel(0);
     }
-    else if (m_channelWrapAround)
+    else if (wrapAround)
     {
       int offset = m_channels - m_channelsPerPage;
 
@@ -954,7 +944,7 @@ bool CGUIEPGGridContainer::MoveChannel(bool direction)
         SetChannel(m_channelsPerPage - 1);
       }
     }
-    else if (m_channelWrapAround)
+    else if (wrapAround)
     {
       SetChannel(0);
       ScrollToChannelOffset(0);
@@ -1080,9 +1070,10 @@ bool CGUIEPGGridContainer::MoveProgrammes(bool direction)
 
 void CGUIEPGGridContainer::OnUp()
 {
+  bool wrapAround = m_actionUp.GetNavigation() == GetID() || !m_actionUp.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL)
   {
-    if (!MoveChannel(true))
+    if (!MoveChannel(true, wrapAround))
       CGUIControl::OnUp();
   }
   else
@@ -1094,9 +1085,10 @@ void CGUIEPGGridContainer::OnUp()
 
 void CGUIEPGGridContainer::OnDown()
 {
+  bool wrapAround = m_actionDown.GetNavigation() == GetID() || !m_actionDown.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL)
   {
-    if (!MoveChannel(false))
+    if (!MoveChannel(false, wrapAround))
       CGUIControl::OnDown();
   }
   else
@@ -1108,6 +1100,7 @@ void CGUIEPGGridContainer::OnDown()
 
 void CGUIEPGGridContainer::OnLeft()
 {
+  bool wrapAround = m_actionLeft.GetNavigation() == GetID() || !m_actionLeft.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL)
   {
     if (!MoveProgrammes(true))
@@ -1115,13 +1108,14 @@ void CGUIEPGGridContainer::OnLeft()
   }
   else
   {
-    if (!MoveChannel(true))
+    if (!MoveChannel(true, wrapAround))
       CGUIControl::OnLeft();
   }
 }
 
 void CGUIEPGGridContainer::OnRight()
 {
+  bool wrapAround = m_actionRight.GetNavigation() == GetID() || !m_actionRight.HasActionsMeetingCondition();
   if (m_orientation == VERTICAL)
   {
     if (!MoveProgrammes(false))
@@ -1129,7 +1123,7 @@ void CGUIEPGGridContainer::OnRight()
   }
   else
   {
-    if (!MoveChannel(false))
+    if (!MoveChannel(false, wrapAround))
       CGUIControl::OnRight();
   }
 }
@@ -1328,12 +1322,50 @@ int CGUIEPGGridContainer::GetSelectedItem() const
   return 0;
 }
 
-CGUIListItemPtr CGUIEPGGridContainer::GetListItem(int offset) const
+CGUIListItemPtr CGUIEPGGridContainer::GetListItem(int offset, unsigned int flag) const
 {
-  if (!m_epgItemsPtr.size())
+  if (!m_channelItems.size())
     return CGUIListItemPtr();
 
-  return m_item->item;
+  int item = m_channelCursor + m_channelOffset + offset;
+  if (flag & INFOFLAG_LISTITEM_POSITION)
+    item = (int)(m_channelScrollOffset / m_channelLayout->Size(VERTICAL));
+
+  if (flag & INFOFLAG_LISTITEM_WRAP)
+  {
+    item %= (int)m_channelItems.size();
+    if (item < 0) item += m_channelItems.size();
+    return m_channelItems[item];
+  }
+  else
+  {
+    if (item >= 0 && item < (int)m_channelItems.size())
+      return m_channelItems[item];
+  }
+  return CGUIListItemPtr();
+}
+
+CStdString CGUIEPGGridContainer::GetLabel(int info) const
+{
+  CStdString label;
+  switch (info)
+  {
+  case CONTAINER_NUM_PAGES:
+    label.Format("%u", (m_channels + m_channelsPerPage - 1) / m_channelsPerPage);
+    break;
+  case CONTAINER_CURRENT_PAGE:
+    label.Format("%u", 1 + (m_channelCursor + m_channelOffset) / m_channelsPerPage );
+    break;
+  case CONTAINER_POSITION:
+    label.Format("%i", 1 + m_channelCursor + m_channelOffset);
+    break;
+  case CONTAINER_NUM_ITEMS:
+    label.Format("%u", m_channels);
+    break;
+  default:
+      break;
+  }
+  return label;
 }
 
 GridItemsPtr *CGUIEPGGridContainer::GetClosestItem(const int &channel)
@@ -1468,6 +1500,9 @@ void CGUIEPGGridContainer::ScrollToChannelOffset(int offset)
 
 void CGUIEPGGridContainer::ScrollToBlockOffset(int offset)
 {
+  // make sure offset is in valid range
+  offset = std::max(0, std::min(offset, m_blocks - m_blocksPerPage));
+
   float size = m_blockSize;
   int range = m_blocksPerPage / 1;
 

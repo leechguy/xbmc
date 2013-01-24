@@ -72,10 +72,10 @@ struct DemuxPacket;
 #define PVR_STREAM_MAX_STREAMS 20
 
 /* current PVR API version */
-#define XBMC_PVR_API_VERSION "1.4.0"
+#define XBMC_PVR_API_VERSION "1.6.0"
 
 /* min. PVR API version */
-#define XBMC_PVR_MIN_API_VERSION "1.4.0"
+#define XBMC_PVR_MIN_API_VERSION "1.6.0"
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,13 +103,29 @@ extern "C" {
    */
   typedef enum
   {
-    PVR_TIMER_STATE_NEW       = 0, /*!< @brief a new, unsaved timer */
-    PVR_TIMER_STATE_SCHEDULED = 1, /*!< @brief the timer is scheduled for recording */
-    PVR_TIMER_STATE_RECORDING = 2, /*!< @brief the timer is currently recordings */
-    PVR_TIMER_STATE_COMPLETED = 3, /*!< @brief the recording completed successfully */
-    PVR_TIMER_STATE_ABORTED   = 4, /*!< @brief recording started, but was aborted */
-    PVR_TIMER_STATE_CANCELLED = 5  /*!< @brief the timer was scheduled, but was canceled */
+    PVR_TIMER_STATE_NEW          = 0, /*!< @brief a new, unsaved timer */
+    PVR_TIMER_STATE_SCHEDULED    = 1, /*!< @brief the timer is scheduled for recording */
+    PVR_TIMER_STATE_RECORDING    = 2, /*!< @brief the timer is currently recordings */
+    PVR_TIMER_STATE_COMPLETED    = 3, /*!< @brief the recording completed successfully */
+    PVR_TIMER_STATE_ABORTED      = 4, /*!< @brief recording started, but was aborted */
+    PVR_TIMER_STATE_CANCELLED    = 5, /*!< @brief the timer was scheduled, but was canceled */
+    PVR_TIMER_STATE_CONFLICT_OK  = 6, /*!< @brief the scheduled timer conflicts with another one, but will be recorded */
+    PVR_TIMER_STATE_CONFLICT_NOK = 7, /*!< @brief the scheduled timer conflicts with another one and won't be recorded */
+    PVR_TIMER_STATE_ERROR        = 8  /*!< @brief the timer is scheduled, but can't be recorded for some reason */
   } PVR_TIMER_STATE;
+
+  /*!
+   * @brief PVR menu hook categories
+   */
+  typedef enum
+  {
+    PVR_MENUHOOK_ALL             = 0, /*!< @brief all categories */
+    PVR_MENUHOOK_CHANNEL         = 1, /*!< @brief for channels */
+    PVR_MENUHOOK_TIMER           = 2, /*!< @brief for timers */
+    PVR_MENUHOOK_EPG             = 3, /*!< @brief for EPG */
+    PVR_MENUHOOK_RECORDING       = 4, /*!< @brief for recordings */
+    PVR_MENUHOOK_SETTING         = 5, /*!< @brief for settings */
+  } PVR_MENUHOOK_CAT;
 
   /*!
    * @brief Properties passed to the Create() method of an add-on.
@@ -148,7 +164,6 @@ extern "C" {
     unsigned int iStreamCount;
     struct PVR_STREAM
     {
-      unsigned int iStreamIndex;       /*!< @brief (required) stream index */
       unsigned int iPhysicalId;        /*!< @brief (required) physical index */
       unsigned int iCodecType;         /*!< @brief (required) codec type id */
       unsigned int iCodecId;           /*!< @brief (required) codec id */
@@ -185,11 +200,13 @@ extern "C" {
 
   /*!
    * @brief Menu hooks that are available in the context menus while playing a stream via this add-on.
+   * And in the Live TV settings dialog
    */
   typedef struct PVR_MENUHOOK
   {
-    unsigned int iHookId;              /*!< @brief (required) this hook's identifier */
-    unsigned int iLocalizedStringId;   /*!< @brief (required) the id of the label for this hook in g_localizeStrings */
+    unsigned int     iHookId;              /*!< @brief (required) this hook's identifier */
+    unsigned int     iLocalizedStringId;   /*!< @brief (required) the id of the label for this hook in g_localizeStrings */
+    PVR_MENUHOOK_CAT category;             /*!< @brief (required) category of menu hook */
   } ATTRIBUTE_PACKED PVR_MENUHOOK;
 
   /*!
@@ -329,6 +346,11 @@ extern "C" {
     void         (__cdecl* DemuxFlush)(void);
     DemuxPacket* (__cdecl* DemuxRead)(void);
     unsigned int (__cdecl* GetChannelSwitchDelay)(void);
+    bool         (__cdecl* CanPauseStream)(void);
+    void         (__cdecl* PauseStream)(bool);
+    bool         (__cdecl* CanSeekStream)(void);
+    bool         (__cdecl* SeekTime)(int, bool, double*);
+    void         (__cdecl* SetSpeed)(int);
   } PVRClient;
 
 #ifdef __cplusplus

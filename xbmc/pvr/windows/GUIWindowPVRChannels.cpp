@@ -107,7 +107,7 @@ void CGUIWindowPVRChannels::GetContextButtons(int itemNumber, CContextButtons &b
     if (m_bShowHiddenChannels || g_PVRChannelGroups->GetGroupAllTV()->GetNumHiddenChannels() > 0)
       buttons.Add(CONTEXT_BUTTON_SHOW_HIDDEN, m_bShowHiddenChannels ? 19050 : 19051); /* show hidden/visible channels */
 
-    if (g_PVRClients->HasMenuHooks(pItem->GetPVRChannelInfoTag()->ClientID()))
+    if (g_PVRClients->HasMenuHooks(pItem->GetPVRChannelInfoTag()->ClientID(), PVR_MENUHOOK_CHANNEL))
       buttons.Add(CONTEXT_BUTTON_MENU_HOOKS, 19195);                                  /* PVR client specific action */
 
     CPVRChannel *channel = pItem->GetPVRChannelInfoTag();
@@ -171,7 +171,7 @@ void CGUIWindowPVRChannels::Notify(const Observable &obs, const ObservableMessag
   else if (msg == ObservableMessageChannelGroupReset)
   {
     if (IsVisible())
-      UpdateData(false);
+      UpdateData(true);
     else
       m_bUpdateRequired = true;
   }
@@ -181,7 +181,11 @@ CPVRChannelGroupPtr CGUIWindowPVRChannels::SelectNextGroup(void)
 {
   CPVRChannelGroupPtr currentGroup = SelectedGroup();
   CPVRChannelGroupPtr nextGroup = currentGroup->GetNextGroup();
-  while (nextGroup && *nextGroup != *currentGroup && nextGroup->Size() == 0)
+  while (nextGroup && nextGroup->Size() == 0 &&
+      // break if the group matches
+      *nextGroup != *currentGroup &&
+      // or if we hit the first group
+      !nextGroup->IsInternalGroup())
     nextGroup = nextGroup->GetNextGroup();
 
   /* always update so users can reset the list */
@@ -204,14 +208,22 @@ void CGUIWindowPVRChannels::UpdateData(bool bUpdateSelectedFile /* = true */)
   /* lock the graphics context while updating */
   CSingleLock graphicsLock(g_graphicsContext);
 
-  m_iSelected = m_parent->m_viewControl.GetSelectedItem();
-  m_parent->m_viewControl.Clear();
-  m_parent->m_vecItems->Clear();
+  CPVRChannelGroupPtr selectedGroup = SelectedGroup();
+
+  if (!bUpdateSelectedFile)
+    m_iSelected = m_parent->m_viewControl.GetSelectedItem();
+  else
+    m_parent->m_viewControl.SetSelectedItem(0);
+
   m_parent->m_viewControl.SetCurrentView(m_iControlList);
+  ShowBusyItem();
+  m_parent->m_vecItems->Clear();
 
   CPVRChannelGroupPtr currentGroup = g_PVRManager.GetPlayingGroup(m_bRadio);
   if (!currentGroup)
     return;
+
+  SetSelectedGroup(currentGroup);
 
   CStdString strPath;
   strPath.Format("pvr://channels/%s/%s/",
@@ -458,15 +470,15 @@ bool CGUIWindowPVRChannels::OnContextButtonSetThumb(CFileItem *item, CONTEXT_BUT
     {
       /* add the current thumb, if available */
       CFileItemPtr current(new CFileItem("thumb://Current", false));
-      current->SetThumbnailImage(channel->IconPath());
+      current->SetArt("thumb", channel->IconPath());
       current->SetLabel(g_localizeStrings.Get(20016));
       items.Add(current);
     }
-    else if (item->HasThumbnail())
+    else if (item->HasArt("thumb"))
     {
       /* already have a thumb that the share doesn't know about - must be a local one, so we may as well reuse it */
       CFileItemPtr current(new CFileItem("thumb://Current", false));
-      current->SetThumbnailImage(item->GetThumbnailImage());
+      current->SetArt("thumb", item->GetArt("thumb"));
       current->SetLabel(g_localizeStrings.Get(20016));
       items.Add(current);
     }

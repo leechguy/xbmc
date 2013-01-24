@@ -372,64 +372,7 @@ void Cocoa_ShowMouse()
   [NSCursor unhide];
 }
 
-void Cocoa_HideDock()
-{
-  // Find which display we are on
-  NSOpenGLContext* context = [NSOpenGLContext currentContext];
-  if (context)
-  {
-    NSView* view;
-
-    view = [context view];
-    if (view)
-    {
-      NSWindow* window;
-      window = [view window];
-      if (window)
-      {
-        NSDictionary* screenInfo = [[window screen] deviceDescription];
-        NSNumber* screenID = [screenInfo objectForKey:@"NSScreenNumber"];
-        if (kCGDirectMainDisplay == (CGDirectDisplayID)[screenID longValue])
-        {
-          CStdString tmp_str;
-
-          // keep the dock hidden using applescriptif on main screen with the dock.
-          tmp_str = "tell application \"System Events\" \n";
-          tmp_str += "keystroke \"d\" using {command down, option down} \n";
-          tmp_str += "end tell \n";
-          
-          Cocoa_DoAppleScript( tmp_str.c_str() );
-        }
-      }
-    }
-  }
-}
-
-static char strVersion[32];
-
-const char* Cocoa_GetAppVersion()
-{
-  // Get the main bundle for the app and return the version.
-  CFBundleRef mainBundle = CFBundleGetMainBundle();
-  CFStringRef versStr = (CFStringRef)CFBundleGetValueForInfoDictionaryKey(mainBundle, kCFBundleVersionKey);
-  
-  memset(strVersion,0,32);
-  
-  if (versStr != NULL && CFGetTypeID(versStr) == CFStringGetTypeID())
-  {
-    bool res = CFStringGetCString(versStr, strVersion, 32,kCFStringEncodingUTF8);
-    if (!res)
-    {
-      printf("Error converting version string\n");      
-      strcpy(strVersion, "SVN");
-    }
-  }
-  else
-    strcpy(strVersion, "SVN");
-  
-  return strVersion;
-}
-
+//---------------------------------------------------------------------------------
 bool Cocoa_HasVDADecoder()
 {
   static int result = -1;

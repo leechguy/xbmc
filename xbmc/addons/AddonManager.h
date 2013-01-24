@@ -72,6 +72,7 @@ namespace ADDON
   {
   public:
     static CAddonMgr &Get();
+    bool ReInit() { DeInit(); return Init(); }
     bool Init();
     void DeInit();
 
@@ -181,9 +182,11 @@ namespace ADDON
     /*! \brief Fetch a (single) addon from a plugin descriptor.
      Assumes that there is a single (non-trivial) extension point per addon.
      \param info the plugin descriptor
+     \param type the extension point we want
      \return an AddonPtr based on the descriptor.  May be NULL if no suitable extension point is found.
      */
-    AddonPtr GetAddonFromDescriptor(const cp_plugin_info_t *info);
+    AddonPtr GetAddonFromDescriptor(const cp_plugin_info_t *info,
+                                    const CStdString& type="");
 
     /*! \brief Check whether this addon is supported on the current platform
      \param info the plugin descriptor

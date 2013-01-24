@@ -48,8 +48,8 @@ void CGUIDialogPictureInfo::SetPicture(CFileItem *item)
 
 void CGUIDialogPictureInfo::OnInitWindow()
 {
-  CGUIDialog::OnInitWindow();
   UpdatePictureInfo();
+  CGUIDialog::OnInitWindow();
 }
 
 bool CGUIDialogPictureInfo::OnAction(const CAction& action)
@@ -67,6 +67,10 @@ bool CGUIDialogPictureInfo::OnAction(const CAction& action)
         return pWindow->OnAction(action);
       }
       break;
+
+    case ACTION_SHOW_INFO:
+      Close();
+      return true;
   };
   return CGUIDialog::OnAction(action);
 }

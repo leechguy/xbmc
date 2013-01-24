@@ -32,6 +32,7 @@
 #include "IWindowManagerCallback.h"
 #include "IMsgTargetCallback.h"
 #include "DirtyRegionTracker.h"
+#include "utils/GlobalsHandling.h"
 
 class CGUIDialog;
 
@@ -75,6 +76,10 @@ public:
    */
   void MarkDirty();
 
+  /*! \brief Mark a region as dirty, forcing a redraw at the next Render()
+   */
+  void MarkDirty(const CRect& rect);
+
   /*! \brief Get the current dirty region
    */
   CDirtyRegionList GetDirty() { return m_tracker.GetDirtyRegions(); }
@@ -85,6 +90,10 @@ public:
    Returns true only if it has rendered something.
    */
   bool Render();
+
+  /*! \brief Do any post render activities.
+   */
+  void AfterRender();
 
   /*! \brief Per-frame updating of the current window and any dialogs
    FrameMove is called every frame to update the current window and any dialogs
@@ -171,6 +180,7 @@ private:
  \ingroup winman
  \brief
  */
-extern CGUIWindowManager g_windowManager;
+XBMC_GLOBAL_REF(CGUIWindowManager,g_windowManager);
+#define g_windowManager XBMC_GLOBAL_USE(CGUIWindowManager)
 #endif
 

@@ -195,6 +195,7 @@ public:
   virtual void GetVideoAspectRatio(float& fAR)                  { fAR = m_dvdPlayerVideo.GetAspectRatio(); }
   virtual bool CanRecord();
   virtual bool IsRecording();
+  virtual bool CanPause();
   virtual bool Record(bool bOnOff);
   virtual void SetAVDelay(float fValue = 0.0f);
   virtual float GetAVDelay();
@@ -277,8 +278,8 @@ protected:
   virtual void OnExit();
   virtual void Process();
 
-  bool OpenAudioStream(int iStream, int source);
-  bool OpenVideoStream(int iStream, int source);
+  bool OpenAudioStream(int iStream, int source, bool reset = true);
+  bool OpenVideoStream(int iStream, int source, bool reset = true);
   bool OpenSubtitleStream(int iStream, int source);
   bool OpenTeletextStream(int iStream, int source);
   bool CloseAudioStream(bool bWaitForBuffers);
@@ -333,7 +334,7 @@ protected:
 
   bool OpenInputStream();
   bool OpenDemuxStream();
-  void OpenDefaultStreams();
+  void OpenDefaultStreams(bool reset = true);
 
   void UpdateApplication(double timeout);
   void UpdatePlayState(double timeout);
@@ -399,6 +400,13 @@ protected:
     int iSelectedAudioStream; // mpeg stream id, or -1 if disabled
   } m_dvd;
 
+  enum ETimeSource
+  {
+    ETIMESOURCE_CLOCK,
+    ETIMESOURCE_INPUT,
+    ETIMESOURCE_MENU,
+  };
+
   struct SPlayerState
   {
     SPlayerState() { Clear(); }
@@ -408,6 +416,7 @@ protected:
       time          = 0;
       time_total    = 0;
       time_offset   = 0;
+      time_src      = ETIMESOURCE_CLOCK;
       dts           = DVD_NOPTS_VALUE;
       player_state  = "";
       chapter       = 0;
@@ -415,6 +424,8 @@ protected:
       chapter_count = 0;
       canrecord     = false;
       recording     = false;
+      canpause      = false;
+      canseek       = false;
       demux_video   = "";
       demux_audio   = "";
       cache_bytes   = 0;
@@ -428,6 +439,7 @@ protected:
 
     double time;              // current playback time
     double time_total;        // total playback time
+    ETimeSource time_src;     // current time source
     double dts;               // last known dts
 
     std::string player_state;  // full player state
@@ -438,6 +450,9 @@ protected:
 
     bool canrecord;           // can input stream record
     bool recording;           // are we currently recording
+
+    bool canpause;            // pvr: can pause the current playing item
+    bool canseek;             // pvr: can seek in the current playing item
 
     std::string demux_video;
     std::string demux_audio;

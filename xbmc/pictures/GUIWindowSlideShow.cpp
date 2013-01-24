@@ -202,6 +202,16 @@ void CGUIWindowSlideShow::AnnouncePlaylistAdd(const CFileItemPtr& item, int pos)
   ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::Playlist, "xbmc", "OnAdd", item, data);
 }
 
+void CGUIWindowSlideShow::AnnouncePropertyChanged(const std::string &strProperty, const CVariant &value)
+{
+  if (strProperty.empty() || value.isNull())
+    return;
+
+  CVariant data;
+  data["player"]["playerid"] = PLAYLIST_PICTURE;
+  data["property"][strProperty] = value;
+  ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::Player, "xbmc", "OnPropertyChanged", data);
+}
 
 bool CGUIWindowSlideShow::IsPlaying() const
 {
@@ -217,7 +227,6 @@ void CGUIWindowSlideShow::Reset()
   m_bPlayingVideo = false;
   m_bErrorMessage = false;
   m_bReloadImage = false;
-  m_bScreensaver = false;
   m_Image[0].UnLoad();
   m_Image[0].Close();
   m_Image[1].UnLoad();
@@ -363,11 +372,12 @@ bool CGUIWindowSlideShow::InSlideShow() const
   return m_bSlideShow;
 }
 
-void CGUIWindowSlideShow::StartSlideShow(bool screensaver)
+void CGUIWindowSlideShow::StartSlideShow()
 {
   m_bSlideShow = true;
   m_iDirection = 1;
-  m_bScreensaver = screensaver;
+  if (m_slides->Size())
+    AnnouncePlayerPlay(m_slides->Get(m_iCurrentSlide));
 }
 
 void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &regions)
@@ -667,12 +677,6 @@ EVENT_RESULT CGUIWindowSlideShow::OnMouseEvent(const CPoint &point, const CMouse
 
 bool CGUIWindowSlideShow::OnAction(const CAction &action)
 {
-  if (m_bScreensaver)
-  {
-    g_windowManager.PreviousWindow();
-    return true;
-  }
-
   switch (action.GetID())
   {
   case ACTION_SHOW_CODEC:
@@ -689,7 +693,7 @@ bool CGUIWindowSlideShow::OnAction(const CAction &action)
   case ACTION_PREVIOUS_MENU:
   case ACTION_NAV_BACK:
   case ACTION_STOP:
-    if (m_bSlideShow && m_slides->Size())
+    if (m_slides->Size())
       AnnouncePlayerStop(m_slides->Get(m_iCurrentSlide));
     g_windowManager.PreviousWindow();
     break;
@@ -1030,6 +1034,8 @@ void CGUIWindowSlideShow::Shuffle()
   m_iCurrentSlide = 0;
   m_iNextSlide = 1;
   m_bShuffled = true;
+
+  AnnouncePropertyChanged("shuffled", true);
 }
 
 int CGUIWindowSlideShow::NumSlides() const

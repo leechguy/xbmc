@@ -17,6 +17,7 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
+#include "network/Network.h"
 #include "threads/SystemClock.h"
 #include "system.h"
 #if defined(TARGET_DARWIN)
@@ -56,9 +57,6 @@
 #ifdef HAS_UPNP
 #include "filesystem/UPnPDirectory.h"
 #endif
-#ifdef HAS_VIDEO_PLAYBACK
-#include "cores/VideoRenderers/RenderManager.h"
-#endif
 #include "utils/RegExp.h"
 #include "settings/GUISettings.h"
 #include "guilib/TextureManager.h"
@@ -84,18 +82,16 @@
 #include "utils/TimeUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
-#include "pictures/Picture.h"
-#include "utils/JobManager.h"
+
 #include "cores/dvdplayer/DVDSubtitles/DVDSubtitleTagSami.h"
 #include "cores/dvdplayer/DVDSubtitles/DVDSubtitleStream.h"
-#include "windowing/WindowingFactory.h"
 #include "URL.h"
 #ifdef HAVE_LIBCAP
   #include <sys/capability.h>
 #endif
 
 using namespace std;
-using namespace XFILE;
+
 
 #define clamp(x) (x) > 255.f ? 255 : ((x) < 0 ? 0 : (BYTE)(x+0.5f)) // Valid ranges: brightness[-1 -> 1 (0 is default)] contrast[0 -> 2 (1 is default)]  gamma[0.5 -> 3.5 (1 is default)] default[ramp is linear]
 static const int64_t SECS_BETWEEN_EPOCHS = 11644473600LL;
@@ -240,91 +236,6 @@ CStdString CUtil::GetTitleFromPath(const CStdString& strFileNameAndPath, bool bI
   return strFilename;
 }
 
-bool CUtil::GetVolumeFromFileName(const CStdString& strFileName, CStdString& strFileTitle, CStdString& strVolumeNumber)
-{
-  const CStdStringArray &regexps = g_advancedSettings.m_videoStackRegExps;
-
-  CStdString strFileNameTemp = strFileName;
-
-  CRegExp reg(true);
-
-  for (unsigned int i = 0; i < regexps.size(); i++)
-  {
-    CStdString strRegExp = regexps[i];
-    if (!reg.RegComp(strRegExp.c_str()))
-    { // invalid regexp - complain in logs
-      CLog::Log(LOGERROR, "Invalid RegExp:[%s]", regexps[i].c_str());
-      continue;
-    }
-
-    int iFoundToken = reg.RegFind(strFileName.c_str());
-    if (iFoundToken >= 0)
-    {
-      int iRegLength = reg.GetFindLen();
-      int iCount = reg.GetSubCount();
-
-      /*
-      reg.DumpOvector(LOGDEBUG);
-      CLog::Log(LOGDEBUG, "Subcount=%i", iCount);
-      for (int j = 0; j <= iCount; j++)
-      {
-        CStdString str = reg.GetMatch(j);
-        CLog::Log(LOGDEBUG, "Sub(%i):[%s]", j, str.c_str());
-      }
-      */
-
-      // simple regexp, only the volume is captured
-      if (iCount == 1)
-      {
-        strVolumeNumber = reg.GetMatch(1);
-        if (strVolumeNumber.IsEmpty()) return false;
-
-        // Remove the extension (if any).  We do this on the base filename, as the regexp
-        // match may include some of the extension (eg the "." in particular).
-        // The extension will then be added back on at the end - there is no reason
-        // to clean it off here. It will be cleaned off during the display routine, if
-        // the settings to hide extensions are turned on.
-        CStdString strFileNoExt = strFileNameTemp;
-        URIUtils::RemoveExtension(strFileNoExt);
-        CStdString strFileExt = strFileNameTemp.Right(strFileNameTemp.length() - strFileNoExt.length());
-        CStdString strFileRight = strFileNoExt.Mid(iFoundToken + iRegLength);
-        strFileTitle = strFileName.Left(iFoundToken) + strFileRight + strFileExt;
-
-        return true;
-      }
-
-      // advanced regexp with prefix (1), volume (2), and suffix (3)
-      else if (iCount == 3)
-      {
-        // second subpatten contains the stacking volume
-        strVolumeNumber = reg.GetMatch(2);
-        if (strVolumeNumber.IsEmpty()) return false;
-
-        // everything before the regexp match
-        strFileTitle = strFileName.Left(iFoundToken);
-
-        // first subpattern contains prefix
-        strFileTitle += reg.GetMatch(1);
-
-        // third subpattern contains suffix
-        strFileTitle += reg.GetMatch(3);
-
-        // everything after the regexp match
-        strFileTitle += strFileNameTemp.Mid(iFoundToken + iRegLength);
-
-        return true;
-      }
-
-      // unknown regexp format
-      else
-      {
-        CLog::Log(LOGERROR, "Incorrect movie stacking regexp format:[%s]", regexps[i].c_str());
-      }
-    }
-  }
-  return false;
-}
-
 void CUtil::CleanString(const CStdString& strFileName, CStdString& strTitle, CStdString& strTitleAndYear, CStdString& strYear, bool bRemoveExtension /* = false */, bool bCleanChars /* = true */)
 {
   strTitleAndYear = strFileName;
@@ -347,12 +258,8 @@ void CUtil::CleanString(const CStdString& strFileName, CStdString& strTitle, CSt
   {
     if (reYear.RegFind(strTitleAndYear.c_str()) >= 0)
     {
-      char* ty = reYear.GetReplaceString("\\1");
-      char* y = reYear.GetReplaceString("\\2");
-      strTitleAndYear = ty;
-      strYear = y;
-      free(ty);
-      free(y);
+      strTitleAndYear = reYear.GetReplaceString("\\1");
+      strYear = reYear.GetReplaceString("\\2");
     }
   }
 
@@ -366,7 +273,7 @@ void CUtil::CleanString(const CStdString& strFileName, CStdString& strTitle, CSt
       continue;
     }
     int j=0;
-    if ((j=reTags.RegFind(strFileName.c_str())) > 0)
+    if ((j=reTags.RegFind(strTitleAndYear.c_str())) > 0)
       strTitleAndYear = strTitleAndYear.Mid(0, j);
   }
 
@@ -864,202 +771,6 @@ void CUtil::Tokenize(const CStdString& path, vector<CStdString>& tokens, const s
     lastPos = path.find_first_not_of(delimiters, pos);
     // Find next "non-delimiter"
     pos = path.find_first_of(delimiters, lastPos);
-  }
-}
-
-void CUtil::TakeScreenshot(const CStdString &filename, bool sync)
-{
-  int            width;
-  int            height;
-  int            stride;
-  unsigned char* outpixels = NULL;
-
-#ifdef HAS_DX
-  LPDIRECT3DSURFACE9 lpSurface = NULL, lpBackbuffer = NULL;
-  g_graphicsContext.Lock();
-  if (g_application.IsPlayingVideo())
-  {
-#ifdef HAS_VIDEO_PLAYBACK
-    g_renderManager.SetupScreenshot();
-#endif
-  }
-  g_application.RenderNoPresent();
-
-  if (FAILED(g_Windowing.Get3DDevice()->CreateOffscreenPlainSurface(g_Windowing.GetWidth(), g_Windowing.GetHeight(), D3DFMT_X8R8G8B8, D3DPOOL_SYSTEMMEM, &lpSurface, NULL)))
-    return;
-
-  if (FAILED(g_Windowing.Get3DDevice()->GetRenderTarget(0, &lpBackbuffer)))
-    return;
-
-  // now take screenshot
-  if (SUCCEEDED(g_Windowing.Get3DDevice()->GetRenderTargetData(lpBackbuffer, lpSurface)))
-  {
-    D3DLOCKED_RECT lr;
-    D3DSURFACE_DESC desc;
-    lpSurface->GetDesc(&desc);
-    if (SUCCEEDED(lpSurface->LockRect(&lr, NULL, D3DLOCK_READONLY)))
-    {
-      width = desc.Width;
-      height = desc.Height;
-      stride = lr.Pitch;
-      outpixels = new unsigned char[height * stride];
-      memcpy(outpixels, lr.pBits, height * stride);
-      lpSurface->UnlockRect();
-    }
-    else
-    {
-      CLog::Log(LOGERROR, "%s LockRect failed", __FUNCTION__);
-    }
-  }
-  else
-  {
-    CLog::Log(LOGERROR, "%s GetBackBuffer failed", __FUNCTION__);
-  }
-  lpSurface->Release();
-  lpBackbuffer->Release();
-
-  g_graphicsContext.Unlock();
-
-#elif defined(HAS_GL) || defined(HAS_GLES)
-
-  g_graphicsContext.BeginPaint();
-  if (g_application.IsPlayingVideo())
-  {
-#ifdef HAS_VIDEO_PLAYBACK
-    g_renderManager.SetupScreenshot();
-#endif
-  }
-  g_application.RenderNoPresent();
-#ifndef HAS_GLES
-  glReadBuffer(GL_BACK);
-#endif
-  //get current viewport
-  GLint viewport[4];
-  glGetIntegerv(GL_VIEWPORT, viewport);
-
-  width  = viewport[2] - viewport[0];
-  height = viewport[3] - viewport[1];
-  stride = width * 4;
-  unsigned char* pixels = new unsigned char[stride * height];
-
-  //read pixels from the backbuffer
-#if HAS_GLES == 2
-  glReadPixels(viewport[0], viewport[1], viewport[2], viewport[3], GL_RGBA, GL_UNSIGNED_BYTE, (GLvoid*)pixels);
-#else
-  glReadPixels(viewport[0], viewport[1], viewport[2], viewport[3], GL_BGRA, GL_UNSIGNED_BYTE, (GLvoid*)pixels);
-#endif
-  g_graphicsContext.EndPaint();
-
-  //make a new buffer and copy the read image to it with the Y axis inverted
-  outpixels = new unsigned char[stride * height];
-  for (int y = 0; y < height; y++)
-  {
-#ifdef HAS_GLES
-    // we need to save in BGRA order so XOR Swap RGBA -> BGRA
-    unsigned char* swap_pixels = pixels + (height - y - 1) * stride;
-    for (int x = 0; x < width; x++, swap_pixels+=4)
-    {
-      std::swap(swap_pixels[0], swap_pixels[2]);
-    }   
-#endif
-    memcpy(outpixels + y * stride, pixels + (height - y - 1) * stride, stride);
-  }
-
-  delete [] pixels;
-
-#else
-  //nothing to take a screenshot from
-  return;
-#endif
-
-  if (!outpixels)
-  {
-    CLog::Log(LOGERROR, "Screenshot %s failed", filename.c_str());
-    return;
-  }
-
-  CLog::Log(LOGDEBUG, "Saving screenshot %s", filename.c_str());
-
-  //set alpha byte to 0xFF
-  for (int y = 0; y < height; y++)
-  {
-    unsigned char* alphaptr = outpixels - 1 + y * stride;
-    for (int x = 0; x < width; x++)
-      *(alphaptr += 4) = 0xFF;
-  }
-
-  //if sync is true, the png file needs to be completely written when this function returns
-  if (sync)
-  {
-    if (!CPicture::CreateThumbnailFromSurface(outpixels, width, height, stride, filename))
-      CLog::Log(LOGERROR, "Unable to write screenshot %s", filename.c_str());
-
-    delete [] outpixels;
-  }
-  else
-  {
-    //make sure the file exists to avoid concurrency issues
-    FILE* fp = fopen(filename.c_str(), "w");
-    if (fp)
-      fclose(fp);
-    else
-      CLog::Log(LOGERROR, "Unable to create file %s", filename.c_str());
-
-    //write .png file asynchronous with CThumbnailWriter, prevents stalling of the render thread
-    //outpixels is deleted from CThumbnailWriter
-    CThumbnailWriter* thumbnailwriter = new CThumbnailWriter(outpixels, width, height, stride, filename);
-    CJobManager::GetInstance().AddJob(thumbnailwriter, NULL);
-  }
-}
-
-void CUtil::TakeScreenshot()
-{
-  static bool savingScreenshots = false;
-  static vector<CStdString> screenShots;
-
-  bool promptUser = false;
-  // check to see if we have a screenshot folder yet
-  CStdString strDir = g_guiSettings.GetString("debug.screenshotpath", false);
-  if (strDir.IsEmpty())
-  {
-    strDir = "special://temp/";
-    if (!savingScreenshots)
-    {
-      promptUser = true;
-      savingScreenshots = true;
-      screenShots.clear();
-    }
-  }
-  URIUtils::RemoveSlashAtEnd(strDir);
-
-  if (!strDir.IsEmpty())
-  {
-    CStdString file = CUtil::GetNextFilename(URIUtils::AddFileToFolder(strDir, "screenshot%03d.png"), 999);
-
-    if (!file.IsEmpty())
-    {
-      TakeScreenshot(file, false);
-      if (savingScreenshots)
-        screenShots.push_back(file);
-      if (promptUser)
-      { // grab the real directory
-        CStdString newDir = g_guiSettings.GetString("debug.screenshotpath");
-        if (!newDir.IsEmpty())
-        {
-          for (unsigned int i = 0; i < screenShots.size(); i++)
-          {
-            CStdString file = CUtil::GetNextFilename(URIUtils::AddFileToFolder(newDir, "screenshot%03d.png"), 999);
-            CFile::Cache(screenShots[i], file);
-          }
-          screenShots.clear();
-        }
-        savingScreenshots = false;
-      }
-    }
-    else
-    {
-      CLog::Log(LOGWARNING, "Too many screen shots or invalid folder");
-    }
   }
 }
 
@@ -1675,114 +1386,6 @@ void CUtil::DeleteDirectoryCache(const CStdString &prefix)
   }
 }
 
-bool CUtil::SetSysDateTimeYear(int iYear, int iMonth, int iDay, int iHour, int iMinute)
-{
-  TIME_ZONE_INFORMATION tziNew;
-  SYSTEMTIME CurTime;
-  SYSTEMTIME NewTime;
-  GetLocalTime(&CurTime);
-  GetLocalTime(&NewTime);
-  int iRescBiases, iHourUTC;
-  int iMinuteNew;
-
-  DWORD dwRet = GetTimeZoneInformation(&tziNew);  // Get TimeZone Informations
-  float iGMTZone = (float(tziNew.Bias)/(60));     // Calc's the GMT Time
-
-  CLog::Log(LOGDEBUG, "------------ TimeZone -------------");
-  CLog::Log(LOGDEBUG, "-      GMT Zone: GMT %.1f",iGMTZone);
-  CLog::Log(LOGDEBUG, "-          Bias: %lu minutes",tziNew.Bias);
-  CLog::Log(LOGDEBUG, "-  DaylightBias: %lu",tziNew.DaylightBias);
-  CLog::Log(LOGDEBUG, "-  StandardBias: %lu",tziNew.StandardBias);
-
-  switch (dwRet)
-  {
-    case TIME_ZONE_ID_STANDARD:
-      {
-        iRescBiases   = tziNew.Bias + tziNew.StandardBias;
-        CLog::Log(LOGDEBUG, "-   Timezone ID: 1, Standart");
-      }
-      break;
-    case TIME_ZONE_ID_DAYLIGHT:
-      {
-        iRescBiases   = tziNew.Bias + tziNew.StandardBias + tziNew.DaylightBias;
-        CLog::Log(LOGDEBUG, "-   Timezone ID: 2, Daylight");
-      }
-      break;
-    case TIME_ZONE_ID_UNKNOWN:
-      {
-        iRescBiases   = tziNew.Bias + tziNew.StandardBias;
-        CLog::Log(LOGDEBUG, "-   Timezone ID: 0, Unknown");
-      }
-      break;
-    case TIME_ZONE_ID_INVALID:
-      {
-        iRescBiases   = tziNew.Bias + tziNew.StandardBias;
-        CLog::Log(LOGDEBUG, "-   Timezone ID: Invalid");
-      }
-      break;
-    default:
-      iRescBiases   = tziNew.Bias + tziNew.StandardBias;
-  }
-    CLog::Log(LOGDEBUG, "--------------- END ---------------");
-
-  // Calculation
-  iHourUTC = GMTZoneCalc(iRescBiases, iHour, iMinute, iMinuteNew);
-  iMinute = iMinuteNew;
-  if(iHourUTC <0)
-  {
-    iDay = iDay - 1;
-    iHourUTC =iHourUTC + 24;
-  }
-  if(iHourUTC >23)
-  {
-    iDay = iDay + 1;
-    iHourUTC =iHourUTC - 24;
-  }
-
-  // Set the New-,Detected Time Values to System Time!
-  NewTime.wYear     = (WORD)iYear;
-  NewTime.wMonth    = (WORD)iMonth;
-  NewTime.wDay      = (WORD)iDay;
-  NewTime.wHour     = (WORD)iHourUTC;
-  NewTime.wMinute   = (WORD)iMinute;
-
-  FILETIME stNewTime, stCurTime;
-  SystemTimeToFileTime(&NewTime, &stNewTime);
-  SystemTimeToFileTime(&CurTime, &stCurTime);
-  return false;
-}
-int CUtil::GMTZoneCalc(int iRescBiases, int iHour, int iMinute, int &iMinuteNew)
-{
-  int iHourUTC, iTemp;
-  iMinuteNew = iMinute;
-  iTemp = iRescBiases/60;
-
-  if (iRescBiases == 0 )return iHour;   // GMT Zone 0, no need calculate
-  if (iRescBiases > 0)
-    iHourUTC = iHour + abs(iTemp);
-  else
-    iHourUTC = iHour - abs(iTemp);
-
-  if ((iTemp*60) != iRescBiases)
-  {
-    if (iRescBiases > 0)
-      iMinuteNew = iMinute + abs(iTemp*60 - iRescBiases);
-    else
-      iMinuteNew = iMinute - abs(iTemp*60 - iRescBiases);
-
-    if (iMinuteNew >= 60)
-    {
-      iMinuteNew = iMinuteNew -60;
-      iHourUTC = iHourUTC + 1;
-    }
-    else if (iMinuteNew < 0)
-    {
-      iMinuteNew = iMinuteNew +60;
-      iHourUTC = iHourUTC - 1;
-    }
-  }
-  return iHourUTC;
-}
 
 void CUtil::GetRecursiveListing(const CStdString& strPath, CFileItemList& items, const CStdString& strMask, bool bUseFileDirectories)
 {
@@ -1903,7 +1506,7 @@ bool CUtil::MakeShortenPath(CStdString StrInput, CStdString& StrOutput, int iTex
   return true;
 }
 
-bool CUtil::SupportsFileOperations(const CStdString& strPath)
+bool CUtil::SupportsWriteFileOperations(const CStdString& strPath)
 {
   // currently only hd, smb, nfs and afp support delete and rename
   if (URIUtils::IsHD(strPath))
@@ -1911,7 +1514,7 @@ bool CUtil::SupportsFileOperations(const CStdString& strPath)
   if (URIUtils::IsSmb(strPath))
     return true;
   if (CUtil::IsTVRecording(strPath))
-    return CPVRDirectory::SupportsFileOperations(strPath);
+    return CPVRDirectory::SupportsWriteFileOperations(strPath);
   if (URIUtils::IsNfs(strPath))
     return true;
   if (URIUtils::IsAfp(strPath))
@@ -1923,14 +1526,22 @@ bool CUtil::SupportsFileOperations(const CStdString& strPath)
      * it hits the directory cache on the way through, which has the Live Channels and Guide
      * items cached.
      */
-    return CMythDirectory::SupportsFileOperations(strPath);
+    return CMythDirectory::SupportsWriteFileOperations(strPath);
   }
   if (URIUtils::IsStack(strPath))
-    return SupportsFileOperations(CStackDirectory::GetFirstStackedFile(strPath));
+    return SupportsWriteFileOperations(CStackDirectory::GetFirstStackedFile(strPath));
   if (URIUtils::IsMultiPath(strPath))
-    return CMultiPathDirectory::SupportsFileOperations(strPath);
+    return CMultiPathDirectory::SupportsWriteFileOperations(strPath);
 
   return false;
+}
+
+bool CUtil::SupportsReadFileOperations(const CStdString& strPath)
+{
+  if (URIUtils::IsVideoDb(strPath))
+    return false;
+
+  return true;
 }
 
 CStdString CUtil::GetDefaultFolderThumb(const CStdString &folderThumb)

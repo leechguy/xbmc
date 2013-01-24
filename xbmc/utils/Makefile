@@ -4,6 +4,7 @@ SRCS=AlarmClock.cpp \
      AsyncFileCopy.cpp \
      AutoPtrHandle.cpp \
      Base64.cpp \
+     BitstreamConverter.cpp \
      BitstreamStats.cpp \
      CharsetConverter.cpp \
      CPUInfo.cpp \
@@ -13,6 +14,7 @@ SRCS=AlarmClock.cpp \
      DownloadQueue.cpp \
      DownloadQueueManager.cpp \
      EndianSwap.cpp \
+     EdenVideoArtUpdater.cpp \
      Fanart.cpp \
      fastmemcpy.c \
      fastmemcpy-arm.S \
@@ -21,6 +23,7 @@ SRCS=AlarmClock.cpp \
      fstrcmp.c \
      fft.cpp \
      GLUtils.cpp \
+     GroupUtils.cpp \
      HTMLTable.cpp \
      HTMLUtil.cpp \
      HttpHeader.cpp \
@@ -47,6 +50,7 @@ SRCS=AlarmClock.cpp \
      RssReader.cpp \
      ScraperParser.cpp \
      ScraperUrl.cpp \
+     Screenshot.cpp \
      SeekHandler.cpp \
      SortUtils.cpp \
      Splash.cpp \
@@ -66,7 +70,6 @@ SRCS=AlarmClock.cpp \
      Weather.cpp \
      XBMCTinyXML.cpp \
      XMLUtils.cpp \
-     BitstreamConverter.cpp \
 
 LIB=utils.a
 

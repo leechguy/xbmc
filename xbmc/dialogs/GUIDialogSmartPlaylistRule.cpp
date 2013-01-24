@@ -30,6 +30,7 @@
 #include "guilib/LocalizeStrings.h"
 #include "settings/Settings.h"
 #include "storage/MediaManager.h"
+#include "utils/LabelFormatter.h"
 
 #define CONTROL_FIELD           15
 #define CONTROL_OPERATOR        16
@@ -68,14 +69,11 @@ bool CGUIDialogSmartPlaylistRule::OnMessage(CGUIMessage& message)
         OnOK();
       else if (iControl == CONTROL_CANCEL)
         OnCancel();
-      else if (iControl == CONTROL_VALUE && CSmartPlaylistRule::GetFieldType(m_rule.m_field) != CSmartPlaylistRule::BROWSEABLE_FIELD)
+      else if (iControl == CONTROL_VALUE)
       {
         CStdString parameter;
         OnEditChanged(iControl, parameter);
-        m_rule.m_parameter.clear();
-
-        if (!parameter.empty())
-          m_rule.m_parameter.push_back(parameter);
+        m_rule.SetParameter(parameter);
       }
       else if (iControl == CONTROL_OPERATOR)
         OnOperator();
@@ -216,10 +214,40 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
     videodatabase.GetWritersNav(basePath, items, type);
     iLabel = 20417;
   }
-  else if (m_rule.m_field == FieldTvShowTitle)
+  else if (m_rule.m_field == FieldTvShowTitle ||
+          (m_type.Equals("tvshows") && m_rule.m_field == FieldTitle))
   {
-    videodatabase.GetTvShowsNav("videodb://2/2/",items);
+    videodatabase.GetTvShowsNav(basePath + "2/", items);
     iLabel = 20343;
+  }
+  else if (m_rule.m_field == FieldTitle)
+  {
+    if (m_type.Equals("songs"))
+    {
+      database.GetSongsNav("musicdb://4/", items, -1, -1, -1);
+      iLabel = 134;
+    }
+    else if (m_type.Equals("movies"))
+    {
+      videodatabase.GetMoviesNav(basePath + "2/", items);
+      iLabel = 20342;
+    }
+    else if (m_type.Equals("episodes"))
+    {
+      videodatabase.GetEpisodesNav(basePath + "2/-1/-1/", items);
+      // we need to replace the db label (<season>x<episode> <title>) with the title only
+      CLabelFormatter format("%T", "");
+      for (int i = 0; i < items.Size(); i++)
+        format.FormatLabel(items[i].get());
+      iLabel = 20360;
+    }
+    else if (m_type.Equals("musicvideos"))
+    {
+      videodatabase.GetMusicVideosNav(basePath + "2/", items);
+      iLabel = 20389;
+    }
+    else
+      assert(false);
   }
   else if (m_rule.m_field == FieldPlaylist)
   {
@@ -229,7 +257,7 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
     //       think there's any decent way to deal with this, as the infinite loop may be an arbitrary
     //       number of playlists deep, eg playlist1 -> playlist2 -> playlist3 ... -> playlistn -> playlist1
     CStdString path = "special://videoplaylists/";
-    if (m_type.Equals("songs") || m_type.Equals("albums"))
+    if (m_type.Equals("songs") || m_type.Equals("albums") || m_type.Equals("artists"))
       path = "special://musicplaylists/";
     XFILE::CDirectory::GetDirectory(path, items, ".xsp", XFILE::DIR_FLAG_NO_FILE_DIRS);
     for (int i = 0; i < items.Size(); i++)
@@ -253,7 +281,7 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
     }
     g_mediaManager.GetLocalDrives(sources);
     
-    CStdString path = m_rule.GetLocalizedParameter(m_type);
+    CStdString path = m_rule.GetParameter();
     CGUIDialogFileBrowser::ShowAndGetDirectory(sources, g_localizeStrings.Get(657), path, false);
     if (m_rule.m_parameter.size() > 0)
       m_rule.m_parameter.clear();
@@ -360,6 +388,9 @@ void CGUIDialogSmartPlaylistRule::UpdateButtons()
     AddOperatorLabel(CSmartPlaylistRule::OPERATOR_ENDS_WITH);
     break;
 
+  case CSmartPlaylistRule::BROWSEABLE_NUMERIC_FIELD:
+      CONTROL_ENABLE(CONTROL_BROWSE);
+      // fall through...
   case CSmartPlaylistRule::NUMERIC_FIELD:
   case CSmartPlaylistRule::SECONDS_FIELD:
     // numerical fields - less than greater than
@@ -402,14 +433,13 @@ void CGUIDialogSmartPlaylistRule::UpdateButtons()
   m_rule.m_operator = (CSmartPlaylistRule::SEARCH_OPERATOR)selected.GetParam1();
 
   // update the parameter edit control appropriately
-  SET_CONTROL_LABEL2(CONTROL_VALUE, m_rule.GetLocalizedParameter(m_type));
+  SET_CONTROL_LABEL2(CONTROL_VALUE, m_rule.GetParameter());
   CGUIEditControl::INPUT_TYPE type = CGUIEditControl::INPUT_TYPE_TEXT;
   CSmartPlaylistRule::FIELD_TYPE fieldType = CSmartPlaylistRule::GetFieldType(m_rule.m_field);
   switch (fieldType)
   {
   case CSmartPlaylistRule::BROWSEABLE_FIELD:
-    type = CGUIEditControl::INPUT_TYPE_READONLY;
-    break;
+  case CSmartPlaylistRule::BROWSEABLE_NUMERIC_FIELD:
   case CSmartPlaylistRule::TEXT_FIELD:
   case CSmartPlaylistRule::PLAYLIST_FIELD:
   case CSmartPlaylistRule::TEXTIN_FIELD:

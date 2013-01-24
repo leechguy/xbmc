@@ -56,7 +56,13 @@ enum ERENDERFEATURE
   RENDERFEATURE_NOISE,
   RENDERFEATURE_SHARPNESS,
   RENDERFEATURE_NONLINSTRETCH,
-  RENDERFEATURE_ROTATION
+  RENDERFEATURE_ROTATION,
+  RENDERFEATURE_STRETCH,
+  RENDERFEATURE_CROP,
+  RENDERFEATURE_ZOOM,
+  RENDERFEATURE_VERTICAL_SHIFT,
+  RENDERFEATURE_PIXEL_RATIO,
+  RENDERFEATURE_POSTPROCESS
 };
 
 typedef void (*RenderUpdateCallBackFn)(const void *ctx, const CRect &SrcRect, const CRect &DestRect);
@@ -100,6 +106,7 @@ protected:
   void       saveRotatedCoords();//saves the current state of m_rotatedDestCoords
   void       syncDestRectToRotatedPoints();//sync any changes of m_destRect to m_rotatedDestCoords
   void       restoreRotatedCoords();//restore the current state of m_rotatedDestCoords from saveRotatedCoords 
+  void       MarkDirty();
 
   RESOLUTION m_resolution;    // the resolution we're running in
   unsigned int m_sourceWidth;

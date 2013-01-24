@@ -41,6 +41,7 @@ CXBApplicationEx::CXBApplicationEx()
   m_AppActive = true;
   m_AppFocused = true;
   m_ExitCode = EXITCODE_QUIT;
+  m_renderGUI = false;
 }
 
 CXBApplicationEx::~CXBApplicationEx()
@@ -75,7 +76,7 @@ VOID CXBApplicationEx::Destroy()
 }
 
 /* Function that runs the application */
-INT CXBApplicationEx::Run(bool renderGUI)
+INT CXBApplicationEx::Run()
 {
   CLog::Log(LOGNOTICE, "Running the application..." );
 
@@ -138,7 +139,7 @@ INT CXBApplicationEx::Run(bool renderGUI)
     try
     {
 #endif
-      if (!m_bStop) FrameMove(true, renderGUI);
+      if (!m_bStop) FrameMove(true, m_renderGUI);
       //reset exception count
 #ifdef XBMC_TRACK_EXCEPTIONS
       frameMoveExceptionCount = 0;
@@ -173,8 +174,8 @@ INT CXBApplicationEx::Run(bool renderGUI)
     try
     {
 #endif
-      if (renderGUI && !m_bStop) Render();
-      else if (!renderGUI)
+      if (m_renderGUI && !m_bStop) Render();
+      else if (!m_renderGUI)
       {
         frameTime = XbmcThreads::SystemClockMillis() - lastFrameTime;
         if(frameTime < noRenderFrameTime)

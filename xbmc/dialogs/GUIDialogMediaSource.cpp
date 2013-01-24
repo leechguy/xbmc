@@ -22,7 +22,6 @@
 #include "guilib/GUIKeyboardFactory.h"
 #include "GUIDialogFileBrowser.h"
 #include "video/windows/GUIWindowVideoBase.h"
-#include "video/dialogs/GUIDialogVideoScan.h"
 #include "guilib/GUIWindowManager.h"
 #include "Util.h"
 #include "utils/URIUtils.h"
@@ -98,6 +97,8 @@ bool CGUIDialogMediaSource::OnMessage(CGUIMessage& message)
         OnOK();
       else if (iControl == CONTROL_CANCEL)
         OnCancel();
+      else
+        break;
       return true;
     }
     break;
@@ -154,7 +155,7 @@ bool CGUIDialogMediaSource::ShowAndAddMediaSource(const CStdString &type)
     }
     share.FromNameAndPaths(type, strName, dialog->GetPaths());
     if (dialog->m_paths->Size() > 0) {
-      share.m_strThumbnailImage = dialog->m_paths->Get(0)->GetThumbnailImage();
+      share.m_strThumbnailImage = dialog->m_paths->Get(0)->GetArt("thumb");
     }
     g_settings.AddShare(type, share);
   }
@@ -164,8 +165,7 @@ bool CGUIDialogMediaSource::ShowAndAddMediaSource(const CStdString &type)
 
 bool CGUIDialogMediaSource::ShowAndEditMediaSource(const CStdString &type, const CStdString&share)
 {
-  VECSOURCES* pShares=NULL;
-
+  VECSOURCES* pShares = g_settings.GetSourcesFromType(type);
   if (pShares)
   {
     for (unsigned int i=0;i<pShares->size();++i)
@@ -174,7 +174,6 @@ bool CGUIDialogMediaSource::ShowAndEditMediaSource(const CStdString &type, const
         return ShowAndEditMediaSource(type,(*pShares)[i]);
     }
   }
-
   return false;
 }
 
@@ -259,12 +258,6 @@ void CGUIDialogMediaSource::OnPathBrowse(int item)
       extraShares.push_back(share1);
     }
 
-    if (g_guiSettings.GetString("scrobbler.lastfmusername") != "")
-    {
-      share1.strName = "Last.FM";
-      share1.strPath = "lastfm://";
-      extraShares.push_back(share1);
-    }
  }
   else if (m_type == "video")
   {
@@ -367,7 +360,6 @@ void CGUIDialogMediaSource::OnPath(int item)
 
   CStdString path(m_paths->Get(item)->GetPath());
   CGUIKeyboardFactory::ShowAndGetInput(path, g_localizeStrings.Get(1021), false);
-  URIUtils::AddSlashAtEnd(path);
   m_paths->Get(item)->SetPath(path);
 
   if (!m_bNameChanged || m_name.IsEmpty())
@@ -396,7 +388,8 @@ void CGUIDialogMediaSource::OnOK()
     m_confirmed = true;
     Close();
     if (m_type == "video" && !URIUtils::IsLiveTV(share.strPath) && 
-        !share.strPath.Left(6).Equals("rss://"))
+        !share.strPath.Left(6).Equals("rss://") &&
+        !share.strPath.Left(7).Equals("upnp://"))
     {
       CGUIWindowVideoBase::OnAssignContent(share.strPath);
     }

@@ -24,6 +24,7 @@
 #include "FileItem.h"
 #include "guilib/GUIControl.h"
 #include "guilib/GUIListItemLayout.h"
+#include "guilib/GUIBaseContainer.h"
 
 namespace PVR
 {
@@ -42,7 +43,7 @@ namespace EPG
     float height;
   };
 
-  class CGUIEPGGridContainer : public CGUIControl
+  class CGUIEPGGridContainer : public IGUIContainer
   {
   friend class PVR::CGUIWindowPVRGuide;
 
@@ -77,8 +78,8 @@ namespace EPG
     void LoadLayout(TiXmlElement *layout);
     void LoadContent(TiXmlElement *content);
 
-    virtual bool IsContainer() const { return true; };
-    CGUIListItemPtr GetListItem(int offset) const;
+    virtual CGUIListItemPtr GetListItem(int offset, unsigned int flag = 0) const;
+    virtual CStdString GetLabel(int info) const;
 
     virtual int  CorrectOffset(int offset, int cursor) const;
 
@@ -120,7 +121,7 @@ namespace EPG
     int  GetBlock(const CGUIListItemPtr &item, const int &channel);
     int  GetRealBlock(const CGUIListItemPtr &item, const int &channel);
     void MoveToRow(int row);
-    bool MoveChannel(bool direction);
+    bool MoveChannel(bool direction, bool wrapAround);
     bool MoveProgrammes(bool direction);
 
     CGUIListItemLayout *GetFocusedLayout() const;
@@ -213,7 +214,6 @@ namespace EPG
     unsigned int m_renderTime;
 
     int   m_scrollTime;
-    bool  m_channelWrapAround;
     bool  m_gridWrapAround; //! only when no more data available should this be true
 
     int m_programmeScrollLastTime;

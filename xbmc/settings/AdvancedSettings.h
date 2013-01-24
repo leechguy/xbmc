@@ -213,8 +213,8 @@ class CAdvancedSettings
     bool m_playlistAsFolders;
     bool m_detectAsUdf;
 
-    int m_fanartRes; ///< \brief the maximal resolution to cache fanart at (assumes 16x9)
-    int m_imageRes;  ///< \brief the maximal resolution to cache images at (assumes 16x9)
+    unsigned int m_fanartRes; ///< \brief the maximal resolution to cache fanart at (assumes 16x9)
+    unsigned int m_imageRes;  ///< \brief the maximal resolution to cache images at (assumes 16x9)
     /*! \brief the maximal size to cache thumbs at, assuming square
      Used for actual thumbs (eg bookmark thumbs, picture thumbs) rather than cover art which uses m_imageRes instead
      */
@@ -230,7 +230,6 @@ class CAdvancedSettings
     bool m_bFTPThumbs;
 
     CStdString m_musicThumbs;
-    CStdString m_dvdThumbs;
     CStdString m_fanartImages;
 
     bool m_bMusicLibraryHideAllItems;
@@ -246,6 +245,7 @@ class CAdvancedSettings
 
     bool m_bVideoLibraryHideAllItems;
     bool m_bVideoLibraryAllItemsOnBottom;
+    int m_iVideoLibraryRecentlyAddedItems;
     bool m_bVideoLibraryHideEmptySeries;
     bool m_bVideoLibraryCleanOnUpdate;
     bool m_bVideoLibraryExportAutoThumbs;
@@ -276,6 +276,7 @@ class CAdvancedSettings
     int m_iEpgCleanupInterval;      // seconds
     int m_iEpgActiveTagCheckInterval; // seconds
     int m_iEpgRetryInterruptedUpdateInterval; // seconds
+    int m_iEpgUpdateEmptyTagsInterval; // seconds
     bool m_bEpgDisplayUpdatePopup;
     bool m_bEpgDisplayIncrementalUpdatePopup;
 
@@ -334,6 +335,9 @@ class CAdvancedSettings
     int m_iPVRMinVideoCacheLevel;      /*!< @brief cache up to this level in the video buffer buffer before resuming playback if the buffers run dry */
     int m_iPVRMinAudioCacheLevel;      /*!< @brief cache up to this level in the audio buffer before resuming playback if the buffers run dry */
     bool m_bPVRCacheInDvdPlayer; /*!< @brief true to use "CACHESTATE_PVR" in CDVDPlayer (default) */
+    bool m_bPVRChannelIconsAutoScan; /*!< @brief automatically scan user defined folder for channel icons when loading internal channel groups */
+    bool m_bPVRAutoScanIconsUserSet; /*!< @brief mark channel icons populated by auto scan as "user set" */
+    int m_iPVRNumericChannelSwitchTimeout; /*!< @brief time in ms before the numeric dialog auto closes when confirmchannelswitch is disabled */
 
     bool m_measureRefreshrate; //when true the videoreferenceclock will measure the refreshrate when direct3d is used
                                //otherwise it will use the windows refreshrate

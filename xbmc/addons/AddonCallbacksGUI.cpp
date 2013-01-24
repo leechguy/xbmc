@@ -1112,7 +1112,7 @@ GUIHANDLE CAddonCallbacksGUI::ListItem_Create(void *addonData, const char *label
   if (iconImage)
     pItem->SetIconImage(iconImage);
   if (thumbnailImage)
-    pItem->SetThumbnailImage(thumbnailImage);
+    pItem->SetArt("thumb", thumbnailImage);
   if (path)
     pItem->SetPath(path);
 
@@ -1177,7 +1177,7 @@ void CAddonCallbacksGUI::ListItem_SetThumbnailImage(void *addonData, GUIHANDLE h
   if (!helper || !handle)
     return;
 
-  ((CFileItem*)handle)->SetThumbnailImage(image);
+  ((CFileItem*)handle)->SetArt("thumb", image);
 }
 
 void CAddonCallbacksGUI::ListItem_SetInfo(void *addonData, GUIHANDLE handle, const char *info)
@@ -1503,7 +1503,7 @@ bool CGUIAddonWindowDialog::OnMessage(CGUIMessage &message)
 void CGUIAddonWindowDialog::Show(bool show /* = true */)
 {
   unsigned int iCount = g_graphicsContext.exit();
-  ThreadMessage tMsg = {TMSG_GUI_ADDON_DIALOG, 1, show ? 1 : 0};
+  ThreadMessage tMsg = {TMSG_GUI_ADDON_DIALOG, 1, show ? 1u : 0u};
   tMsg.lpVoid = this;
   CApplicationMessenger::Get().SendMessage(tMsg, true);
   g_graphicsContext.restore(iCount);
@@ -1523,7 +1523,7 @@ void CGUIAddonWindowDialog::Show_Internal(bool show /* = true */)
 
     while (m_bRunning && !g_application.m_bStop)
     {
-      g_windowManager.Process(CTimeUtils::GetFrameTime());
+      g_windowManager.ProcessRenderLoop();
     }
   }
   else // hide

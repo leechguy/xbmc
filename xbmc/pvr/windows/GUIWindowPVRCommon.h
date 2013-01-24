@@ -119,6 +119,7 @@ namespace PVR
     virtual bool UpdateEpgForChannel(CFileItem *item);
     virtual bool ShowTimerSettings(CFileItem *item);
     virtual bool ShowNewTimerDialog(void);
+    virtual void ShowBusyItem(void);
 
     virtual bool OnContextButtonMenuHooks(CFileItem *item, CONTEXT_BUTTON button);
     virtual bool OnContextButtonSortAsc(CFileItem *item, CONTEXT_BUTTON button);
@@ -127,6 +128,9 @@ namespace PVR
     virtual bool OnContextButtonSortByName(CFileItem *item, CONTEXT_BUTTON button);
     virtual bool OnContextButtonSortByChannel(CFileItem *item, CONTEXT_BUTTON button);
     virtual bool OnContextButtonFind(CFileItem *item, CONTEXT_BUTTON button);
+
+    virtual void BeforeUpdate(const CStdString &strDirectory) {}
+    virtual void AfterUpdate(CFileItemList& items) {}
 
     CGUIWindowPVR *  m_parent;
     PVRWindow        m_window;
@@ -137,5 +141,6 @@ namespace PVR
     SortOrder        m_iSortOrder;
     SORT_METHOD      m_iSortMethod;
     CCriticalSection m_critSection;
+    CDirectoryHistory m_history;
   };
 }

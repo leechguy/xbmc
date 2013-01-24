@@ -22,11 +22,13 @@
 
 #include "Application.h"
 #include "ApplicationMessenger.h"
+#include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogOK.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/StackDirectory.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/LocalizeStrings.h"
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
 #include "pvr/dialogs/GUIDialogPVRGuideInfo.h"
@@ -176,8 +178,6 @@ bool CGUIWindowPVRCommon::OnMessageFocus(CGUIMessage &message)
 
     if (!bIsActive || m_bUpdateRequired)
       UpdateData();
-    else
-      m_iSelected = m_parent->m_viewControl.GetSelectedItem();
 
     bReturn = true;
   }
@@ -188,6 +188,7 @@ bool CGUIWindowPVRCommon::OnMessageFocus(CGUIMessage &message)
 void CGUIWindowPVRCommon::OnWindowUnload(void)
 {
   m_iSelected = m_parent->m_viewControl.GetSelectedItem();
+  m_history = m_parent->m_history;
 }
 
 bool CGUIWindowPVRCommon::OnAction(const CAction &action)
@@ -195,7 +196,7 @@ bool CGUIWindowPVRCommon::OnAction(const CAction &action)
   bool bReturn = false;
 
   if (action.GetID() == ACTION_NAV_BACK ||
-      action.GetID() == ACTION_PARENT_DIR)
+      action.GetID() == ACTION_PREVIOUS_MENU)
   {
     g_windowManager.PreviousWindow();
     bReturn = true;
@@ -339,13 +340,13 @@ bool CGUIWindowPVRCommon::OnContextButtonMenuHooks(CFileItem *item, CONTEXT_BUTT
     bReturn = true;
 
     if (item->IsEPG() && item->GetEPGInfoTag()->HasPVRChannel())
-      g_PVRClients->ProcessMenuHooks(item->GetEPGInfoTag()->ChannelTag()->ClientID());
+      g_PVRClients->ProcessMenuHooks(item->GetEPGInfoTag()->ChannelTag()->ClientID(), PVR_MENUHOOK_EPG);
     else if (item->IsPVRChannel())
-      g_PVRClients->ProcessMenuHooks(item->GetPVRChannelInfoTag()->ClientID());
+      g_PVRClients->ProcessMenuHooks(item->GetPVRChannelInfoTag()->ClientID(), PVR_MENUHOOK_CHANNEL);
     else if (item->IsPVRRecording())
-      g_PVRClients->ProcessMenuHooks(item->GetPVRRecordingInfoTag()->m_iClientId);
+      g_PVRClients->ProcessMenuHooks(item->GetPVRRecordingInfoTag()->m_iClientId, PVR_MENUHOOK_RECORDING);
     else if (item->IsPVRTimer())
-      g_PVRClients->ProcessMenuHooks(item->GetPVRTimerInfoTag()->m_iClientId);
+      g_PVRClients->ProcessMenuHooks(item->GetPVRTimerInfoTag()->m_iClientId, PVR_MENUHOOK_TIMER);
   }
 
   return bReturn;
@@ -615,7 +616,10 @@ bool CGUIWindowPVRCommon::PlayRecording(CFileItem *item, bool bPlayMinimized /* 
 
   CStdString stream = item->GetPVRRecordingInfoTag()->m_strStreamURL;
   if (stream == "")
-    return false;
+  {
+    CApplicationMessenger::Get().PlayFile(*item, false);
+    return true;
+  }
 
   /* Isolate the folder from the filename */
   size_t found = stream.find_last_of("/");
@@ -670,6 +674,11 @@ bool CGUIWindowPVRCommon::PlayRecording(CFileItem *item, bool bPlayMinimized /* 
 
 bool CGUIWindowPVRCommon::PlayFile(CFileItem *item, bool bPlayMinimized /* = false */)
 {
+  if (item->m_bIsFolder)
+  {
+    return false;
+  }
+
   if (item->GetPath() == g_application.CurrentFile())
   {
     CGUIMessage msg(GUI_MSG_FULLSCREEN, 0, m_parent->GetID());
@@ -708,7 +717,9 @@ bool CGUIWindowPVRCommon::PlayFile(CFileItem *item, bool bPlayMinimized /* = fal
 
     if (!bSwitchSuccessful)
     {
-      CGUIDialogOK::ShowAndGetInput(19033,0,19035,0);
+      CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error,
+              g_localizeStrings.Get(19166), // PVR information
+              g_localizeStrings.Get(19035)); // This channel cannot be played. Check the log for details.
       return false;
     }
   }
@@ -810,8 +821,6 @@ void CGUIWindowPVRCommon::ShowEPGInfo(CFileItem *item)
       {
         pDlgInfo->SetProgInfo(tag);
         pDlgInfo->DoModal();
-
-        UpdateData();
       }
     }
     delete tag;
@@ -859,4 +868,17 @@ bool CGUIWindowPVRCommon::OnContextButtonFind(CFileItem *item, CONTEXT_BUTTON bu
   }
 
   return bReturn;
+}
+
+void CGUIWindowPVRCommon::ShowBusyItem(void)
+{
+  // FIXME: display a temporary entry so that the list can keep its focus
+  // busy_items has to be static, because m_viewControl holds the pointer to it
+  static CFileItemList busy_items;
+  if (busy_items.IsEmpty())
+  {
+    CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(1040)));
+    busy_items.AddFront(pItem, 0);
+  }
+  m_parent->m_viewControl.SetItems(busy_items);
 }

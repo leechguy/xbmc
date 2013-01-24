@@ -209,7 +209,7 @@ TEST_F(TestURIUtils, IsDOSPath)
 TEST_F(TestURIUtils, IsDVD)
 {
   EXPECT_TRUE(URIUtils::IsDVD("dvd://path/in/video_ts.ifo"));
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   EXPECT_TRUE(URIUtils::IsDVD("dvd://path/in/file"));
 #else
   EXPECT_TRUE(URIUtils::IsDVD("iso9660://path/in/video_ts.ifo"));
@@ -549,4 +549,31 @@ TEST_F(TestURIUtils, GetRealPath)
   // test rar/zip path in rar/zip path
   ref ="zip://rar%3A%2F%2F%252Fpath%252Fto%252Frar%2Fpath%2Fto%2Fzip/subpath/to/file";
   EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("zip://rar%3A%2F%2F%252Fpath%252Fto%252Fsome%252F..%252Frar%2Fpath%2Fto%2Fsome%2F..%2Fzip/subpath/to/some/../file").c_str());
+}
+
+TEST_F(TestURIUtils, UpdateUrlEncoding)
+{
+  std::string oldUrl = "stack://rar://%2fpath%2fto%2farchive%2fsome%2darchive%2dfile%2eCD1%2erar/video.avi , rar://%2fpath%2fto%2farchive%2fsome%2darchive%2dfile%2eCD2%2erar/video.avi";
+  std::string newUrl = "stack://rar://%2fpath%2fto%2farchive%2fsome-archive-file.CD1.rar/video.avi , rar://%2fpath%2fto%2farchive%2fsome-archive-file.CD2.rar/video.avi";
+
+  EXPECT_TRUE(URIUtils::UpdateUrlEncoding(oldUrl));
+  EXPECT_STRCASEEQ(newUrl.c_str(), oldUrl.c_str());
+
+  oldUrl = "rar://%2fpath%2fto%2farchive%2fsome%2darchive%2efile%2erar/video.avi";
+  newUrl = "rar://%2fpath%2fto%2farchive%2fsome-archive.file.rar/video.avi";
+  
+  EXPECT_TRUE(URIUtils::UpdateUrlEncoding(oldUrl));
+  EXPECT_STRCASEEQ(newUrl.c_str(), oldUrl.c_str());
+  
+  oldUrl = "/path/to/some/long%2dnamed%2efile";
+  newUrl = "/path/to/some/long%2dnamed%2efile";
+  
+  EXPECT_FALSE(URIUtils::UpdateUrlEncoding(oldUrl));
+  EXPECT_STRCASEEQ(newUrl.c_str(), oldUrl.c_str());
+  
+  oldUrl = "/path/to/some/long-named.file";
+  newUrl = "/path/to/some/long-named.file";
+  
+  EXPECT_FALSE(URIUtils::UpdateUrlEncoding(oldUrl));
+  EXPECT_STRCASEEQ(newUrl.c_str(), oldUrl.c_str());
 }

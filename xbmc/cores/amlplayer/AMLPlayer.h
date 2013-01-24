@@ -80,7 +80,9 @@ public:
   virtual bool  SeekScene(bool bPlus = true);
   virtual void  SeekPercentage(float fPercent = 0.0f);
   virtual float GetPercentage();
+  virtual void  SetMute(bool bOnOff);
   virtual void  SetVolume(float volume);
+  virtual bool  ControlsVolume() {return true;}
   virtual void  SetDynamicRangeCompression(long drc)              {}
   virtual void  GetAudioInfo(CStdString &strAudioInfo);
   virtual void  GetVideoInfo(CStdString &strVideoInfo);
@@ -165,6 +167,13 @@ public:
   virtual void  GetSubtitleCapabilities(Features* subCaps);
 */
 
+  virtual void  GetRenderFeatures(std::vector<int> &renderFeatures);
+  virtual void  GetDeinterlaceMethods(std::vector<int> &deinterlaceMethods);
+  virtual void  GetDeinterlaceModes(std::vector<int> &deinterlaceModes);
+  virtual void  GetScalingMethods(std::vector<int> &scalingMethods);
+  virtual void  GetAudioCapabilities(std::vector<int> &audioCaps);
+  virtual void  GetSubtitleCapabilities(std::vector<int> &subCaps);
+
 protected:
   virtual void  OnStartup();
   virtual void  OnExit();
@@ -216,6 +225,8 @@ private:
   int                     m_audio_delay;
   bool                    m_audio_passthrough_ac3;
   bool                    m_audio_passthrough_dts;
+  bool                    m_audio_mute;
+  float                   m_audio_volume;
 
   int                     m_video_index;
   int                     m_video_count;

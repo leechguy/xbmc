@@ -489,9 +489,6 @@ unsigned int CAESinkALSA::AddPackets(uint8_t *data, unsigned int frames, bool ha
   if (!m_pcm)
     return 0;
 
-  if (snd_pcm_state(m_pcm) == SND_PCM_STATE_PREPARED)
-    snd_pcm_start(m_pcm);
-
   int ret;
 
   ret = snd_pcm_avail(m_pcm);
@@ -519,6 +516,9 @@ unsigned int CAESinkALSA::AddPackets(uint8_t *data, unsigned int frames, bool ha
       ret = 0;
     }
   }
+
+  if ( ret > 0 && snd_pcm_state(m_pcm) == SND_PCM_STATE_PREPARED)
+    snd_pcm_start(m_pcm);
 
   return ret;
 }
@@ -952,20 +952,13 @@ void CAESinkALSA::EnumerateDevice(AEDeviceInfoList &list, const std::string &dev
 
             if (badHDMI)
             {
-              /* only trust badHDMI (= unconnected or non-existent port) on Intel
-               * and NVIDIA where it has been confirmed to work, show the empty
-               * port on other systems */
-              if (info.m_displayName.compare(0, 9, "HDA Intel") == 0 || info.m_displayName.compare(0, 10, "HDA NVidia") == 0)
-              {
-                /* unconnected HDMI port */
-                CLog::Log(LOGDEBUG, "CAESinkALSA - Skipping HDMI device \"%s\" as it has no ELD data", device.c_str());
-                snd_pcm_close(pcmhandle);
-                return;
-              }
-              else
-              {
-                CLog::Log(LOGDEBUG, "CAESinkALSA - HDMI device \"%s\" may be unconnected (no ELD data)", device.c_str());
-              }
+              /* 
+               * Warn about disconnected devices, but keep them enabled 
+               * Detection can go wrong on Intel, Nvidia and on all 
+               * AMD (fglrx) hardware, so it is not safe to close those
+               * handles
+               */
+              CLog::Log(LOGDEBUG, "CAESinkALSA - HDMI device \"%s\" may be unconnected (no ELD data)", device.c_str());
             }
           }
           else

@@ -35,6 +35,7 @@
 #include "InputOperations.h"
 #include "XBMCOperations.h"
 #include "ApplicationOperations.h"
+#include "PVROperations.h"
 
 using namespace std;
 using namespace JSONRPC;
@@ -151,6 +152,15 @@ JsonRpcMethodMap CJSONServiceDescription::m_methodMaps[] = {
   { "GUI.ActivateWindow",                           CGUIOperations::ActivateWindow },
   { "GUI.ShowNotification",                         CGUIOperations::ShowNotification },
   { "GUI.SetFullscreen",                            CGUIOperations::SetFullscreen },
+
+// PVR operations
+  { "PVR.GetProperties",                            CPVROperations::GetProperties },
+  { "PVR.GetChannelGroups",                         CPVROperations::GetChannelGroups },
+  { "PVR.GetChannelGroupDetails",                   CPVROperations::GetChannelGroupDetails },
+  { "PVR.GetChannels",                              CPVROperations::GetChannels },
+  { "PVR.GetChannelDetails",                        CPVROperations::GetChannelDetails },
+  { "PVR.Record",                                   CPVROperations::Record },
+  { "PVR.Scan",                                     CPVROperations::Scan },
 
 // System operations
   { "System.GetProperties",                         CSystemOperations::GetProperties },
@@ -784,7 +794,6 @@ JSONRPC_STATUS JSONSchemaTypeDefinition::Check(const CVariant &value, CVariant &
         outputValue[propertiesIterator->second->name] = propertiesIterator->second->defaultValue;
       else
       {
-        CLog::Log(LOGDEBUG, "JSONRPC: Missing property \"%s\" in type %s", propertiesIterator->second->name.c_str(), name.c_str());
         errorData["property"]["name"] = propertiesIterator->second->name.c_str();
         errorData["property"]["type"] = SchemaValueTypeToString(propertiesIterator->second->type);
         errorData["message"] = "Missing property";
@@ -1323,6 +1332,15 @@ JSONRPC_STATUS JsonRpcMethod::checkParameter(const CVariant &requestParameters, 
   return OK;
 }
 
+void CJSONServiceDescription::Cleanup()
+{
+  // reset all of the static data
+  m_notifications.clear();
+  m_actionMap.clear();
+  m_types.clear();
+  m_incompleteDefinitions.clear();
+}
+
 bool CJSONServiceDescription::prepareDescription(std::string &description, CVariant &descriptionObject, std::string &name)
 {
   if (description.empty())
@@ -1629,7 +1647,7 @@ bool CJSONServiceDescription::AddEnum(const std::string &name, const std::vector
   return AddEnum(name, enums, CVariant::VariantTypeInteger);
 }
 
-int CJSONServiceDescription::GetVersion()
+const char* CJSONServiceDescription::GetVersion()
 {
   return JSONRPC_SERVICE_VERSION;
 }
@@ -1955,6 +1973,11 @@ void CJSONServiceDescription::getReferencedTypes(const JSONSchemaTypeDefinitionP
 CJSONServiceDescription::CJsonRpcMethodMap::CJsonRpcMethodMap()
 {
   m_actionmap = std::map<std::string, JsonRpcMethod>();
+}
+
+void CJSONServiceDescription::CJsonRpcMethodMap::clear()
+{
+  m_actionmap.clear();
 }
 
 void CJSONServiceDescription::CJsonRpcMethodMap::add(const JsonRpcMethod &method)

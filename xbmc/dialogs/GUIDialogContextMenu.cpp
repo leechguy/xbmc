@@ -338,7 +338,7 @@ void CGUIDialogContextMenu::GetContextButtons(const CStdString &type, const CFil
       else
       {
         ADDON::AddonPtr plugin;
-        if (ADDON::CAddonMgr::Get().GetAddon(url.GetHostName(), plugin, ADDON::ADDON_PLUGIN))
+        if (ADDON::CAddonMgr::Get().GetAddon(url.GetHostName(), plugin))
         if (plugin->HasSettings())
           buttons.Add(CONTEXT_BUTTON_PLUGIN_SETTINGS, 1045); // Plugin Settings
       }
@@ -493,14 +493,14 @@ bool CGUIDialogContextMenu::OnContextButton(const CStdString &type, const CFileI
       if (!share->m_strThumbnailImage.IsEmpty())
       {
         CFileItemPtr current(new CFileItem("thumb://Current", false));
-        current->SetThumbnailImage(share->m_strThumbnailImage);
+        current->SetArt("thumb", share->m_strThumbnailImage);
         current->SetLabel(g_localizeStrings.Get(20016));
         items.Add(current);
       }
-      else if (item->HasThumbnail())
+      else if (item->HasArt("thumb"))
       { // already have a thumb that the share doesn't know about - must be a local one, so we mayaswell reuse it.
         CFileItemPtr current(new CFileItem("thumb://Current", false));
-        current->SetThumbnailImage(item->GetThumbnailImage());
+        current->SetArt("thumb", item->GetArt("thumb"));
         current->SetLabel(g_localizeStrings.Get(20016));
         items.Add(current);
       }
@@ -509,7 +509,7 @@ bool CGUIDialogContextMenu::OnContextButton(const CStdString &type, const CFileI
       if (XFILE::CFile::Exists(folderThumb))
       {
         CFileItemPtr local(new CFileItem("thumb://Local", false));
-        local->SetThumbnailImage(folderThumb);
+        local->SetArt("thumb", folderThumb);
         local->SetLabel(g_localizeStrings.Get(20017));
         items.Add(local);
       }
@@ -654,7 +654,7 @@ CMediaSource *CGUIDialogContextMenu::GetShare(const CStdString &type, const CFil
     }
     else
     {
-      if (!testShare.strPath.Equals(item->GetPath()))
+      if (!URIUtils::CompareWithoutSlashAtEnd(testShare.strPath, item->GetPath()))
         continue;
     }
     // paths match, what about share name - only match the leftmost
@@ -766,6 +766,9 @@ int CGUIDialogContextMenu::ShowAndGetChoice(const CContextButtons &choices)
   CGUIDialogContextMenu *pMenu = (CGUIDialogContextMenu *)g_windowManager.GetWindow(WINDOW_DIALOG_CONTEXT_MENU);
   if (pMenu)
   {
+    if (pMenu->IsDialogRunning())
+      return -1;
+
     pMenu->m_buttons = choices;
     pMenu->Initialize();
     pMenu->SetInitialVisibility();

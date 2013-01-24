@@ -11,12 +11,15 @@ export USE_TEXTUREPACKER_NATIVE_ROOT=$(NATIVEPREFIX)
 export MYSQL_CONFIG=$(PREFIX)/bin/mysql_config
 export LIBS+=-lcrystax
 
+export CXXFLAGS+=-O3
+export CFLAGS+=-O3
+
 # configuration settings
 CONFIGURE=cp -f $(CONFIG_SUB) $(CONFIG_GUESS) build-aux/ ;\
   ./configure --prefix=$(PREFIX) --host=$(HOST) \
   --enable-neon --enable-gles --enable-debug \
   --disable-sdl --disable-x11 --disable-xrandr \
-  --disable-optical-drive --disable-joystick --disable-optimizations \
+  --disable-optical-drive --disable-joystick \
   --enable-shared-lib --disable-alsa
 
 

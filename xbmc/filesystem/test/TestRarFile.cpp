@@ -26,6 +26,7 @@
 #include "utils/URIUtils.h"
 #include "FileItem.h"
 #include "test/TestUtils.h"
+#include "utils/StringUtils.h"
 
 #include <errno.h>
 
@@ -130,8 +131,7 @@ TEST(TestRarFile, CorruptedFile)
 
   reffilepath = XBMC_REF_FILE_PATH("xbmc/filesystem/test/reffile.txt.rar");
   ASSERT_TRUE((file = XBMC_CREATECORRUPTEDFILE(reffilepath, ".rar")) != NULL);
-  std::cout << "Reference file generated at '" << XBMC_TEMPFILEPATH(file) <<
-    "'\n";
+  std::cout << "Reference file generated at '" << XBMC_TEMPFILEPATH(file) << "'" << std::endl;
 
   URIUtils::CreateArchivePath(strrarpath, "rar", XBMC_TEMPFILEPATH(file), "");
   if (!XFILE::CDirectory::GetDirectory(strrarpath, itemlist, "",
@@ -156,14 +156,14 @@ TEST(TestRarFile, CorruptedFile)
     return;
   }
   std::cout << "file->GetLength(): " <<
-    testing::PrintToString(file->GetLength()) << "\n";
+    testing::PrintToString(file->GetLength()) << std::endl;
   std::cout << "file->Seek(file->GetLength() / 2, SEEK_CUR) return value: " <<
-    testing::PrintToString(file->Seek(file->GetLength() / 2, SEEK_CUR)) << "\n";
+    testing::PrintToString(file->Seek(file->GetLength() / 2, SEEK_CUR)) << std::endl;
   std::cout << "file->Seek(0, SEEK_END) return value: " <<
-    testing::PrintToString(file->Seek(0, SEEK_END)) << "\n";
+    testing::PrintToString(file->Seek(0, SEEK_END)) << std::endl;
   std::cout << "file->Seek(0, SEEK_SET) return value: " <<
-    testing::PrintToString(file->Seek(0, SEEK_SET)) << "\n";
-  std::cout << "File contents:\n";
+    testing::PrintToString(file->Seek(0, SEEK_SET)) << std::endl;
+  std::cout << "File contents:" << std::endl;
   while ((size = file->Read(buf, sizeof(buf))) > 0)
   {
     str.Format("  %08X", count);
@@ -184,9 +184,457 @@ TEST(TestRarFile, CorruptedFile)
       else
         std::cout << ".";
     }
-    std::cout << "]\n";
+    std::cout << "]" << std::endl;
   }
   file->Close();
   XBMC_DELETETEMPFILE(file);
+}
+
+TEST(TestRarFile, StoredRAR)
+{
+  XFILE::CFile file;
+  char buf[20];
+  memset(&buf, 0, sizeof(buf));
+  CStdString reffile, strrarpath, strpathinrar;
+  CFileItemList itemlist, itemlistemptydir;
+  struct __stat64 stat_buffer;
+
+  reffile = XBMC_REF_FILE_PATH("xbmc/filesystem/test/refRARstored.rar");
+  URIUtils::CreateArchivePath(strrarpath, "rar", reffile, "");
+  ASSERT_TRUE(XFILE::CDirectory::GetDirectory(strrarpath, itemlist));
+  itemlist.Sort(SORT_METHOD_FULLPATH, SortOrderAscending);
+
+  /* /reffile.txt */
+  /*
+   * NOTE: Use of Seek gives inconsistent behavior from when seeking through
+   * an uncompressed RAR archive. See TestRarFile.Read test case.
+   */
+  strpathinrar = itemlist[1]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/reffile.txt", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFREG);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(0, file.GetPosition());
+  EXPECT_EQ(1616, file.GetLength());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_TRUE(file.ReadString(buf, sizeof(buf)));
+  EXPECT_EQ(39, file.GetPosition());
+  EXPECT_STREQ("an award-winning fr", buf);
+  EXPECT_EQ(100, file.Seek(100));
+  EXPECT_EQ(100, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(120, file.GetPosition());
+  EXPECT_TRUE(!memcmp("ent hub for digital ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(220, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(220, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(240, file.GetPosition());
+  EXPECT_TRUE(!memcmp("rs, XBMC is a non-pr", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1596, file.Seek(-(int64_t)sizeof(buf), SEEK_END));
+  EXPECT_EQ(1596, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_TRUE(!memcmp("multimedia jukebox.\n", buf, sizeof(buf) - 1));
+  EXPECT_EQ(-1, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(-100, file.Seek(-100, SEEK_SET));
+  file.Close();
+
+  /* /testsymlink -> testdir/reffile.txt */
+  strpathinrar = itemlist[2]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testsymlink", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFLNK);
+
+  /*
+   * FIXME: Reading symlinks in RARs is currently broken. It takes a long time
+   * to read them and they produce erroneous results. The expected result is
+   * the target paths of the symlinks.
+   */
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(19, file.GetLength());
+  file.Close();
+
+  /* /testsymlinksubdir -> testdir/testsubdir/reffile.txt */
+  strpathinrar = itemlist[3]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testsymlinksubdir", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFLNK);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(30, file.GetLength());
+  file.Close();
+
+  /* /testdir/ */
+  strpathinrar = itemlist[0]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFDIR);
+
+  itemlist.Clear();
+  ASSERT_TRUE(XFILE::CDirectory::GetDirectory(strpathinrar, itemlist));
+  itemlist.Sort(SORT_METHOD_FULLPATH, SortOrderAscending);
+
+  /* /testdir/reffile.txt */
+  strpathinrar = itemlist[1]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/reffile.txt",
+                                    true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFREG);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(0, file.GetPosition());
+  EXPECT_EQ(1616, file.GetLength());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_TRUE(file.ReadString(buf, sizeof(buf)));
+  EXPECT_EQ(39, file.GetPosition());
+  EXPECT_STREQ("an award-winning fr", buf);
+  EXPECT_EQ(100, file.Seek(100));
+  EXPECT_EQ(100, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(120, file.GetPosition());
+  EXPECT_TRUE(!memcmp("ent hub for digital ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(220, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(220, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(240, file.GetPosition());
+  EXPECT_TRUE(!memcmp("rs, XBMC is a non-pr", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1596, file.Seek(-(int64_t)sizeof(buf), SEEK_END));
+  EXPECT_EQ(1596, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_TRUE(!memcmp("multimedia jukebox.\n", buf, sizeof(buf) - 1));
+  EXPECT_EQ(-1, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(-100, file.Seek(-100, SEEK_SET));
+  file.Close();
+
+  /* /testdir/testemptysubdir */
+  strpathinrar = itemlist[2]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testemptysubdir",
+                                    true));
+  /* TODO: Should this set the itemlist to an empty list instead? */
+  EXPECT_FALSE(XFILE::CDirectory::GetDirectory(strpathinrar, itemlistemptydir));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFDIR);
+
+  /* FIXME: This directory appears a second time as a file */
+  strpathinrar = itemlist[3]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testsubdir", true));
+
+  /* /testdir/testsymlink -> testsubdir/reffile.txt */
+  strpathinrar = itemlist[4]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testsymlink",
+                                    true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFLNK);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(22, file.GetLength());
+  file.Close();
+
+  /* /testdir/testsubdir/ */
+  strpathinrar = itemlist[0]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testsubdir/",
+                                    true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFDIR);
+
+  itemlist.Clear();
+  ASSERT_TRUE(XFILE::CDirectory::GetDirectory(strpathinrar, itemlist));
+  itemlist.Sort(SORT_METHOD_FULLPATH, SortOrderAscending);
+
+  /* /testdir/testsubdir/reffile.txt */
+  strpathinrar = itemlist[0]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar,
+                                    "/testdir/testsubdir/reffile.txt", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFREG);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(0, file.GetPosition());
+  EXPECT_EQ(1616, file.GetLength());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_TRUE(file.ReadString(buf, sizeof(buf)));
+  EXPECT_EQ(39, file.GetPosition());
+  EXPECT_STREQ("an award-winning fr", buf);
+  EXPECT_EQ(100, file.Seek(100));
+  EXPECT_EQ(100, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(120, file.GetPosition());
+  EXPECT_TRUE(!memcmp("ent hub for digital ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(220, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(220, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(240, file.GetPosition());
+  EXPECT_TRUE(!memcmp("rs, XBMC is a non-pr", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1596, file.Seek(-(int64_t)sizeof(buf), SEEK_END));
+  EXPECT_EQ(1596, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_TRUE(!memcmp("multimedia jukebox.\n", buf, sizeof(buf) - 1));
+  EXPECT_EQ(-1, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(-100, file.Seek(-100, SEEK_SET));
+  file.Close();
+}
+
+TEST(TestRarFile, NormalRAR)
+{
+  XFILE::CFile file;
+  char buf[20];
+  memset(&buf, 0, sizeof(buf));
+  CStdString reffile, strrarpath, strpathinrar;
+  CFileItemList itemlist, itemlistemptydir;
+  struct __stat64 stat_buffer;
+
+  reffile = XBMC_REF_FILE_PATH("xbmc/filesystem/test/refRARnormal.rar");
+  URIUtils::CreateArchivePath(strrarpath, "rar", reffile, "");
+  ASSERT_TRUE(XFILE::CDirectory::GetDirectory(strrarpath, itemlist));
+  itemlist.Sort(SORT_METHOD_FULLPATH, SortOrderAscending);
+
+  /* /reffile.txt */
+  strpathinrar = itemlist[1]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/reffile.txt", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFREG);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(0, file.GetPosition());
+  EXPECT_EQ(1616, file.GetLength());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_TRUE(file.ReadString(buf, sizeof(buf)));
+  EXPECT_EQ(39, file.GetPosition());
+  EXPECT_STREQ("an award-winning fr", buf);
+  EXPECT_EQ(100, file.Seek(100));
+  EXPECT_EQ(100, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(120, file.GetPosition());
+  EXPECT_TRUE(!memcmp("ent hub for digital ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(220, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(220, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(240, file.GetPosition());
+  EXPECT_TRUE(!memcmp("rs, XBMC is a non-pr", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1596, file.Seek(-(int64_t)sizeof(buf), SEEK_END));
+  EXPECT_EQ(1596, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_TRUE(!memcmp("multimedia jukebox.\n", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1716, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(1716, file.GetPosition());
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(-1, file.Seek(-100, SEEK_SET));
+  file.Close();
+
+  /* /testsymlink -> testdir/reffile.txt */
+  strpathinrar = itemlist[2]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testsymlink", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFLNK);
+
+  /*
+   * FIXME: Reading symlinks in RARs is currently broken. It takes a long time
+   * to read them and they produce erroneous results. The expected result is
+   * the target paths of the symlinks.
+   */
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(19, file.GetLength());
+  file.Close();
+
+  /* /testsymlinksubdir -> testdir/testsubdir/reffile.txt */
+  strpathinrar = itemlist[3]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testsymlinksubdir", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFLNK);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(30, file.GetLength());
+  file.Close();
+
+  /* /testdir/ */
+  strpathinrar = itemlist[0]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFDIR);
+
+  itemlist.Clear();
+  ASSERT_TRUE(XFILE::CDirectory::GetDirectory(strpathinrar, itemlist));
+  itemlist.Sort(SORT_METHOD_FULLPATH, SortOrderAscending);
+
+  /* /testdir/reffile.txt */
+  strpathinrar = itemlist[1]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/reffile.txt",
+                                    true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFREG);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(0, file.GetPosition());
+  EXPECT_EQ(1616, file.GetLength());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_TRUE(file.ReadString(buf, sizeof(buf)));
+  EXPECT_EQ(39, file.GetPosition());
+  EXPECT_STREQ("an award-winning fr", buf);
+  EXPECT_EQ(100, file.Seek(100));
+  EXPECT_EQ(100, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(120, file.GetPosition());
+  EXPECT_TRUE(!memcmp("ent hub for digital ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(220, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(220, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(240, file.GetPosition());
+  EXPECT_TRUE(!memcmp("rs, XBMC is a non-pr", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1596, file.Seek(-(int64_t)sizeof(buf), SEEK_END));
+  EXPECT_EQ(1596, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_TRUE(!memcmp("multimedia jukebox.\n", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1716, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(1716, file.GetPosition());
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(-1, file.Seek(-100, SEEK_SET));
+  file.Close();
+
+  /* /testdir/testemptysubdir */
+  strpathinrar = itemlist[2]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testemptysubdir",
+                                    true));
+  /* TODO: Should this set the itemlist to an empty list instead? */
+  EXPECT_FALSE(XFILE::CDirectory::GetDirectory(strpathinrar, itemlistemptydir));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFDIR);
+
+  /* FIXME: This directory appears a second time as a file */
+  strpathinrar = itemlist[3]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testsubdir", true));
+
+  /* /testdir/testsymlink -> testsubdir/reffile.txt */
+  strpathinrar = itemlist[4]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testsymlink",
+                                    true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFLNK);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(22, file.GetLength());
+  file.Close();
+
+  /* /testdir/testsubdir/ */
+  strpathinrar = itemlist[0]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar, "/testdir/testsubdir/",
+                                    true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFDIR);
+
+  itemlist.Clear();
+  ASSERT_TRUE(XFILE::CDirectory::GetDirectory(strpathinrar, itemlist));
+  itemlist.Sort(SORT_METHOD_FULLPATH, SortOrderAscending);
+
+  /* /testdir/testsubdir/reffile.txt */
+  strpathinrar = itemlist[0]->GetPath();
+  ASSERT_TRUE(StringUtils::EndsWith(strpathinrar,
+                                    "/testdir/testsubdir/reffile.txt", true));
+  EXPECT_EQ(0, XFILE::CFile::Stat(strpathinrar, &stat_buffer));
+  EXPECT_TRUE((stat_buffer.st_mode & S_IFMT) | S_IFREG);
+
+  ASSERT_TRUE(file.Open(strpathinrar));
+  EXPECT_EQ(0, file.GetPosition());
+  EXPECT_EQ(1616, file.GetLength());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_TRUE(file.ReadString(buf, sizeof(buf)));
+  EXPECT_EQ(39, file.GetPosition());
+  EXPECT_STREQ("an award-winning fr", buf);
+  EXPECT_EQ(100, file.Seek(100));
+  EXPECT_EQ(100, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(120, file.GetPosition());
+  EXPECT_TRUE(!memcmp("ent hub for digital ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(220, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(220, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(240, file.GetPosition());
+  EXPECT_TRUE(!memcmp("rs, XBMC is a non-pr", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1596, file.Seek(-(int64_t)sizeof(buf), SEEK_END));
+  EXPECT_EQ(1596, file.GetPosition());
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(1616, file.GetPosition());
+  EXPECT_TRUE(!memcmp("multimedia jukebox.\n", buf, sizeof(buf) - 1));
+  EXPECT_EQ(1716, file.Seek(100, SEEK_CUR));
+  EXPECT_EQ(1716, file.GetPosition());
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(sizeof(buf), file.Read(buf, sizeof(buf)));
+  file.Flush();
+  EXPECT_EQ(20, file.GetPosition());
+  EXPECT_TRUE(!memcmp("About\n-----\nXBMC is ", buf, sizeof(buf) - 1));
+  EXPECT_EQ(0, file.Seek(0, SEEK_SET));
+  EXPECT_EQ(-1, file.Seek(-100, SEEK_SET));
+  file.Close();
 }
 #endif /*HAS_FILESYSTEM_RAR*/

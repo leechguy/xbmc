@@ -427,7 +427,7 @@ void CSoftAE::InternalOpenSink()
     m_frameSize      = m_bytesPerSample * m_chLayout.Count();
   }
 
-  CLog::Log(LOGDEBUG, "CSoftAE::InternalOpenSink - Internal Buffer Size: %d", neededBufferSize);
+  CLog::Log(LOGDEBUG, "CSoftAE::InternalOpenSink - Internal Buffer Size: %d", (int)neededBufferSize);
   if (m_buffer.Size() < neededBufferSize)
     m_buffer.Alloc(neededBufferSize);
 
@@ -506,6 +506,7 @@ void CSoftAE::Shutdown()
 
 bool CSoftAE::Initialize()
 {
+  CSingleLock lock(m_threadLock);
   InternalOpenSink();
   m_running = true;
   m_thread  = new CThread(this, "CSoftAE");
@@ -514,14 +515,17 @@ bool CSoftAE::Initialize()
   return true;
 }
 
-void CSoftAE::OnSettingsChange(std::string setting)
+void CSoftAE::OnSettingsChange(const std::string& setting)
 {
   if (setting == "audiooutput.passthroughdevice" ||
       setting == "audiooutput.audiodevice"       ||
       setting == "audiooutput.mode"              ||
       setting == "audiooutput.ac3passthrough"    ||
       setting == "audiooutput.dtspassthrough"    ||
-      setting == "audiooutput.channellayout"     ||
+      setting == "audiooutput.passthroughaac"    ||
+      setting == "audiooutput.truehdpassthrough" ||
+      setting == "audiooutput.dtshdpassthrough"  ||
+      setting == "audiooutput.channels"     ||
       setting == "audiooutput.useexclusivemode"  ||
       setting == "audiooutput.multichannellpcm"  ||
       setting == "audiooutput.stereoupmix")
@@ -550,7 +554,7 @@ void CSoftAE::LoadSettings()
 
   /* load the configuration */
   m_stdChLayout = AE_CH_LAYOUT_2_0;
-  switch (g_guiSettings.GetInt("audiooutput.channellayout"))
+  switch (g_guiSettings.GetInt("audiooutput.channels"))
   {
     default:
     case  0: m_stdChLayout = AE_CH_LAYOUT_2_0; break; /* dont alow 1_0 output */
@@ -634,6 +638,7 @@ inline void CSoftAE::GetDeviceFriendlyName(std::string &device)
 
 void CSoftAE::Deinitialize()
 {
+  CSingleLock lock(m_threadLock);
   if (m_thread)
   {
     Stop();
@@ -658,6 +663,8 @@ void CSoftAE::Deinitialize()
   _aligned_free(m_converted);
   m_converted = NULL;
   m_convertedSize = 0;
+
+  m_sinkInfoList.clear();  
 }
 
 void CSoftAE::EnumerateOutputDevices(AEDeviceList &devices, bool passthrough)
@@ -962,7 +969,6 @@ bool CSoftAE::Suspend()
 {
   CLog::Log(LOGDEBUG, "CSoftAE::Suspend - Suspending AE processing");
   m_isSuspended = true;
-
   CSingleLock streamLock(m_streamLock);
   
   for (StreamList::iterator itt = m_playingStreams.begin(); itt != m_playingStreams.end(); ++itt)
@@ -1014,34 +1020,8 @@ void CSoftAE::Run()
         restart = true;
     }
 
-    if (m_playingStreams.empty() && m_playing_sounds.empty() && m_streams.empty() && 
-       !m_softSuspend && !g_advancedSettings.m_streamSilence)
-    {
-      m_softSuspend = true;
-      m_softSuspendTimer = XbmcThreads::SystemClockMillis() + 10000; //10.0 second delay for softSuspend
-    }
-
-    unsigned int curSystemClock = XbmcThreads::SystemClockMillis();
-
-    /* idle while in Suspend() state until Resume() called */
-    /* idle if nothing to play and user hasn't enabled     */
-    /* continuous streaming (silent stream) in as.xml      */
-    while ((m_isSuspended || (m_softSuspend && (curSystemClock > m_softSuspendTimer))) &&
-            m_running     && !m_reOpen      && !restart)
-    {
-      if (m_sink)
-      {
-        /* take the sink lock */
-        CExclusiveLock sinkLock(m_sinkLock);
-        //m_sink->Drain(); TODO: implement
-        m_sink->Deinitialize();
-        delete m_sink;
-        m_sink = NULL;
-      }
-      if (!m_playingStreams.empty() || !m_playing_sounds.empty() || m_sounds.empty())
-        m_softSuspend = false;
-      m_wake.WaitMSec(SOFTAE_IDLE_WAIT_MSEC);
-    }
+    /* Handle idle or forced suspend */
+    ProcessSuspend();
 
     /* if we are told to restart */
     if (m_reOpen || restart || !m_sink)
@@ -1050,6 +1030,17 @@ void CSoftAE::Run()
       InternalOpenSink();
       m_isSuspended = false; // exit Suspend state
     }
+#if defined(TARGET_ANDROID)
+    else if (m_playingStreams.empty() 
+      &&     m_playing_sounds.empty()
+      && !g_advancedSettings.m_streamSilence)
+    {
+      // if we have nothing to do, take a dirt nap.
+      // we do not have to take a lock just to check empty.
+      // this keeps AE from sucking CPU if nothing is going on.
+      m_wake.WaitMSec(SOFTAE_IDLE_WAIT_MSEC);
+    }
+#endif
   }
 }
 
@@ -1359,7 +1350,7 @@ unsigned int CSoftAE::RunStreamStage(unsigned int channelCount, void *out, bool 
     if (!frame)
       continue;
 
-    float volume = stream->GetVolume() * stream->GetReplayGain();
+    float volume = stream->GetVolume() * stream->GetReplayGain() * stream->RunLimiter(frame, channelCount);
     #ifdef __SSE__
     if (channelCount > 1)
       CAEUtil::SSEMulAddArray(dst, frame, volume, channelCount);
@@ -1400,5 +1391,58 @@ inline void CSoftAE::RemoveStream(StreamList &streams, CSoftAEStream *stream)
 
   if (streams == m_playingStreams)
     m_streamsPlaying = !m_playingStreams.empty();
+}
+
+inline void CSoftAE::ProcessSuspend()
+{
+  bool sinkIsSuspended = false;
+  unsigned int curSystemClock = 0;
+
+#if defined(TARGET_WINDOWS)
+  if (!m_softSuspend && m_playingStreams.empty() && m_playing_sounds.empty() &&
+      !g_advancedSettings.m_streamSilence)
+  {
+    m_softSuspend = true;
+    m_softSuspendTimer = XbmcThreads::SystemClockMillis() + 10000; //10.0 second delay for softSuspend
+    Sleep(10);
+  }
+
+  if (m_softSuspend)
+    curSystemClock = XbmcThreads::SystemClockMillis();
+#endif
+
+  /* idle while in Suspend() state until Resume() called */
+  /* idle if nothing to play and user hasn't enabled     */
+  /* continuous streaming (silent stream) in as.xml      */
+  while ((m_isSuspended || (m_softSuspend && (curSystemClock > m_softSuspendTimer))) &&
+          m_running     && !m_reOpen)
+  {
+    if (m_sink && !sinkIsSuspended)
+    {
+      /* put the sink in Suspend mode */
+      CExclusiveLock sinkLock(m_sinkLock);
+      if (!m_sink->SoftSuspend())
+      {
+        sinkIsSuspended = false; //sink cannot be suspended
+        m_softSuspend   = false; //break suspend loop
+        break;
+      }
+      else
+        sinkIsSuspended = true; //sink has suspended processing
+      sinkLock.Leave();
+    }
+
+    /* idle for platform-defined time */
+    m_wake.WaitMSec(SOFTAE_IDLE_WAIT_MSEC);
+
+    /* check if we need to resume for stream or sound */
+    if (!m_isSuspended && (!m_playingStreams.empty() || !m_playing_sounds.empty()))
+    {
+      m_reOpen = !m_sink->SoftResume(); // sink returns false if it requires reinit
+      sinkIsSuspended = false; //sink processing data
+      m_softSuspend   = false; //break suspend loop
+      break;
+    }
+  }
 }
 

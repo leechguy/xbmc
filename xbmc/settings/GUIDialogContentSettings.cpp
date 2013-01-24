@@ -61,10 +61,6 @@ bool CGUIDialogContentSettings::OnMessage(CGUIMessage &message)
   case GUI_MSG_WINDOW_DEINIT:
     {
       m_scrapers.clear();
-      m_lastSelected.clear();
-      // save our current scraper (if any)
-      if (m_scraper)
-        m_lastSelected[m_content] = m_scraper;
       m_vecItems->Clear();
       CGUIDialogSettings::OnMessage(message);
     }
@@ -171,11 +167,10 @@ void CGUIDialogContentSettings::CreateSettings()
     break;
   case CONTENT_MUSICVIDEOS:
     {
-      AddBool(1,20346,&m_bScanRecursive, m_bShowScanSettings);
-      AddBool(2,20330,&m_bUseDirNames, m_bShowScanSettings);
-      AddBool(3,20346,&m_bScanRecursive, m_bShowScanSettings && ((m_bUseDirNames && !m_bSingleItem) || !m_bUseDirNames));
-      AddBool(4,20383,&m_bSingleItem, m_bShowScanSettings && (m_bUseDirNames && !m_bScanRecursive));
-      AddBool(5,20432,&m_bNoUpdate, m_bShowScanSettings);
+      AddBool(1,20330,&m_bUseDirNames, m_bShowScanSettings);
+      AddBool(2,20346,&m_bScanRecursive, m_bShowScanSettings && ((m_bUseDirNames && !m_bSingleItem) || !m_bUseDirNames));
+      AddBool(3,20383,&m_bSingleItem, m_bShowScanSettings && (m_bUseDirNames && !m_bScanRecursive));
+      AddBool(4,20432,&m_bNoUpdate, m_bShowScanSettings);
     }
     break;
   case CONTENT_ALBUMS:
@@ -229,6 +224,10 @@ void CGUIDialogContentSettings::OnCancel()
 
 void CGUIDialogContentSettings::OnInitWindow()
 {
+  m_lastSelected.clear();
+  // save our current scraper (if any)
+  if (m_scraper)
+    m_lastSelected[m_content] = m_scraper;
   FillContentTypes();
   m_bNeedSave = false;
   CGUIDialogSettings::OnInitWindow();
@@ -320,7 +319,7 @@ void CGUIDialogContentSettings::FillListControl()
   {
     CFileItemPtr item(new CFileItem((*iter)->Name()));
     item->SetPath((*iter)->ID());
-    item->SetThumbnailImage((*iter)->Icon());
+    item->SetArt("thumb", (*iter)->Icon());
     if (m_scraper && (*iter)->ID() == m_scraper->ID())
     {
       item->Select(true);

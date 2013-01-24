@@ -106,6 +106,11 @@ private:
   std::list<CStdString> m_deviceList;
 
   int GetActionCode(int window, const CKey &key, CStdString &strAction) const;
+#if defined(HAS_SDL_JOYSTICK) || defined(HAS_EVENT_SERVER)
+  typedef std::map<int, std::map<int, std::string> > JoystickMap; // <window, <button/axis, action> >
+  int GetActionCode(int window, int id, const JoystickMap &wmap, CStdString &strAction, bool &fullrange) const;
+#endif
+  int GetFallbackWindow(int windowID);
 
   static uint32_t TranslateGamepadString(const char *szButton);
   static uint32_t TranslateRemoteString(const char *szButton);
@@ -124,7 +129,10 @@ private:
   bool LoadKeymap(const CStdString &keymapPath);
 #if defined(HAS_LIRC) || defined(HAS_IRSERVERSUITE)
   bool LoadLircMap(const CStdString &lircmapPath);
+  void ClearLircButtonMapEntries();
+
   void MapRemote(TiXmlNode *pRemote, const char* szDevice);
+
   typedef std::map<CStdString, CStdString> lircButtonMap;
   std::map<CStdString, lircButtonMap*> lircRemotesMap;
 #endif
@@ -132,7 +140,6 @@ private:
 #if defined(HAS_SDL_JOYSTICK) || defined(HAS_EVENT_SERVER)
   void MapJoystickActions(int windowID, TiXmlNode *pJoystick);
 
-  typedef std::map<int, std::map<int, std::string> > JoystickMap; // <window, <button/axis, action> >
   std::map<std::string, JoystickMap> m_joystickButtonMap;      // <joy name, button map>
   std::map<std::string, JoystickMap> m_joystickAxisMap;        // <joy name, axis map>
   std::map<std::string, JoystickMap> m_joystickHatMap;        // <joy name, hat map>

@@ -62,9 +62,9 @@ static const translateField fields[] = {
   { "styles",            FieldStyles,                  SortByNone,                     CSmartPlaylistRule::TEXT_FIELD,       176 },
   { "type",              FieldAlbumType,               SortByAlbumType,                CSmartPlaylistRule::TEXT_FIELD,       564 },
   { "label",             FieldMusicLabel,              SortByNone,                     CSmartPlaylistRule::TEXT_FIELD,       21899 },
-  { "title",             FieldTitle,                   SortByTitle,                    CSmartPlaylistRule::TEXT_FIELD,       556 },
+  { "title",             FieldTitle,                   SortByTitle,                    CSmartPlaylistRule::BROWSEABLE_FIELD, 556 },
   { "sorttitle",         FieldSortTitle,               SortBySortTitle,                CSmartPlaylistRule::TEXT_FIELD,       556 },
-  { "year",              FieldYear,                    SortByYear,                     CSmartPlaylistRule::BROWSEABLE_FIELD, 562 },
+  { "year",              FieldYear,                    SortByYear,                     CSmartPlaylistRule::BROWSEABLE_NUMERIC_FIELD, 562 },
   { "time",              FieldTime,                    SortByTime,                     CSmartPlaylistRule::SECONDS_FIELD,    180 },
   { "playcount",         FieldPlaycount,               SortByPlaycount,                CSmartPlaylistRule::NUMERIC_FIELD,    567 },
   { "lastplayed",        FieldLastPlayed,              SortByLastPlayed,               CSmartPlaylistRule::DATE_FIELD,       568 },
@@ -91,7 +91,7 @@ static const translateField fields[] = {
   { "season",            FieldSeason,                  SortBySeason,                   CSmartPlaylistRule::NUMERIC_FIELD,    20373 },
   { "episode",           FieldEpisodeNumber,           SortByEpisodeNumber,            CSmartPlaylistRule::NUMERIC_FIELD,    20359 },
   { "numepisodes",       FieldNumberOfEpisodes,        SortByNumberOfEpisodes,         CSmartPlaylistRule::NUMERIC_FIELD,    20360 },
-  { "numwatched",        FieldNumberOfWatchedEpisodes, SortByNumberOfWatchedEpisodes,  CSmartPlaylistRule::NUMERIC_FIELD,    21441 },
+  { "numwatched",        FieldNumberOfWatchedEpisodes, SortByNumberOfWatchedEpisodes,  CSmartPlaylistRule::NUMERIC_FIELD,    21457 },
   { "videoresolution",   FieldVideoResolution,         SortByVideoResolution,          CSmartPlaylistRule::NUMERIC_FIELD,    21443 },
   { "videocodec",        FieldVideoCodec,              SortByVideoCodec,               CSmartPlaylistRule::TEXTIN_FIELD,     21445 },
   { "videoaspect",       FieldVideoAspectRatio,        SortByVideoAspectRatio,         CSmartPlaylistRule::NUMERIC_FIELD,    21374 },
@@ -132,7 +132,8 @@ static const operatorField operators[] = { { "contains", CSmartPlaylistRule::OPE
                                            { "inthelast", CSmartPlaylistRule::OPERATOR_IN_THE_LAST, 21410 },
                                            { "notinthelast", CSmartPlaylistRule::OPERATOR_NOT_IN_THE_LAST, 21411 },
                                            { "true", CSmartPlaylistRule::OPERATOR_TRUE, 20122 },
-                                           { "false", CSmartPlaylistRule::OPERATOR_FALSE, 20424 }
+                                           { "false", CSmartPlaylistRule::OPERATOR_FALSE, 20424 },
+                                           { "between", CSmartPlaylistRule::OPERATOR_BETWEEN, 21456 }
                                          };
 
 #define NUM_OPERATORS sizeof(operators) / sizeof(operatorField)
@@ -322,13 +323,6 @@ CStdString CSmartPlaylistRule::GetLocalizedField(Field field)
 {
   for (unsigned int i = 0; i < NUM_FIELDS; i++)
     if (field == fields[i].field) return g_localizeStrings.Get(fields[i].localizedString);
-  return g_localizeStrings.Get(16018);
-}
-
-CStdString CSmartPlaylistRule::GetLocalizedOrder(SortBy order)
-{
-  for (unsigned int i = 0; i < NUM_FIELDS; i++)
-    if (order == fields[i].sort) return g_localizeStrings.Get(fields[i].localizedString);
   return g_localizeStrings.Get(16018);
 }
 
@@ -616,16 +610,27 @@ CStdString CSmartPlaylistRule::GetLocalizedOperator(SEARCH_OPERATOR oper)
   return g_localizeStrings.Get(16018);
 }
 
-CStdString CSmartPlaylistRule::GetLocalizedRule(const CStdString &type) const
+CStdString CSmartPlaylistRule::GetLocalizedRule() const
 {
   CStdString rule;
-  rule.Format("%s %s %s", GetLocalizedField(m_field).c_str(), GetLocalizedOperator(m_operator).c_str(), GetLocalizedParameter(type).c_str());
+  rule.Format("%s %s %s", GetLocalizedField(m_field).c_str(), GetLocalizedOperator(m_operator).c_str(), GetParameter().c_str());
   return rule;
 }
 
-CStdString CSmartPlaylistRule::GetLocalizedParameter(const CStdString &type) const
+CStdString CSmartPlaylistRule::GetParameter() const
 {
   return StringUtils::JoinString(m_parameter, " / ");
+}
+
+void CSmartPlaylistRule::SetParameter(const CStdString &value)
+{
+  m_parameter.clear();
+  StringUtils::SplitString(value, " / ", m_parameter);
+}
+
+void CSmartPlaylistRule::SetParameter(const std::vector<CStdString> &values)
+{
+  m_parameter.assign(values.begin(), values.end());
 }
 
 CStdString CSmartPlaylistRule::GetVideoResolutionQuery(const CStdString &parameter) const
@@ -688,9 +693,20 @@ CStdString CSmartPlaylistRule::GetWhereClause(const CDatabase &db, const CStdStr
     case OPERATOR_DOES_NOT_CONTAIN:
       negate = " NOT"; operatorString = " LIKE '%%%s%%'"; break;
     case OPERATOR_EQUALS:
-      operatorString = " LIKE '%s'"; break;
+      if (GetFieldType(m_field) == NUMERIC_FIELD || GetFieldType(m_field) == SECONDS_FIELD)
+        operatorString = " = %s";
+      else
+        operatorString = " LIKE '%s'";
+      break;
     case OPERATOR_DOES_NOT_EQUAL:
-      negate = " NOT"; operatorString = " LIKE '%s'"; break;
+      if (GetFieldType(m_field) == NUMERIC_FIELD || GetFieldType(m_field) == SECONDS_FIELD)
+        operatorString = " != %s";
+      else
+      {
+        negate = " NOT";
+        operatorString = " LIKE '%s'";
+      }
+      break;
     case OPERATOR_STARTS_WITH:
       operatorString = " LIKE '%s%%'"; break;
     case OPERATOR_ENDS_WITH:
@@ -745,6 +761,21 @@ CStdString CSmartPlaylistRule::GetWhereClause(const CDatabase &db, const CStdStr
                "(watchedcount = 0 AND " + GetField(FieldId, strType) + " IN "
                "(select episodeview.idShow from episodeview WHERE episodeview.idShow = " + GetField(FieldId, strType) + " AND episodeview.resumeTimeInSeconds > 0)))";
     }
+  }
+
+  // The BETWEEN operator is handled special
+  if (op == OPERATOR_BETWEEN)
+  {
+    if (m_parameter.size() != 2)
+      return "";
+
+    FIELD_TYPE fieldType = GetFieldType(m_field);
+    if (fieldType == NUMERIC_FIELD || m_field == FieldYear)
+      return db.PrepareSQL("CAST(%s as DECIMAL(5,1)) BETWEEN %s AND %s", GetField(m_field, strType).c_str(), m_parameter[0].c_str(), m_parameter[1].c_str());
+    else if (fieldType == SECONDS_FIELD)
+      return db.PrepareSQL("CAST(%s as INTEGER) BETWEEN %s AND %s", GetField(m_field, strType).c_str(), m_parameter[0].c_str(), m_parameter[1].c_str());
+    else
+      return db.PrepareSQL("%s BETWEEN '%s' AND '%s'", GetField(m_field, strType).c_str(), m_parameter[0].c_str(), m_parameter[1].c_str());
   }
 
   // now the query parameter
@@ -810,6 +841,13 @@ CStdString CSmartPlaylistRule::GetWhereClause(const CDatabase &db, const CStdStr
       else if (m_field == FieldAlbumArtist)
         query = GetField(FieldId, strType) + negate + " IN (SELECT album_artist.idAlbum FROM album_artist, artist WHERE album_artist.idArtist = artist.idArtist AND artist.strArtist" + parameter + ")";
     }
+    else if (strType == "artists")
+    {
+      table = "artistview";
+
+      if (m_field == FieldGenre)
+        query = GetField(FieldId, strType) + negate + " IN (SELECT song_artist.idArtist FROM song_artist, song_genre, genre WHERE song_artist.idSong = song_genre.idSong AND song_genre.idGenre = genre.idGenre AND genre.strGenre" + parameter + ")";
+    }
     else if (strType == "movies")
     {
       table = "movieview";
@@ -864,6 +902,8 @@ CStdString CSmartPlaylistRule::GetWhereClause(const CDatabase &db, const CStdStr
         query = GetField(FieldId, strType) + negate + " IN (SELECT idShow FROM tvshowview WHERE " + GetField(m_field, strType) + parameter + ")";
       else if ((m_field == FieldLastPlayed || m_field == FieldDateAdded) && (m_operator == OPERATOR_LESS_THAN || m_operator == OPERATOR_BEFORE || m_operator == OPERATOR_NOT_IN_THE_LAST))
         query = GetField(m_field, strType) + " IS NULL OR " + GetField(m_field, strType) + parameter;
+      else if (m_field == FieldPlaycount)
+        query = "CASE WHEN COALESCE(" + GetField(FieldNumberOfEpisodes, strType) + " - " + GetField(FieldNumberOfWatchedEpisodes, strType) + ", 0) > 0 THEN 0 ELSE 1 END " + parameter;
     }
     else if (strType == "episodes")
     {
@@ -898,7 +938,7 @@ CStdString CSmartPlaylistRule::GetWhereClause(const CDatabase &db, const CStdStr
       query = table + ".idFile" + negate + " IN (SELECT DISTINCT idFile FROM streamdetails WHERE strSubtitleLanguage " + parameter + ")";
     else if (m_field == FieldVideoAspectRatio)
       query = table + ".idFile" + negate + " IN (SELECT DISTINCT idFile FROM streamdetails WHERE fVideoAspect " + parameter + ")";
-    if (m_field == FieldPlaycount && strType != "songs" && strType != "albums")
+    if (m_field == FieldPlaycount && strType != "songs" && strType != "albums" && strType != "tvshows")
     { // playcount IS stored as NULL OR number IN video db
       if ((m_operator == OPERATOR_EQUALS && it->Equals("0")) ||
           (m_operator == OPERATOR_DOES_NOT_EQUAL && !it->Equals("0")) ||
@@ -1093,11 +1133,7 @@ void CSmartPlaylistRuleCombination::AddCombination(const CSmartPlaylistRuleCombi
 
 CSmartPlaylist::CSmartPlaylist()
 {
-  m_ruleCombination.SetType(CSmartPlaylistRuleCombination::CombinationAnd);
-  m_limit = 0;
-  m_orderField = SortByNone;
-  m_orderAscending = true;
-  m_playlistType = "songs"; // sane default
+  Reset();
 }
 
 TiXmlElement *CSmartPlaylist::OpenAndReadName(const CStdString &path)
@@ -1207,7 +1243,7 @@ bool CSmartPlaylist::Load(const CVariant &obj)
   if (obj.isMember("order") && obj["order"].isMember("method") && obj["order"]["method"].isString())
   {
     if (obj["order"].isMember("direction") && obj["order"]["direction"].isString())
-      m_orderAscending = strcmpi(obj["order"]["direction"].asString().c_str(), "ascending") == 0;
+      m_orderDirection = strcmpi(obj["order"]["direction"].asString().c_str(), "ascending") == 0 ? SortOrderAscending : SortOrderDescending;
 
     m_orderField = CSmartPlaylistRule::TranslateOrder(obj["order"]["method"].asString().c_str());
   }
@@ -1266,7 +1302,7 @@ bool CSmartPlaylist::LoadFromXML(TiXmlElement *root, const CStdString &encoding)
   {
     const char *direction = order->Attribute("direction");
     if (direction)
-      m_orderAscending = strcmpi(direction, "ascending") == 0;
+      m_orderDirection = strcmpi(direction, "ascending") == 0 ? SortOrderAscending : SortOrderDescending;
     m_orderField = CSmartPlaylistRule::TranslateOrder(order->FirstChild()->Value());
   }
   return true;
@@ -1325,7 +1361,7 @@ bool CSmartPlaylist::Save(const CStdString &path) const
   {
     TiXmlText order(CSmartPlaylistRule::TranslateOrder(m_orderField).c_str());
     TiXmlElement nodeOrder("order");
-    nodeOrder.SetAttribute("direction", m_orderAscending ? "ascending" : "descending");
+    nodeOrder.SetAttribute("direction", m_orderDirection == SortOrderDescending ? "descending" : "ascending");
     nodeOrder.InsertEndChild(order);
     pRoot->InsertEndChild(nodeOrder);
   }
@@ -1338,11 +1374,8 @@ bool CSmartPlaylist::Save(CVariant &obj, bool full /* = true */) const
     return false;
 
   obj.clear();
-  // add "type" and "name"
+  // add "type"
   obj["type"] = m_playlistType;
-
-  if (full)
-    obj["name"] = m_playlistName;
 
   // add "rules"
   CVariant rulesObj = CVariant(CVariant::VariantTypeObject);
@@ -1358,7 +1391,7 @@ bool CSmartPlaylist::Save(CVariant &obj, bool full /* = true */) const
   {
     obj["order"] = CVariant(CVariant::VariantTypeObject);
     obj["order"]["method"] = CSmartPlaylistRule::TranslateOrder(m_orderField);
-    obj["order"]["direction"] = m_orderAscending ? "ascending" : "descending";
+    obj["order"]["direction"] = m_orderDirection == SortOrderDescending ? "descending" : "ascending";
   }
 
   return true;
@@ -1372,6 +1405,17 @@ bool CSmartPlaylist::SaveAsJson(CStdString &json, bool full /* = true */) const
 
   json = CJSONVariantWriter::Write(xsp, true);
   return json.size() > 0;
+}
+
+void CSmartPlaylist::Reset()
+{
+  m_ruleCombination.m_combinations.clear();
+  m_ruleCombination.m_rules.clear();
+  m_ruleCombination.SetType(CSmartPlaylistRuleCombination::CombinationAnd);
+  m_limit = 0;
+  m_orderField = SortByNone;
+  m_orderDirection = SortOrderNone;
+  m_playlistType = "songs"; // sane default
 }
 
 void CSmartPlaylist::SetName(const CStdString &name)
@@ -1416,4 +1460,13 @@ void CSmartPlaylist::GetAvailableOperators(std::vector<std::string> &operatorLis
 {
   for (unsigned int index = 0; index < NUM_OPERATORS; index++)
     operatorList.push_back(operators[index].string);
+}
+
+bool CSmartPlaylist::IsEmpty(bool ignoreSortAndLimit /* = true */) const
+{
+  bool empty = m_ruleCombination.m_rules.empty() && m_ruleCombination.m_combinations.empty();
+  if (empty && !ignoreSortAndLimit)
+    empty = m_limit <= 0 && m_orderField == SortByNone && m_orderDirection == SortOrderNone;
+
+  return empty;
 }

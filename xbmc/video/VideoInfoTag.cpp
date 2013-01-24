@@ -70,6 +70,7 @@ void CVideoInfoTag::Reset()
   m_iYear = 0;
   m_iSeason = -1;
   m_iEpisode = -1;
+  m_strUniqueId.clear();
   m_iSpecialSortSeason = -1;
   m_iSpecialSortEpisode = -1;
   m_fRating = 0.0f;
@@ -78,7 +79,7 @@ void CVideoInfoTag::Reset()
   m_iBookmarkId = -1;
   m_iTrack = -1;
   m_fanart.m_xml.clear();
-  m_strRuntime.clear();
+  m_duration = 0;
   m_lastPlayed.Reset();
   m_showLink.clear();
   m_streamDetails.Reset();
@@ -120,6 +121,7 @@ bool CVideoInfoTag::Save(TiXmlNode *node, const CStdString &tag, bool savePathIn
   {
     XMLUtils::SetInt(movie, "season", m_iSeason);
     XMLUtils::SetInt(movie, "episode", m_iEpisode);
+    XMLUtils::SetString(movie, "uniqueid", m_strUniqueId);
     XMLUtils::SetInt(movie, "displayseason",m_iSpecialSortSeason);
     XMLUtils::SetInt(movie, "displayepisode",m_iSpecialSortEpisode);
   }
@@ -132,7 +134,7 @@ bool CVideoInfoTag::Save(TiXmlNode *node, const CStdString &tag, bool savePathIn
   XMLUtils::SetString(movie, "outline", m_strPlotOutline);
   XMLUtils::SetString(movie, "plot", m_strPlot);
   XMLUtils::SetString(movie, "tagline", m_strTagLine);
-  XMLUtils::SetString(movie, "runtime", m_strRuntime);
+  XMLUtils::SetInt(movie, "runtime", GetDuration() / 60);
   if (!m_strPictureURL.m_xml.empty())
   {
     CXBMCTinyXML doc;
@@ -293,7 +295,7 @@ void CVideoInfoTag::Archive(CArchive& ar)
     ar << m_strSet;
     ar << m_iSetId;
     ar << m_tags;
-    ar << m_strRuntime;
+    ar << m_duration;
     ar << m_strFile;
     ar << m_strPath;
     ar << m_strIMDBNumber;
@@ -314,6 +316,7 @@ void CVideoInfoTag::Archive(CArchive& ar)
     ar << m_iYear;
     ar << m_iSeason;
     ar << m_iEpisode;
+    ar << m_strUniqueId;
     ar << m_fRating;
     ar << m_iDbId;
     ar << m_iFileId;
@@ -370,7 +373,7 @@ void CVideoInfoTag::Archive(CArchive& ar)
     ar >> m_strSet;
     ar >> m_iSetId;
     ar >> m_tags;
-    ar >> m_strRuntime;
+    ar >> m_duration;
     ar >> m_strFile;
     ar >> m_strPath;
     ar >> m_strIMDBNumber;
@@ -391,6 +394,7 @@ void CVideoInfoTag::Archive(CArchive& ar)
     ar >> m_iYear;
     ar >> m_iSeason;
     ar >> m_iEpisode;
+    ar >> m_strUniqueId;
     ar >> m_fRating;
     ar >> m_iDbId;
     ar >> m_iFileId;
@@ -416,7 +420,7 @@ void CVideoInfoTag::Archive(CArchive& ar)
   }
 }
 
-void CVideoInfoTag::Serialize(CVariant& value)
+void CVideoInfoTag::Serialize(CVariant& value) const
 {
   value["director"] = m_director;
   value["writer"] = m_writingCredits;
@@ -442,7 +446,7 @@ void CVideoInfoTag::Serialize(CVariant& value)
   value["set"] = m_strSet;
   value["setid"] = m_iSetId;
   value["tag"] = m_tags;
-  value["runtime"] = m_strRuntime;
+  value["runtime"] = GetDuration();
   value["file"] = m_strFile;
   value["path"] = m_strPath;
   value["imdbnumber"] = m_strIMDBNumber;
@@ -464,6 +468,7 @@ void CVideoInfoTag::Serialize(CVariant& value)
   value["year"] = m_iYear;
   value["season"] = m_iSeason;
   value["episode"] = m_iEpisode;
+  value["uniqueid"]["unknown"] = m_strUniqueId;
   value["rating"] = m_fRating;
   value["dbid"] = m_iDbId;
   value["fileid"] = m_iFileId;
@@ -495,7 +500,7 @@ void CVideoInfoTag::ToSortable(SortItem& sortable)
   sortable[FieldStudio] = m_studio;
   sortable[FieldTrailer] = m_strTrailer;
   sortable[FieldSet] = m_strSet;
-  sortable[FieldTime] = m_strRuntime;
+  sortable[FieldTime] = GetDuration();
   sortable[FieldFilename] = m_strFile;
   sortable[FieldMPAA] = m_strMPAARating;
   sortable[FieldPath] = m_strFileNameAndPath;
@@ -519,8 +524,6 @@ void CVideoInfoTag::ToSortable(SortItem& sortable)
   sortable[FieldTrackNumber] = m_iTrack;
   sortable[FieldTag] = m_tags;
 
-  if (m_streamDetails.HasItems() && m_streamDetails.GetVideoDuration() > 0)
-    sortable[FieldTime] = m_streamDetails.GetVideoDuration();
   sortable[FieldVideoResolution] = m_streamDetails.GetVideoHeight();
   sortable[FieldVideoAspectRatio] = m_streamDetails.GetVideoAspect();
   sortable[FieldVideoCodec] = m_streamDetails.GetVideoCodec();
@@ -570,6 +573,7 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
   XMLUtils::GetInt(movie, "season", m_iSeason);
   XMLUtils::GetInt(movie, "episode", m_iEpisode);
   XMLUtils::GetInt(movie, "track", m_iTrack);
+  XMLUtils::GetString(movie, "uniqueid", m_strUniqueId);
   XMLUtils::GetInt(movie, "displayseason", m_iSpecialSortSeason);
   XMLUtils::GetInt(movie, "displayepisode", m_iSpecialSortEpisode);
   int after=0;
@@ -583,7 +587,9 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
   XMLUtils::GetString(movie, "outline", m_strPlotOutline);
   XMLUtils::GetString(movie, "plot", m_strPlot);
   XMLUtils::GetString(movie, "tagline", m_strTagLine);
-  XMLUtils::GetString(movie, "runtime", m_strRuntime);
+  CStdString runtime;
+  if (XMLUtils::GetString(movie, "runtime", runtime))
+    m_duration = GetDurationFromMinuteString(runtime);
   XMLUtils::GetString(movie, "mpaa", m_strMPAARating);
   XMLUtils::GetInt(movie, "playcount", m_playCount);
   XMLUtils::GetDate(movie, "lastplayed", m_lastPlayed);
@@ -780,4 +786,28 @@ bool CVideoInfoTag::IsEmpty() const
   return (m_strTitle.IsEmpty() &&
           m_strFile.IsEmpty() &&
           m_strPath.IsEmpty());
+}
+
+unsigned int CVideoInfoTag::GetDuration() const
+{
+  /*
+   Prefer the duration from the stream if it isn't too
+   small (60%) compared to the duration from the tag.
+   */
+  unsigned int duration = m_streamDetails.GetVideoDuration();
+  if (duration > m_duration * 0.6)
+    return duration;
+
+  return m_duration;
+}
+
+unsigned int CVideoInfoTag::GetDurationFromMinuteString(const std::string &runtime)
+{
+  unsigned int duration = (unsigned int)str2uint64(runtime);
+  if (!duration)
+  { // failed for some reason, or zero
+    duration = strtoul(runtime.c_str(), NULL, 10);
+    CLog::Log(LOGWARNING, "%s <runtime> should be in minutes. Interpreting '%s' as %u minutes", __FUNCTION__, runtime.c_str(), duration);
+  }
+  return duration*60;
 }

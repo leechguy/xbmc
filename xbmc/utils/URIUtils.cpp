@@ -18,6 +18,7 @@
  *
  */
 
+#include "network/Network.h"
 #include "URIUtils.h"
 #include "Application.h"
 #include "FileItem.h"
@@ -231,13 +232,15 @@ bool URIUtils::ProtocolHasParentInHostname(const CStdString& prot)
 {
   return prot.Equals("zip")
       || prot.Equals("rar")
-      || prot.Equals("bluray");
+      || prot.Equals("bluray")
+      || prot.Equals("udf");
 }
 
 bool URIUtils::ProtocolHasEncodedHostname(const CStdString& prot)
 {
   return ProtocolHasParentInHostname(prot)
-      || prot.Equals("musicsearch");
+      || prot.Equals("musicsearch")
+      || prot.Equals("image");
 }
 
 bool URIUtils::ProtocolHasEncodedFilename(const CStdString& prot)
@@ -369,7 +372,7 @@ CStdString URIUtils::SubstitutePath(const CStdString& strPath)
   for (CAdvancedSettings::StringMapping::iterator i = g_advancedSettings.m_pathSubstitutions.begin();
       i != g_advancedSettings.m_pathSubstitutions.end(); i++)
   {
-    if (strncmp(strPath.c_str(), i->first.c_str(), i->first.size()) == 0)
+    if (strncmp(strPath.c_str(), i->first.c_str(), HasSlashAtEnd(i->first.c_str()) ? i->first.size()-1 : i->first.size()) == 0)
     {
       if (strPath.size() > i->first.size())
         return URIUtils::AddFileToFolder(i->second, strPath.Mid(i->first.size()));
@@ -611,6 +614,18 @@ bool URIUtils::IsZIP(const CStdString& strFile) // also checks for comic books!
     return true;
 
   return false;
+}
+
+bool URIUtils::IsArchive(const CStdString& strFile)
+{
+  CStdString extension;
+  GetExtension(strFile, extension);
+
+  return (extension.CompareNoCase(".zip") == 0 ||
+          extension.CompareNoCase(".rar") == 0 ||
+          extension.CompareNoCase(".apk") == 0 ||
+          extension.CompareNoCase(".cbz") == 0 ||
+          extension.CompareNoCase(".cbr") == 0);
 }
 
 bool URIUtils::IsSpecial(const CStdString& strFile)
@@ -897,6 +912,14 @@ void URIUtils::RemoveSlashAtEnd(CStdString& strFolder)
     strFolder.Delete(strFolder.size() - 1);
 }
 
+bool URIUtils::CompareWithoutSlashAtEnd(const CStdString& strPath1, const CStdString& strPath2)
+{
+  CStdString strc1 = strPath1, strc2 = strPath2;
+  RemoveSlashAtEnd(strc1);
+  RemoveSlashAtEnd(strc2);
+  return strc1.Equals(strc2);
+}
+
 void URIUtils::AddFileToFolder(const CStdString& strFolder, 
                                 const CStdString& strFile,
                                 CStdString& strResult)
@@ -928,6 +951,13 @@ void URIUtils::AddFileToFolder(const CStdString& strFolder,
     strResult.Replace('\\', '/');
   else
     strResult.Replace('/', '\\');
+}
+
+CStdString URIUtils::GetDirectory(const CStdString &filePath)
+{
+  CStdString directory;
+  GetDirectory(filePath, directory);
+  return directory;
 }
 
 void URIUtils::GetDirectory(const CStdString& strFilePath,
@@ -1055,4 +1085,48 @@ std::string URIUtils::resolvePath(const std::string &path)
     realPath += delim;
 
   return realPath;
+}
+
+bool URIUtils::UpdateUrlEncoding(std::string &strFilename)
+{
+  if (strFilename.empty())
+    return false;
+  
+  CURL url(strFilename);
+  // if this is a stack:// URL we need to work with its filename
+  if (URIUtils::IsStack(strFilename))
+  {
+    vector<CStdString> files;
+    if (!CStackDirectory::GetPaths(strFilename, files))
+      return false;
+
+    for (vector<CStdString>::iterator file = files.begin(); file != files.end(); file++)
+    {
+      std::string filePath = *file;
+      UpdateUrlEncoding(filePath);
+      *file = filePath;
+    }
+
+    CStdString stackPath;
+    if (!CStackDirectory::ConstructStackPath(files, stackPath))
+      return false;
+
+    url.Parse(stackPath);
+  }
+  // if the protocol has an encoded hostname we need to work with its hostname
+  else if (URIUtils::ProtocolHasEncodedHostname(url.GetProtocol()))
+  {
+    std::string hostname = url.GetHostName();
+    UpdateUrlEncoding(hostname);
+    url.SetHostName(hostname);
+  }
+  else
+    return false;
+
+  std::string newFilename = url.Get();
+  if (newFilename == strFilename)
+    return false;
+  
+  strFilename = newFilename;
+  return true;
 }

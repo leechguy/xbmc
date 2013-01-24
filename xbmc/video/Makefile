@@ -1,4 +1,5 @@
 SRCS=Bookmark.cpp \
+     FFmpegVideoDecoder.cpp \
      GUIViewStateVideo.cpp \
      Teletext.cpp \
      VideoDatabase.cpp \
@@ -7,6 +8,7 @@ SRCS=Bookmark.cpp \
      VideoInfoScanner.cpp \
      VideoInfoTag.cpp \
      VideoReferenceClock.cpp \
+     VideoThumbLoader.cpp \
      
 LIB=video.a
 

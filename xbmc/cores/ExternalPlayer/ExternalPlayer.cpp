@@ -32,6 +32,7 @@
 #include "FileItem.h"
 #include "utils/RegExp.h"
 #include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
 #include "URL.h"
 #include "utils/XMLUtils.h"
 #include "utils/TimeUtils.h"
@@ -142,13 +143,24 @@ void CExternalPlayer::Process()
     // Unwind archive names
     CURL url(m_launchFilename);
     CStdString protocol = url.GetProtocol();
-    if (protocol == "zip" || protocol == "rar"/* || protocol == "iso9660" ??*/)
+    if (protocol == "zip" || protocol == "rar"/* || protocol == "iso9660" ??*/ || protocol == "udf")
     {
       mainFile = url.GetHostName();
       archiveContent = url.GetFileName();
     }
     if (protocol == "musicdb")
       mainFile = CMusicDatabaseFile::TranslateUrl(url);
+    if (protocol == "bluray")
+    {
+      CURL base(url.GetHostName());
+      if(base.GetProtocol() == "udf")
+      {
+        mainFile = base.GetHostName(); /* image file */
+        archiveContent = base.GetFileName();
+      }
+      else
+        mainFile = URIUtils::AddFileToFolder(base.Get(), url.GetFileName());
+    }
   }
 
   if (m_filenameReplacers.size() > 0)
@@ -192,7 +204,7 @@ void CExternalPlayer::Process()
         while ((iStart = regExp.RegFind(mainFile, iStart)) > -1)
         {
           int iLength = regExp.GetFindLen();
-          mainFile = mainFile.Left(iStart) + regExp.GetReplaceString(strRep.c_str()) + mainFile.Mid(iStart+iLength);
+          mainFile = mainFile.Left(iStart) + regExp.GetReplaceString(strRep.c_str()).c_str() + mainFile.Mid(iStart+iLength);
           if (!bGlobal)
             break;
         }
@@ -292,7 +304,7 @@ void CExternalPlayer::Process()
   /* don't block external player's access to audio device  */
   if (!CAEFactory::Suspend())
   {
-    CLog::Log(LOGNOTICE, __FUNCTION__, "Failed to suspend AudioEngine before launching external player");
+    CLog::Log(LOGNOTICE,"%s: Failed to suspend AudioEngine before launching external player", __FUNCTION__);
   }
 
 
@@ -361,7 +373,7 @@ void CExternalPlayer::Process()
   /* Resume AE processing of XBMC native audio */
   if (!CAEFactory::Resume())
   {
-    CLog::Log(LOGFATAL, __FUNCTION__, "Failed to restart AudioEngine after return from external player");
+    CLog::Log(LOGFATAL, "%s: Failed to restart AudioEngine after return from external player",__FUNCTION__);
   }
 
   // We don't want to come back to an active screensaver

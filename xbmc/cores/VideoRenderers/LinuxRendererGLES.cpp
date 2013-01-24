@@ -46,6 +46,7 @@
 #include "threads/SingleLock.h"
 #include "RenderCapture.h"
 #include "RenderFormats.h"
+#include "xbmc/Application.h"
 
 #if defined(__ARM_NEON__)
 #include "yuv2rgb.neon.h"
@@ -190,6 +191,13 @@ bool CLinuxRendererGLES::Configure(unsigned int width, unsigned int height, unsi
 
   m_RenderUpdateCallBackFn = NULL;
   m_RenderUpdateCallBackCtx = NULL;
+  if ((m_format == RENDER_FMT_BYPASS) && g_application.GetCurrentPlayer())
+  {
+    g_application.m_pPlayer->GetRenderFeatures(m_renderFeatures);
+    g_application.m_pPlayer->GetDeinterlaceMethods(m_deinterlaceMethods);
+    g_application.m_pPlayer->GetDeinterlaceModes(m_deinterlaceModes);
+    g_application.m_pPlayer->GetScalingMethods(m_scalingMethods);
+  }
 
   return true;
 }
@@ -407,12 +415,21 @@ void CLinuxRendererGLES::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
     if (m_RenderUpdateCallBackFn)
       (*m_RenderUpdateCallBackFn)(m_RenderUpdateCallBackCtx, m_sourceRect, m_destRect);
 
+    RESOLUTION res = GetResolution();
+    int iWidth = g_settings.m_ResInfo[res].iWidth;
+    int iHeight = g_settings.m_ResInfo[res].iHeight;
+
     g_graphicsContext.BeginPaint();
 
+    glScissor(m_destRect.x1, 
+              iHeight - m_destRect.y2, 
+              m_destRect.x2 - m_destRect.x1, 
+              m_destRect.y2 - m_destRect.y1);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
+    glScissor(0, 0, iWidth, iHeight);
 
     g_graphicsContext.EndPaint();
     return;
@@ -1308,14 +1325,22 @@ bool CLinuxRendererGLES::RenderCapture(CRenderCapture* capture)
 
   // new video rect is thumbnail size
   m_destRect.SetRect(0, 0, (float)capture->GetWidth(), (float)capture->GetHeight());
+  MarkDirty();
   syncDestRectToRotatedPoints();//syncs the changed destRect to m_rotatedDestCoords
   // clear framebuffer and invert Y axis to get non-inverted image
   glDisable(GL_BLEND);
 
   g_matrices.MatrixMode(MM_MODELVIEW);
   g_matrices.PushMatrix();
-  g_matrices.Translatef(0.0f, capture->GetHeight(), 0.0f);
-  g_matrices.Scalef(1.0f, -1.0f, 1.0f);
+  // fixme - we know that cvref is already flipped in y direction
+  // but somehow this also effects the rendercapture here
+  // for cvref we have to skip the flip here or we get upside down
+  // images
+  if (m_renderMethod != RENDER_CVREF)
+  {
+    g_matrices.Translatef(0.0f, capture->GetHeight(), 0.0f);
+    g_matrices.Scalef(1.0f, -1.0f, 1.0f);
+  }
 
   capture->BeginRender();
 
@@ -1818,6 +1843,13 @@ void CLinuxRendererGLES::SetTextureFilter(GLenum method)
 
 bool CLinuxRendererGLES::Supports(ERENDERFEATURE feature)
 {
+  // Player controls render, let it dictate available render features
+  if((m_renderMethod & RENDER_BYPASS))
+  {
+    Features::iterator itr = std::find(m_renderFeatures.begin(),m_renderFeatures.end(), feature);
+    return itr != m_renderFeatures.end();
+  }
+
   if(feature == RENDERFEATURE_BRIGHTNESS)
     return false;
 
@@ -1836,8 +1868,15 @@ bool CLinuxRendererGLES::Supports(ERENDERFEATURE feature)
   if (feature == RENDERFEATURE_NONLINSTRETCH)
     return false;
 
-  if (feature == RENDERFEATURE_ROTATION)
+  if (feature == RENDERFEATURE_STRETCH         ||
+      feature == RENDERFEATURE_CROP            ||
+      feature == RENDERFEATURE_ZOOM            ||
+      feature == RENDERFEATURE_VERTICAL_SHIFT  ||
+      feature == RENDERFEATURE_PIXEL_RATIO     ||
+      feature == RENDERFEATURE_POSTPROCESS     ||
+      feature == RENDERFEATURE_ROTATION)
     return true;
+
 
   return false;
 }
@@ -1849,6 +1888,13 @@ bool CLinuxRendererGLES::SupportsMultiPassRendering()
 
 bool CLinuxRendererGLES::Supports(EDEINTERLACEMODE mode)
 {
+  // Player controls render, let it dictate available deinterlace modes
+  if((m_renderMethod & RENDER_BYPASS))
+  {
+    Features::iterator itr = std::find(m_deinterlaceModes.begin(),m_deinterlaceModes.end(), mode);
+    return itr != m_deinterlaceModes.end();
+  }
+
   if (mode == VS_DEINTERLACEMODE_OFF)
     return true;
 
@@ -1867,6 +1913,13 @@ bool CLinuxRendererGLES::Supports(EDEINTERLACEMODE mode)
 
 bool CLinuxRendererGLES::Supports(EINTERLACEMETHOD method)
 {
+  // Player controls render, let it dictate available deinterlace methods
+  if((m_renderMethod & RENDER_BYPASS))
+  {
+    Features::iterator itr = std::find(m_deinterlaceMethods.begin(),m_deinterlaceMethods.end(), method);
+    return itr != m_deinterlaceMethods.end();
+  }
+
   if(m_renderMethod & RENDER_OMXEGL)
     return false;
 
@@ -1890,6 +1943,13 @@ bool CLinuxRendererGLES::Supports(EINTERLACEMETHOD method)
 
 bool CLinuxRendererGLES::Supports(ESCALINGMETHOD method)
 {
+  // Player controls render, let it dictate available scaling methods
+  if((m_renderMethod & RENDER_BYPASS))
+  {
+    Features::iterator itr = std::find(m_scalingMethods.begin(),m_scalingMethods.end(), method);
+    return itr != m_scalingMethods.end();
+  }
+
   if(method == VS_SCALINGMETHOD_NEAREST
   || method == VS_SCALINGMETHOD_LINEAR)
     return true;
@@ -1899,6 +1959,15 @@ bool CLinuxRendererGLES::Supports(ESCALINGMETHOD method)
 
 EINTERLACEMETHOD CLinuxRendererGLES::AutoInterlaceMethod()
 {
+  // Player controls render, let it pick the auto-deinterlace method
+  if((m_renderMethod & RENDER_BYPASS))
+  {
+    if (m_deinterlaceMethods.size())
+      return ((EINTERLACEMETHOD)m_deinterlaceMethods[0]);
+    else
+      return VS_INTERLACEMETHOD_NONE;
+  }
+
   if(m_renderMethod & RENDER_OMXEGL)
     return VS_INTERLACEMETHOD_NONE;
 

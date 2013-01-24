@@ -38,7 +38,7 @@
  */
 
 #include "XBDateTime.h"
-#include "../addons/include/xbmc_pvr_types.h"
+#include "addons/include/xbmc_pvr_types.h"
 
 #include <boost/shared_ptr.hpp>
 
@@ -98,7 +98,15 @@ namespace PVR
 
     void UpdateEpgEvent(bool bClear = false);
 
-    bool IsActive(void) const { return m_state == PVR_TIMER_STATE_SCHEDULED || m_state == PVR_TIMER_STATE_RECORDING; }
+    bool IsActive(void) const 
+    { 	
+      return m_state == PVR_TIMER_STATE_SCHEDULED 
+        || m_state == PVR_TIMER_STATE_RECORDING
+        || m_state == PVR_TIMER_STATE_CONFLICT_OK
+        || m_state == PVR_TIMER_STATE_CONFLICT_NOK
+        || m_state == PVR_TIMER_STATE_ERROR;
+    }
+
     bool IsRecording(void) const { return m_state == PVR_TIMER_STATE_RECORDING; }
 
     CDateTime StartAsUTC(void) const;

@@ -39,8 +39,20 @@ using namespace std;
 #define SCROLLING_GAP   200U
 #define SCROLLING_THRESHOLD 300U
 
+
+IGUIContainer::IGUIContainer(int parentID, int controlID, float posX, float posY, float width, float height)
+  : CGUIControl(parentID, controlID, posX, posY, width, height)
+{
+}
+
+void IGUIContainer::SetType(VIEW_TYPE type, const CStdString &label)
+{
+  m_type = type;
+  m_label = label;
+}
+
 CGUIBaseContainer::CGUIBaseContainer(int parentID, int controlID, float posX, float posY, float width, float height, ORIENTATION orientation, const CScroller& scroller, int preloadItems)
-    : CGUIControl(parentID, controlID, posX, posY, width, height)
+    : IGUIContainer(parentID, controlID, posX, posY, width, height)
     , m_scroller(scroller)
 {
   m_cursor = 0;
@@ -285,6 +297,8 @@ bool CGUIBaseContainer::OnAction(const CAction &action)
     OnJumpLetter((char)(action.GetID() & 0xff));
     return true;
   }
+  // stop the timer on any other action
+  m_matchTimer.Stop();
 
   switch (action.GetID())
   {
@@ -293,6 +307,7 @@ bool CGUIBaseContainer::OnAction(const CAction &action)
   case ACTION_MOVE_DOWN:
   case ACTION_MOVE_UP:
   case ACTION_NAV_BACK:
+  case ACTION_PREVIOUS_MENU:
     {
       if (!HasFocus()) return false;
 
@@ -1008,6 +1023,7 @@ void CGUIBaseContainer::Reset()
 {
   m_wasReset = true;
   m_items.clear();
+  m_lastItem.reset();
 }
 
 void CGUIBaseContainer::LoadLayout(TiXmlElement *layout)
@@ -1063,12 +1079,6 @@ void CGUIBaseContainer::SetStaticContent(const vector<CGUIListItemPtr> &items, b
 void CGUIBaseContainer::SetRenderOffset(const CPoint &offset)
 {
   m_renderOffset = offset;
-}
-
-void CGUIBaseContainer::SetType(VIEW_TYPE type, const CStdString &label)
-{
-  m_type = type;
-  m_label = label;
 }
 
 void CGUIBaseContainer::FreeMemory(int keepStart, int keepEnd)

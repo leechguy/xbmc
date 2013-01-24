@@ -45,7 +45,7 @@ public:
 
   // Required overrides
   void Close(void);
-  void SetHardwareSizeLimits();
+  bool ClampLimits(unsigned int &width, unsigned int &height);
   bool ReadFile(const CStdString& inputFile);
   bool IsProgressive() { return m_progressive; };
   bool IsAlpha() { return m_alpha; };
@@ -58,16 +58,16 @@ public:
   const uint8_t *GetImageBuffer() { return (const uint8_t *)m_image_buffer; };
   unsigned long GetImageSize() { return m_image_size; };
   OMX_IMAGE_CODINGTYPE GetCompressionFormat() { return m_omx_image.eCompressionFormat; };
-  bool Decode(unsigned width, unsigned height);
-  bool Encode(unsigned char *buffer, int size, unsigned width, unsigned height);
-  int GetDecodedWidth() { return (int)m_decoded_format.format.image.nFrameWidth; };
-  int GetDecodedHeight() { return (int)m_decoded_format.format.image.nFrameHeight; };
-  int GetDecodedStride() { return (int)m_decoded_format.format.image.nStride; };
+  bool Decode(unsigned int width, unsigned int height);
+  bool Encode(unsigned char *buffer, int size, unsigned int width, unsigned int height, unsigned int pitch);
+  unsigned int GetDecodedWidth() { return (unsigned int)m_decoded_format.format.image.nFrameWidth; };
+  unsigned int GetDecodedHeight() { return (unsigned int)m_decoded_format.format.image.nFrameHeight; };
+  unsigned int GetDecodedStride() { return (unsigned int)m_decoded_format.format.image.nStride; };
   unsigned char *GetDecodedData();
   unsigned int GetDecodedSize();
-  int GetEncodedWidth() { return (int)m_encoded_format.format.image.nFrameWidth; };
-  int GetEncodedHeight() { return (int)m_encoded_format.format.image.nFrameHeight; };
-  int GetEncodedStride() { return (int)m_encoded_format.format.image.nStride; };
+  unsigned int GetEncodedWidth() { return (unsigned int)m_encoded_format.format.image.nFrameWidth; };
+  unsigned int GetEncodedHeight() { return (unsigned int)m_encoded_format.format.image.nFrameHeight; };
+  unsigned int GetEncodedStride() { return (unsigned int)m_encoded_format.format.image.nStride; };
   unsigned char *GetEncodedData();
   unsigned int GetEncodedSize();
   bool SwapBlueRed(unsigned char *pixels, unsigned int height, unsigned int pitch, 
@@ -79,6 +79,7 @@ public:
   bool CreateThumbnailFromSurface(unsigned char* buffer, unsigned int width, unsigned int height, 
       unsigned int format, unsigned int pitch, const CStdString& destFile);
 protected:
+  bool HandlePortSettingChange(unsigned int resize_width, unsigned int resize_height);
   uint8_t           *m_image_buffer;
   bool              m_is_open;
   unsigned long     m_image_size;

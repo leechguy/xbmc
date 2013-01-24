@@ -144,11 +144,11 @@ bool CGUIDialogKeyboardGeneric::OnAction(const CAction &action)
     uint8_t b = action.GetID() & 0xFF;
     if (b == XBMCVK_HOME)
     {
-      MoveCursor(-GetCursorPos());
+      SetCursorPos(0);
     }
     else if (b == XBMCVK_END)
     {
-      MoveCursor(m_strEdit.GetLength() - GetCursorPos());
+      SetCursorPos(m_strEdit.GetLength());
     }
     else if (b == XBMCVK_LEFT)
     {
@@ -176,21 +176,38 @@ bool CGUIDialogKeyboardGeneric::OnAction(const CAction &action)
   else if (action.GetID() >= KEY_ASCII)
   { // input from the keyboard
     //char ch = action.GetID() & 0xFF;
-    switch (action.GetUnicode())
+    int ch = action.GetUnicode();
+    
+    // Ignore non-printing characters
+    if ( !((0 <= ch && ch < 0x8) || (0xE <= ch && ch < 0x1B) || (0x1C <= ch && ch < 0x20)) )
     {
-    case 13:  // enter
-    case 10:  // enter
-      OnOK();
-      break;
-    case 8:   // backspace
-      Backspace();
-      break;
-    case 27:  // escape
-      Close();
-      break;
-    default:  //use character input
-      Character(action.GetUnicode());
-      break;
+      switch (ch)
+      {
+      case 0x8: // backspace
+        Backspace();
+        break;
+      case 0x9: // Tab (do nothing)
+      case 0xB: // Non-printing character, ignore
+      case 0xC: // Non-printing character, ignore
+        break;
+      case 0xA: // enter
+      case 0xD: // enter
+        OnOK();
+        break;
+      case 0x1B: // escape
+        Close();
+        break;
+      case 0x7F: // Delete
+        if (GetCursorPos() < m_strEdit.GetLength())
+        {
+          MoveCursor(1);
+          Backspace();
+        }
+        break;
+      default:  //use character input
+        Character(action.GetUnicode());
+        break;
+      }
     }
   }
   else // unhandled by us - let's see if the baseclass wants it
@@ -269,7 +286,7 @@ void CGUIDialogKeyboardGeneric::SetText(const CStdString& aTextString)
   m_strEdit.Empty();
   g_charsetConverter.utf8ToW(aTextString, m_strEdit);
   UpdateLabel();
-  MoveCursor(m_strEdit.size());
+  SetCursorPos(m_strEdit.size());
 }
 
 CStdString CGUIDialogKeyboardGeneric::GetText() const
@@ -522,10 +539,15 @@ void CGUIDialogKeyboardGeneric::OnDeinitWindow(int nextWindowID)
 
 void CGUIDialogKeyboardGeneric::MoveCursor(int iAmount)
 {
+  SetCursorPos(GetCursorPos() + iAmount);
+}
+
+void CGUIDialogKeyboardGeneric::SetCursorPos(int iPos)
+{
   CGUILabelControl* pEdit = ((CGUILabelControl*)GetControl(CTL_LABEL_EDIT));
   if (pEdit)
   {
-    pEdit->SetCursorPos(pEdit->GetCursorPos() + iAmount);
+    pEdit->SetCursorPos(iPos);
   }
 }
 
@@ -633,7 +655,7 @@ bool CGUIDialogKeyboardGeneric::ShowAndGetInput(char_callback_t pCallback, const
   pKeyboard->SetHiddenInput(bHiddenInput);
   pKeyboard->SetText(initialString);
   // do this using a thread message to avoid render() conflicts
-  ThreadMessage tMsg = {TMSG_DIALOG_DOMODAL, WINDOW_DIALOG_KEYBOARD, g_windowManager.GetActiveWindow()};
+  ThreadMessage tMsg = {TMSG_DIALOG_DOMODAL, WINDOW_DIALOG_KEYBOARD, (unsigned int)g_windowManager.GetActiveWindow()};
   CApplicationMessenger::Get().SendMessage(tMsg, true);
   pKeyboard->Close();
 

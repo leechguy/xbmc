@@ -17,6 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#include "network/Network.h"
 #if !defined(TARGET_WINDOWS)
 #pragma GCC diagnostic ignored "-Wwrite-strings"
 #endif
@@ -35,7 +36,8 @@
 #include "ApplicationMessenger.h"
 #include "filesystem/PipeFile.h"
 #include "Application.h"
-#include "cores/paplayer/BXAcodec.h"
+#include "cores/dvdplayer/DVDDemuxers/DVDDemuxBXA.h"
+#include "filesystem/File.h"
 #include "music/tags/MusicInfoTag.h"
 #include "FileItem.h"
 #include "GUIInfoManager.h"
@@ -160,9 +162,9 @@ void* CAirTunesServer::AudioOutputFunctions::audio_init(void *cls, int bits, int
   pipe->OpenForWrite(XFILE::PipesManager::GetInstance().GetUniquePipeName());
   pipe->SetOpenThreashold(300);
 
-  BXA_FmtHeader header;
+  Demux_BXA_FmtHeader header;
   strncpy(header.fourcc, "BXA ", 4);
-  header.type = BXA_PACKET_TYPE_FMT;
+  header.type = BXA_PACKET_TYPE_FMT_DEMUX;
   header.bitsPerSample = bits;
   header.channels = channels;
   header.sampleRate = samplerate;
@@ -188,8 +190,8 @@ void* CAirTunesServer::AudioOutputFunctions::audio_init(void *cls, int bits, int
 
 void  CAirTunesServer::AudioOutputFunctions::audio_set_volume(void *cls, void *session, float volume)
 {
-  //volume from -144 - 0
-  float volPercent = 1 - volume/-144;
+  //volume from -30 - 0 - -144 means mute
+  float volPercent = volume < -30.0f ? 0 : 1 - volume/-30;
   g_application.SetVolume(volPercent, false);//non-percent volume 0.0-1.0
 }
 
@@ -328,9 +330,9 @@ ao_device* CAirTunesServer::AudioOutputFunctions::ao_open_live(int driver_id, ao
   device->pipe->OpenForWrite(XFILE::PipesManager::GetInstance().GetUniquePipeName());
   device->pipe->SetOpenThreashold(300);
 
-  BXA_FmtHeader header;
+  Demux_BXA_FmtHeader header;
   strncpy(header.fourcc, "BXA ", 4);
-  header.type = BXA_PACKET_TYPE_FMT;
+  header.type = BXA_PACKET_TYPE_FMT_DEMUX;
   header.bitsPerSample = format->bits;
   header.channels = format->channels;
   header.sampleRate = format->rate;
@@ -354,9 +356,6 @@ ao_device* CAirTunesServer::AudioOutputFunctions::ao_open_live(int driver_id, ao
 
   if (ao_get_option(option, "name"))
     item.GetMusicInfoTag()->SetTitle(ao_get_option(option, "name"));
-
-  ThreadMessage tMsg2 = { TMSG_GUI_ACTIVATE_WINDOW, WINDOW_VISUALISATION, 0 };
-  CApplicationMessenger::Get().SendMessage(tMsg2, true);
 
   CApplicationMessenger::Get().PlayFile(item);
 

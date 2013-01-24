@@ -64,7 +64,7 @@ public:
   bool Load(const TiXmlElement *element, bool append = false, bool prioritise = false);
   bool Save(TiXmlNode *node, const CStdString &tag, bool savePathInfo = true, const TiXmlElement *additionalNode = NULL);
   virtual void Archive(CArchive& ar);
-  virtual void Serialize(CVariant& value);
+  virtual void Serialize(CVariant& value) const;
   virtual void ToSortable(SortItem& sortable);
   const CStdString GetCast(bool bIncludeRole = false) const;
   bool HasStreamDetails() const;
@@ -76,6 +76,17 @@ public:
       return m_strPath;
     return m_strFileNameAndPath;
   };
+
+  /*! \brief retrieve the duration in seconds.
+   Prefers the duration from stream details if available.
+   */
+  unsigned int GetDuration() const;
+
+  /*! \brief get the duration in seconds from a minute string
+   \param runtime the runtime string from a scraper or similar
+   \return the time in seconds, if decipherable.
+   */
+  static unsigned int GetDurationFromMinuteString(const std::string &runtime);
 
   CStdString m_basePath; // the base path of the video, for folder-based lookups
   int m_parentPathID;      // the parent path id where the base path of the video lies
@@ -97,7 +108,6 @@ public:
   CStdString m_strSet;
   int m_iSetId;
   std::vector<std::string> m_tags;
-  CStdString m_strRuntime;
   CStdString m_strFile;
   CStdString m_strPath;
   CStdString m_strIMDBNumber;
@@ -120,6 +130,7 @@ public:
   int m_iYear;
   int m_iSeason;
   int m_iEpisode;
+  CStdString m_strUniqueId;
   int m_iDbId;
   int m_iFileId;
   int m_iSpecialSortSeason;
@@ -135,6 +146,7 @@ public:
   CBookmark m_resumePoint;
   CDateTime m_dateAdded;
   CStdString m_type;
+  int m_duration; ///< duration in seconds
 
 private:
   /* \brief Parse our native XML format for video info.

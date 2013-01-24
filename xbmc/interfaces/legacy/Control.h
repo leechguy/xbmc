@@ -25,6 +25,7 @@
 #include "guilib/GUIFont.h"
 #include "guilib/Key.h"
 
+#include "Tuple.h"
 #include "ListItem.h"
 #include "swighelper.h"
 #include "WindowException.h"
@@ -241,7 +242,7 @@ namespace XBMCAddon
        * example:
        *   - self.button.setAnimations([('focus', 'effect=zoom end=90,247,220,56 time=0',)])\n
        */
-      virtual void setAnimations(const std::vector< std::vector<String> >& eventAttr) throw (WindowException);
+      virtual void setAnimations(const std::vector< Tuple<String,String> >& eventAttr) throw (WindowException);
 
       // setPosition() Method
       /**
@@ -620,6 +621,8 @@ namespace XBMCAddon
      */
     class ControlList : public Control 
     {
+      void internAddListItem(AddonClass::Ref<ListItem> listitem, bool sendMessage) throw(WindowException);
+
     public:
       ControlList(long x, long y, long width, long height, const char* font = NULL,
                   const char* textColor = NULL, const char* buttonTexture = NULL,

@@ -52,7 +52,7 @@ protected:
 public:
   virtual void  Shutdown();
   virtual bool  Initialize();
-  virtual void  OnSettingsChange(std::string setting);
+  virtual void  OnSettingsChange(const std::string& setting);
 
   virtual void   Run();
   virtual void   Stop();
@@ -120,6 +120,8 @@ private:
   bool SetupEncoder(AEAudioFormat &format);
   void Deinitialize();
 
+  inline void ProcessSuspend(); /* enter suspend state if nothing to play and sink allows */
+
   inline void GetDeviceFriendlyName(std::string &device);
 
   IAESink *GetSink(AEAudioFormat &desiredFormat, bool passthrough, std::string &device);
@@ -133,9 +135,10 @@ private:
   bool m_stereoUpmix;
 
   /* internal vars */
-  bool             m_running, m_reOpen, m_isSuspended;
-  bool             m_softSuspend;      /* latches after last stream or sound played for timer below */
-  unsigned int     m_softSuspendTimer; /* time in milliseconds to hold sink open before soft suspend */
+  bool             m_running, m_reOpen;
+  bool             m_isSuspended;      /* engine suspended by external function to release audio context */
+  bool             m_softSuspend;      /* latches after last stream or sound played for timer below for idle */
+  unsigned int     m_softSuspendTimer; /* time in milliseconds to hold sink open before soft suspend for idle */
   CEvent           m_reOpenEvent;
   CEvent           m_wake;
 
@@ -144,6 +147,7 @@ private:
   CCriticalSection m_soundLock;       /* m_sounds lock */
   CCriticalSection m_soundSampleLock; /* m_playing_sounds lock */
   CSharedSection   m_sinkLock;        /* lock for m_sink on re-open */
+  CCriticalSection m_threadLock;      /* locked while starting/stopping the thread */
 
   /* the current configuration */
   float               m_volume;

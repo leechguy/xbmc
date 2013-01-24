@@ -31,6 +31,7 @@
 #include "music/infoscanner/MusicInfoScraper.h"
 #include "PlayListPlayer.h"
 #include "music/MusicInfoLoader.h"
+#include "music/MusicThumbLoader.h"
 
 /*!
  \ingroup windows
@@ -45,6 +46,7 @@ public:
   CGUIWindowMusicBase(int id, const CStdString &xmlFile);
   virtual ~CGUIWindowMusicBase(void);
   virtual bool OnMessage(CGUIMessage& message);
+  virtual bool OnAction(const CAction &action);
   virtual bool OnBack(int actionID);
 
   void OnInfo(CFileItem *pItem, bool bShowInfo = false);
@@ -70,6 +72,9 @@ protected:
   void OnRipCD();
   virtual void OnPrepareFileItems(CFileItemList &items);
   virtual CStdString GetStartFolder(const CStdString &dir);
+
+  virtual bool CheckFilterAdvanced(CFileItemList &items) const;
+  virtual bool CanContainFilter(const CStdString &strDirectory) const;
 
   // new methods
   virtual void PlayItem(int iItem);

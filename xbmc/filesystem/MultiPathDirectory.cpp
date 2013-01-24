@@ -243,6 +243,15 @@ CStdString CMultiPathDirectory::ConstructMultiPath(const vector<CStdString> &vec
   return newPath;
 }
 
+CStdString CMultiPathDirectory::ConstructMultiPath(const std::set<CStdString> &setPaths)
+{
+  CStdString newPath = "multipath://";
+  for (std::set<CStdString>::const_iterator path = setPaths.begin(); path != setPaths.end(); ++path)
+    AddToMultiPath(newPath, *path);
+
+  return newPath;
+}
+
 void CMultiPathDirectory::MergeItems(CFileItemList &items)
 {
   CLog::Log(LOGDEBUG, "CMultiPathDirectory::MergeItems, items = %i", (int)items.Size());
@@ -306,12 +315,12 @@ void CMultiPathDirectory::MergeItems(CFileItemList &items)
             items.Size(), XbmcThreads::SystemClockMillis() - time);
 }
 
-bool CMultiPathDirectory::SupportsFileOperations(const CStdString &strPath)
+bool CMultiPathDirectory::SupportsWriteFileOperations(const CStdString &strPath)
 {
   vector<CStdString> paths;
   GetPaths(strPath, paths);
   for (unsigned int i = 0; i < paths.size(); ++i)
-    if (CUtil::SupportsFileOperations(paths[i]))
+    if (CUtil::SupportsWriteFileOperations(paths[i]))
       return true;
   return false;
 }

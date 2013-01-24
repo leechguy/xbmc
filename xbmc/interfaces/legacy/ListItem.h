@@ -54,14 +54,19 @@ namespace XBMCAddon
                const String& iconImage = emptyString,
                const String& thumbnailImage = emptyString,
                const String& path = emptyString);
-      virtual ~ListItem();
 
-      static inline ListItem* fromString(const String& str) 
+#ifndef SWIG
+      inline ListItem(CFileItemPtr pitem) : AddonClass("ListItem"), item(pitem) {}
+
+      static inline AddonClass::Ref<ListItem> fromString(const String& str) 
       { 
-        ListItem* ret = new ListItem();
+        AddonClass::Ref<ListItem> ret = AddonClass::Ref<ListItem>(new ListItem());
         ret->item.reset(new CFileItem(str));
         return ret;
       }
+#endif
+
+      virtual ~ListItem();
 
       /**
        * getLabel() -- Returns the listitem label.
@@ -174,6 +179,7 @@ namespace XBMCAddon
        *     plotoutline   : string (Short Description)
        *     title         : string (Big Fan)
        *     originaltitle : string (Big Fan)
+       *     sorttitle     : string (Big Fan)
        *     duration      : string (3:18)
        *     studio        : string (Warner Bros.)
        *     tagline       : string (An awesome movie) - short description of movie

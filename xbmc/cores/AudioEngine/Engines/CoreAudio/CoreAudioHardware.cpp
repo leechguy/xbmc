@@ -22,6 +22,7 @@
 
 #include "CoreAudioAEHAL.h"
 #include "utils/log.h"
+#include "osx/DarwinUtils.h"
 
 bool CCoreAudioHardware::GetAutoHogMode()
 {
@@ -278,7 +279,6 @@ AudioDeviceID CCoreAudioHardware::FindAudioDevice(const std::string &searchName)
     CCoreAudioDevice device;
     device.Open((pDevices[dev]));
     deviceName = device.GetName();
-    UInt32 totalChannels = device.GetTotalOutputChannels();
     std::transform( deviceName.begin(), deviceName.end(), deviceName.begin(), ::tolower );
     if (searchNameLowerCase.compare(deviceName) == 0)
       deviceId = pDevices[dev];
@@ -330,9 +330,8 @@ void CCoreAudioHardware::GetOutputDeviceName(std::string& name)
     if (ret != noErr)
       return;
 
-    const char *cstr = CFStringGetCStringPtr(theDeviceName, kCFStringEncodingUTF8);
-    if (cstr)
-      name = cstr;
+    DarwinCFStringRefToString(theDeviceName, name);
+
     CFRelease(theDeviceName);
   }
 }

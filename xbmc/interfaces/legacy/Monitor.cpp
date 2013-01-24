@@ -29,19 +29,20 @@ namespace XBMCAddon
     {
       if (languageHook)
       {
-        Id = languageHook->getAddonId();
-        languageHook->registerMonitorCallback(this);
+        Id = languageHook->GetAddonId();
+        languageHook->RegisterMonitorCallback(this);
       }
     }
 
     Monitor::~Monitor()
     { 
-      deallocating(); 
+      deallocating();
+      DelayedCallGuard dg(languageHook);
       // we're shutting down so unregister me.
       if (languageHook)
       {
         DelayedCallGuard dc;
-        languageHook->unregisterMonitorCallback(this);
+        languageHook->UnregisterMonitorCallback(this);
       }
     }
   }

@@ -1,4 +1,4 @@
-<window id="4">
+<window>
 	<defaultcontrol always="true">9000</defaultcontrol>
 	<allowoverlay>no</allowoverlay>
 	<controls>
@@ -167,12 +167,6 @@
 						<label>13000</label>
 						<label2>31406</label2>
 						<onclick>ActivateWindow(SystemSettings)</onclick>
-						<icon>-</icon>
-					</item>
-					<item id="10">
-						<label>166</label>
-						<label2>31407</label2>
-						<onclick>ActivateWindow(1111)</onclick>
 						<icon>-</icon>
 					</item>
 				</content>
