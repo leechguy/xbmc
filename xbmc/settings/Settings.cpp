@@ -129,7 +129,6 @@ void CSettings::Initialize()
 
   m_usingLoginScreen = false;
   m_lastUsedProfile = 0;
-  m_autoLoginProfile = -1; // auto login the last profile used
   m_currentProfile = 0;
   m_nextIdProfile = 0;
 
@@ -1094,11 +1093,6 @@ void CSettings::LoadProfiles(const CStdString& profilesFile)
       {
         XMLUtils::GetUInt(rootElement, "lastloaded", m_lastUsedProfile);
         XMLUtils::GetBoolean(rootElement, "useloginscreen", m_usingLoginScreen);
-
-        CStdString strAutoLogin; 
-        XMLUtils::GetString(rootElement, "autologin", strAutoLogin); 
-        m_autoLoginProfile = strAutoLogin.empty() ? -1 : atoi(strAutoLogin.c_str());
-
         XMLUtils::GetInt(rootElement, "nextIdProfile", m_nextIdProfile);
 
         TiXmlElement* pProfile = rootElement->FirstChildElement("profile");
@@ -1133,12 +1127,6 @@ void CSettings::LoadProfiles(const CStdString& profilesFile)
 
   m_currentProfile = m_lastUsedProfile;
 
-  // check the validity of the auto login profile index 
-  if (m_autoLoginProfile < -1 || m_autoLoginProfile >= (int)m_vecProfiles.size()) 
-    m_autoLoginProfile = -1; 
-  else if (m_autoLoginProfile >= 0) 
-    m_currentProfile = m_autoLoginProfile;
-
   // the login screen runs as the master profile, so if we're using this, we need to ensure
   // we switch to the master profile
   if (m_usingLoginScreen)
@@ -1153,12 +1141,6 @@ bool CSettings::SaveProfiles(const CStdString& profilesFile) const
   if (!pRoot) return false;
   XMLUtils::SetInt(pRoot,"lastloaded", m_currentProfile);
   XMLUtils::SetBoolean(pRoot,"useloginscreen",m_usingLoginScreen);
-
-  if (m_autoLoginProfile < 0) 
-    XMLUtils::SetString(pRoot,"autologin",""); // Store empty string instead of -1 
-  else 
-    XMLUtils::SetInt(pRoot,"autologin",m_autoLoginProfile);
-
   XMLUtils::SetInt(pRoot,"nextIdProfile",m_nextIdProfile);      
   for (unsigned int i = 0; i < m_vecProfiles.size(); ++i)
     m_vecProfiles[i].Save(pRoot);
