@@ -142,6 +142,7 @@ static const ActionMapping actions[] =
         {"rewind"            , ACTION_PLAYER_REWIND},
         {"play"              , ACTION_PLAYER_PLAY},
         {"playpause"         , ACTION_PLAYER_PLAYPAUSE},
+        {"switchplayer"      , ACTION_SWITCH_PLAYER},
         {"delete"            , ACTION_DELETE_ITEM},
         {"copy"              , ACTION_COPY_ITEM},
         {"move"              , ACTION_MOVE_ITEM},
@@ -1268,9 +1269,17 @@ uint32_t CButtonTranslator::TranslateKeyboardButton(TiXmlElement *pButton)
   CStdString strKey = szButton;
   if (strKey.Equals("key"))
   {
-    int id = 0;
-    if (pButton->QueryIntAttribute("id", &id) == TIXML_SUCCESS)
-      button_id = (uint32_t)id;
+    std::string strID;
+    if (pButton->QueryValueAttribute("id", &strID) == TIXML_SUCCESS)
+    {
+      const char *str = strID.c_str();
+      char *endptr;
+      long int id = strtol(str, &endptr, 0);
+      if (endptr - str != strlen(str) || id <= 0 || id > 0x00FFFFFF)
+        CLog::Log(LOGDEBUG, "%s - invalid key id %s", __FUNCTION__, strID.c_str());
+      else
+        button_id = (uint32_t) id;
+    }
     else
       CLog::Log(LOGERROR, "Keyboard Translator: `key' button has no id");
   }

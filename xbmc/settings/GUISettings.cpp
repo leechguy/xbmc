@@ -449,9 +449,6 @@ void CGUISettings::Initialize()
   // Todo: Implement test pattern for DX
   AddString(vs, "videoscreen.testpattern",226,"", BUTTON_CONTROL_STANDARD);
 #endif
-#if defined(HAS_LCD)
-  AddBool(vs, "videoscreen.haslcd", 4501, false);
-#endif
 
   CSettingsCategory* ao = AddCategory(SETTINGS_SYSTEM, "audiooutput", 772);
 
@@ -815,7 +812,7 @@ void CGUISettings::Initialize()
 
   AddDefaultAddon(NULL, "scrapers.moviesdefault", 21413, "metadata.themoviedb.org", ADDON_SCRAPER_MOVIES);
   AddDefaultAddon(NULL, "scrapers.tvshowsdefault", 21414, "metadata.tvdb.com", ADDON_SCRAPER_TVSHOWS);
-  AddDefaultAddon(NULL, "scrapers.musicvideosdefault", 21415, "metadata.musicvideos.last.fm", ADDON_SCRAPER_MUSICVIDEOS);
+  AddDefaultAddon(NULL, "scrapers.musicvideosdefault", 21415, "metadata.musicvideos.theaudiodb.com", ADDON_SCRAPER_MUSICVIDEOS);
 
   // service settings
   AddGroup(SETTINGS_SERVICE, 14036);
@@ -827,6 +824,7 @@ void CGUISettings::Initialize()
   AddBool(srvUpnp, "services.upnpserver", 21360, false);
   AddBool(srvUpnp, "services.upnpannounce", 20188, true);
   AddBool(srvUpnp, "services.upnprenderer", 21881, false);
+  AddBool(srvUpnp, "services.upnpcontroller", 21361, false);
 
 #ifdef HAS_WEB_SERVER
   CSettingsCategory* srvWeb = AddCategory(SETTINGS_SERVICE, "webserver", 33101);
@@ -904,11 +902,6 @@ void CGUISettings::Initialize()
     AddString(loc, "locale.timezonecountry", 14079, g_timezone.GetCountryByTimezone(g_timezone.GetOSConfiguredTimezone()), SPIN_CONTROL_TEXT);
     AddString(loc, "locale.timezone", 14080, g_timezone.GetOSConfiguredTimezone(), SPIN_CONTROL_TEXT);
   }
-#endif
-#ifdef HAS_TIME_SERVER
-  AddSeparator(loc, "locale.sep2");
-  AddBool(loc, "locale.timeserver", 168, false);
-  AddString(loc, "locale.timeserveraddress", 731, "pool.ntp.org", EDIT_CONTROL_INPUT);
 #endif
   AddSeparator(loc, "locale.sep3");
   AddString(loc, "locale.audiolanguage", 285, "original", SPIN_CONTROL_TEXT);
@@ -1458,6 +1451,13 @@ void CGUISettings::LoadXML(TiXmlElement *pRootElement, bool hideSettings /* = fa
   if (GetString("screensaver.mode") == "screensaver.xbmc.builtin.slideshow")
   {
     SetString("screensaver.mode", "screensaver.xbmc.builtin.dim");
+    updated = true;
+  }
+
+  // replace broken last.fm musicvideo scraper with theaudiodb.com if it's still in use
+  if (GetString("scrapers.musicvideosdefault") == "metadata.musicvideos.last.fm")
+  {
+    SetString("scrapers.musicvideosdefault", "metadata.musicvideos.theaudiodb.com");
     updated = true;
   }
 

@@ -83,6 +83,7 @@ DIRECTORY_ARCHIVES=$(DVDPLAYER_ARCHIVES) \
                    xbmc/video/dialogs/videodialogs.a \
                    xbmc/video/video.a \
                    xbmc/video/windows/videowindows.a \
+                   xbmc/view/view.a \
                    xbmc/windowing/windowing.a \
                    xbmc/windows/windows.a \
                    xbmc/xbmc.a \
@@ -195,6 +196,10 @@ endif
 
 VIS_DIRS=xbmc/visualizations/OpenGLSpectrum \
          xbmc/visualizations/WaveForm
+
+ifneq (@DISABLE_FISHBMC@,1)
+  VIS_DIRS+= xbmc/visualizations/fishBMC
+endif
 
 ifneq (@DISABLE_PROJECTM@,1)
   VIS_DIRS+= xbmc/visualizations/XBMCProjectM
