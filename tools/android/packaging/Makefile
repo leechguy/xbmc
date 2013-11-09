@@ -1,11 +1,11 @@
-include ../depends/Makefile.include
+include ../../depends/Makefile.include
 
 OBJS = libcurl.so \
   librtmp.so  libmad.so \
   libafpclient.so  \
-  libshairport.so libplist.so \
+  libplist.so libshairplay.so \
   libxbogg.so libxbvorbis.so libxbvorbisfile.so libxbFLAC.so libxbmpeg2.so \
-  libxbmpeg2convert.so libnfs.so libass.so
+  libxbmpeg2convert.so libnfs.so libass.so libbluray.so
 
 PLATFORM_OBJS =
 EXCLUDED_ADDONS = screensaver.rsxs.euphoria visualization.dxspectrum visualization.milkdrop visualization.projectm
@@ -22,15 +22,30 @@ ARMOVERRIDES=XBMC_OVERRIDE_HOST=arm-linux-androideabi XBMC_OVERRIDE_TOOLCHAIN=$(
 #this fixes a android ndk fuckup where the pathes to 
 #prebuilt stuff follow different name shemes for
 #arm and x86
-ifeq ($(findstring x86,$(PLATFORM)),x86)
-GDBPATH=$(NDKROOT)/toolchains/$(PLATFORM)-$(GCC_VERSION)/prebuilt/gdbserver
-else
+ifeq ($(findstring i686,$(CPU)),i686)
+ARCH=x86
+CPU=x86
+endif
+ifeq ($(findstring arm,$(CPU)),arm)
+ARCH=arm
+endif
+
+#older ndk x86
+GDBPATH=$(NDKROOT)/toolchains/$(ARCH)-$(GCC_VERSION)/prebuilt/gdbserver
+
+ifneq ($(shell test -f $(GDBPATH) && echo 1),1)
+#older ndk arm
 GDBPATH=$(NDKROOT)/toolchains/$(HOST)-$(GCC_VERSION)/prebuilt/gdbserver
+endif
+
+ifneq ($(shell test -f $(GDBPATH) && echo 1),1)
+#vanilla ndk >= 8
+GDBPATH=$(NDKROOT)/prebuilt/android-$(ARCH)/gdbserver/gdbserver
 endif
 
 all: package
 SRCLIBS = $(addprefix $(PREFIX)/lib/,$(OBJS)) $(addprefix $(PREFIX)/lib/$(SDK_PLATFORM)/,$(PLATFORM_OBJS))
-DSTLIBS = $(PLATFORM)/lib/libxbmc.so $(addprefix $(PLATFORM)/lib/,$(OBJS)) $(addprefix $(PLATFORM)/lib/,$(PLATFORM_OBJS))
+DSTLIBS = $(CPU)/lib/libxbmc.so $(addprefix $(CPU)/lib/,$(OBJS)) $(addprefix $(CPU)/lib/,$(PLATFORM_OBJS))
 libs= $(DSTLIBS)
 
 multi: x86 arm
@@ -42,23 +57,24 @@ multi: x86 arm
 	@echo "$(XBMCROOT)/xbmcapp-multi-debug.apk created"
 
 package: extras
-	@cp images/xbmcapp-debug-skeleton.apk images/xbmcapp-debug-$(PLATFORM)-unaligned.apk
+	@cp images/xbmcapp-debug-skeleton.apk images/xbmcapp-debug-$(CPU)-unaligned.apk
 	@javac -classpath $(SDKROOT)/platforms/$(SDK_PLATFORM)/android.jar:xbmc/obj -d xbmc/obj -sourcepath xbmc/src xbmc/src/*.java
 	@javac -classpath $(SDKROOT)/platforms/$(SDK_PLATFORM)/android.jar:xbmc/obj -d xbmc/obj -sourcepath xbmc/src xbmc/src/org/xbmc/xbmc/*.java
 	@$(DX) --dex --output=xbmc/classes.dex xbmc/obj
-	@cd xbmc; zip -r -q ../images/xbmcapp-debug-$(PLATFORM)-unaligned.apk lib/$(PLATFORM) assets classes.dex
-	@jarsigner -sigalg MD5withRSA -digestalg SHA1 -keystore ~/.android/debug.keystore -storepass android images/xbmcapp-debug-$(PLATFORM)-unaligned.apk androiddebugkey
-	@$(SDKROOT)/tools/zipalign -f 4 images/xbmcapp-debug-$(PLATFORM)-unaligned.apk $(XBMCROOT)/xbmcapp-$(PLATFORM)-debug.apk
-	@rm images/xbmcapp-debug-$(PLATFORM)-unaligned.apk
-	@echo "$(XBMCROOT)/xbmcapp-$(PLATFORM)-debug.apk created"
+	@cd xbmc; zip -r -q ../images/xbmcapp-debug-$(CPU)-unaligned.apk lib/$(CPU) assets classes.dex
+	@jarsigner -sigalg MD5withRSA -digestalg SHA1 -keystore ~/.android/debug.keystore -storepass android images/xbmcapp-debug-$(CPU)-unaligned.apk androiddebugkey
+	@$(SDKROOT)/tools/zipalign -f 4 images/xbmcapp-debug-$(CPU)-unaligned.apk $(XBMCROOT)/xbmcapp-$(CPU)-debug.apk
+	@rm images/xbmcapp-debug-$(CPU)-unaligned.apk
+	@echo "$(XBMCROOT)/xbmcapp-$(CPU)-debug.apk created"
 
 extras: libs
-	rm -rf xbmc/assets/python2.6/lib/
-	mkdir -p xbmc/assets xbmc/res xbmc/assets/python2.6/lib/
+	rm -rf xbmc/assets
+	mkdir -p xbmc/assets xbmc/res xbmc/res/raw xbmc/assets/python2.6/lib/
 	cp -rfp $(PREFIX)/share/xbmc/* ./xbmc/assets
 	find `pwd`/xbmc/assets/ -depth -name ".git" -exec rm -rf {} \;
 	find `pwd`/xbmc/assets/system/ -name "*.so" -exec rm {} \;
 	find `pwd`/xbmc/assets/addons/skin.*/media/* -depth -not -iname "Textures.xbt" -exec rm -rf {} \;
+	@echo "native_arch=$(ARCH)" > xbmc/res/raw/xbmc.properties
 	cd xbmc/assets/addons; rm -rf $(EXCLUDED_ADDONS)
 	cp -rfp $(PREFIX)/lib/python2.6 xbmc/assets/python2.6/lib/
 	cp -rfp $(XBMCROOT)/media/Splash.png xbmc/res/drawable/splash.png
@@ -68,23 +84,23 @@ extras: libs
 	@rm -rf tmp/
 
 libs: $(PREFIX)/lib/xbmc/libxbmc.so
-	rm -rf xbmc/lib/$(PLATFORM) xbmc/libs/$(PLATFORM) xbmc/obj/local/$(PLATFORM)
-	mkdir -p xbmc/lib/$(PLATFORM) images xbmc/assets/python2.6/lib/ xbmc/libs/$(PLATFORM) xbmc/obj/local/$(PLATFORM)
-	cp -fp $(SRCLIBS) xbmc/obj/local/$(PLATFORM)/
-	cp -fp $(PREFIX)/lib/xbmc/libxbmc.so xbmc/obj/local/$(PLATFORM)/
-	find $(PREFIX)/lib/xbmc/addons -name "*.so" -exec cp -fp {} xbmc/obj/local/$(PLATFORM)/ \;
-	find $(PREFIX)/lib/xbmc/system -name "*.so" -exec cp -fp {} xbmc/obj/local/$(PLATFORM)/ \;
-	cd xbmc/obj/local/$(PLATFORM)/; find . -name "*.so" -not -name "lib*.so" | sed "s/\.\///" | xargs -I@ mv @ lib@
-	cp -fp xbmc/obj/local/$(PLATFORM)/*.so xbmc/lib/$(PLATFORM)/
-	$(STRIP) --strip-unneeded xbmc/lib/$(PLATFORM)/*.so
-	install -p $(GDBPATH) ./xbmc/libs/$(PLATFORM)/gdbserver
-	echo "set solib-search-path ./obj/local/$(PLATFORM)" > ./xbmc/libs/$(PLATFORM)/gdb.setup
+	rm -rf xbmc/lib/$(CPU) xbmc/libs/$(CPU) xbmc/obj/local/$(CPU)
+	mkdir -p xbmc/lib/$(CPU) images xbmc/assets/python2.6/lib/ xbmc/libs/$(CPU) xbmc/obj/local/$(CPU)
+	cp -fp $(SRCLIBS) xbmc/obj/local/$(CPU)/
+	cp -fp $(PREFIX)/lib/xbmc/libxbmc.so xbmc/obj/local/$(CPU)/
+	find $(PREFIX)/lib/xbmc/addons -name "*.so" -exec cp -fp {} xbmc/obj/local/$(CPU)/ \;
+	find $(PREFIX)/lib/xbmc/system -name "*.so" -exec cp -fp {} xbmc/obj/local/$(CPU)/ \;
+	cd xbmc/obj/local/$(CPU)/; find . -name "*.so" -not -name "lib*.so" | sed "s/\.\///" | xargs -I@ mv @ lib@
+	cp -fp xbmc/obj/local/$(CPU)/*.so xbmc/lib/$(CPU)/
+	$(STRIP) --strip-unneeded xbmc/lib/$(CPU)/*.so
+	install -p $(GDBPATH) ./xbmc/libs/$(CPU)/gdbserver
+	echo "set solib-search-path ./obj/local/$(CPU)" > ./xbmc/libs/$(CPU)/gdb.setup
 	echo "directory $(TOOLCHAIN)/sysroot/usr/include $(NDKROOT)/sources/android/native_app_glue" \
-	     "$(NDKROOT)/sources/cxx-stl/gnu-libstdc++/include/$(GCC_VERSION) $(XBMCROOT)  $(PREFIX)/include jni" >> ./xbmc/libs/$(PLATFORM)/gdb.setup
-	cp -fp xbmc/libs/$(PLATFORM)/* xbmc/lib/$(PLATFORM)
+	     "$(NDKROOT)/sources/cxx-stl/gnu-libstdc++/$(GCC_VERSION)/include $(XBMCROOT)  $(PREFIX)/include jni" >> ./xbmc/libs/$(CPU)/gdb.setup
+	cp -fp xbmc/libs/$(CPU)/* xbmc/lib/$(CPU)
 
 $(PREFIX)/lib/xbmc/libxbmc.so: $(SRCLIBS)
-	$(MAKE) -C ../depends/xbmc
+	$(MAKE) -C ../../depends/target/xbmc
 
 $(SRCLIBS):
 
@@ -95,5 +111,17 @@ armeabi-v7a: $(XBMC_ARM_TOOLCHAIN) force
 
 x86: $(XBMC_X86_TOOLCHAIN) force
 	XBMC_OVERRIDE_PLATFORM=$@ $(X86OVERRIDES) $(MAKE) package
+
+clean:
+	rm -rf images
+	rm -rf xbmc/lib
+	rm -rf xbmc/libs
+	rm -rf xbmc/assets
+	rm -rf xbmc/obj
+	rm -rf xbmc/res/raw
+	rm -rf tmp
+	rm xbmc/res/drawable/splash.png
+	rm xbmc/src/R.java
+	rm xbmc/classes.dex
 
 .PHONY: arm armeabi-v7a x86 force extras libs

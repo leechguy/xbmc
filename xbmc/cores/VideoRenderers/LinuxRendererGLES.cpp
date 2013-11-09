@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,8 +18,10 @@
  *
  */
 
+//#define DEBUG_VERBOSE 1
+
 #include "system.h"
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
+#if (defined HAVE_CONFIG_H) && (!defined TARGET_WINDOWS)
   #include "config.h"
 #endif
 
@@ -32,9 +34,10 @@
 #include "utils/fastmemcpy.h"
 #include "utils/MathUtils.h"
 #include "utils/GLUtils.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/GUISettings.h"
+#include "settings/DisplaySettings.h"
+#include "settings/MediaSettings.h"
+#include "settings/Settings.h"
 #include "guilib/FrameBufferObject.h"
 #include "VideoShaders/YUV2RGBShader.h"
 #include "VideoShaders/VideoFilterShader.h"
@@ -47,6 +50,7 @@
 #include "RenderCapture.h"
 #include "RenderFormats.h"
 #include "xbmc/Application.h"
+#include "cores/IPlayer.h"
 
 #if defined(__ARM_NEON__)
 #include "yuv2rgb.neon.h"
@@ -59,6 +63,22 @@
 #ifdef TARGET_DARWIN_IOS
 #include "osx/DarwinUtils.h"
 #endif
+#if defined(HAS_LIBSTAGEFRIGHT)
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include "windowing/egl/EGLWrapper.h"
+#include "android/activity/XBMCApp.h"
+#include "DVDCodecs/Video/DVDVideoCodecStageFright.h"
+
+// EGL extension functions
+static PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
+static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
+static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
+#endif
+
+#if defined(TARGET_ANDROID)
+#include "DVDCodecs/Video/DVDVideoCodecAndroidMediaCodec.h"
+#endif
 
 using namespace Shaders;
 
@@ -67,6 +87,19 @@ CLinuxRendererGLES::YUVBUFFER::YUVBUFFER()
   memset(&fields, 0, sizeof(fields));
   memset(&image , 0, sizeof(image));
   flipindex = 0;
+#ifdef HAVE_LIBOPENMAX
+  openMaxBuffer = NULL;
+#endif
+#ifdef HAVE_VIDEOTOOLBOXDECODER
+  cvBufferRef = NULL;
+#endif
+#ifdef HAS_LIBSTAGEFRIGHT
+  stf = NULL;
+  eglimg = EGL_NO_IMAGE_KHR;
+#endif
+#if defined(TARGET_ANDROID)
+  mediacodec = NULL;
+#endif
 }
 
 CLinuxRendererGLES::YUVBUFFER::~YUVBUFFER()
@@ -76,16 +109,6 @@ CLinuxRendererGLES::YUVBUFFER::~YUVBUFFER()
 CLinuxRendererGLES::CLinuxRendererGLES()
 {
   m_textureTarget = GL_TEXTURE_2D;
-  for (int i = 0; i < NUM_BUFFERS; i++)
-  {
-    m_eventTexturesDone[i] = new CEvent(false,true);
-#if defined(HAVE_LIBOPENMAX)
-    m_buffers[i].openMaxBuffer = 0;
-#endif
-#ifdef HAVE_VIDEOTOOLBOXDECODER
-    m_buffers[i].cvBufferRef = NULL;
-#endif
-  }
 
   m_renderMethod = RENDER_GLSL;
   m_oldRenderMethod = m_renderMethod;
@@ -112,13 +135,27 @@ CLinuxRendererGLES::CLinuxRendererGLES()
 
   m_dllSwScale = new DllSwScale;
   m_sw_context = NULL;
+  m_NumYV12Buffers = 0;
+  m_iLastRenderBuffer = 0;
+  m_bConfigured = false;
+  m_bValidated = false;
+  m_bImageReady = false;
+  m_StrictBinding = false;
+  m_clearColour = 0.0f;
+
+#ifdef HAS_LIBSTAGEFRIGHT
+  if (!eglCreateImageKHR)
+    eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC) CEGLWrapper::GetProcAddress("eglCreateImageKHR");
+  if (!eglDestroyImageKHR)
+    eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC) CEGLWrapper::GetProcAddress("eglDestroyImageKHR");
+  if (!glEGLImageTargetTexture2DOES)
+    glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) CEGLWrapper::GetProcAddress("glEGLImageTargetTexture2DOES");
+#endif
 }
 
 CLinuxRendererGLES::~CLinuxRendererGLES()
 {
   UnInit();
-  for (int i = 0; i < NUM_BUFFERS; i++)
-    delete m_eventTexturesDone[i];
 
   if (m_rgbBuffer != NULL) {
     delete [] m_rgbBuffer;
@@ -135,18 +172,17 @@ CLinuxRendererGLES::~CLinuxRendererGLES()
   delete m_dllSwScale;
 }
 
-void CLinuxRendererGLES::ManageTextures()
-{
-  m_NumYV12Buffers = 2;
-  //m_iYV12RenderBuffer = 0;
-  return;
-}
-
 bool CLinuxRendererGLES::ValidateRenderTarget()
 {
   if (!m_bValidated)
   {
     CLog::Log(LOGNOTICE,"Using GL_TEXTURE_2D");
+
+    // function pointer for texture might change in
+    // call to LoadShaders
+    glFinish();
+    for (int i = 0 ; i < NUM_BUFFERS ; i++)
+      (this->*m_textureDelete)(i);
 
      // create the yuv textures
     LoadShaders();
@@ -173,7 +209,7 @@ bool CLinuxRendererGLES::Configure(unsigned int width, unsigned int height, unsi
   // Calculate the input frame aspect ratio.
   CalculateFrameAspectRatio(d_width, d_height);
   ChooseBestResolution(fps);
-  SetViewMode(g_settings.m_currentVideoSettings.m_ViewMode);
+  SetViewMode(CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode);
   ManageDisplay();
 
   m_bConfigured = true;
@@ -193,6 +229,18 @@ bool CLinuxRendererGLES::Configure(unsigned int width, unsigned int height, unsi
   m_RenderUpdateCallBackCtx = NULL;
   if ((m_format == RENDER_FMT_BYPASS) && g_application.GetCurrentPlayer())
   {
+    m_renderFeatures.clear();
+    m_scalingMethods.clear();
+    m_deinterlaceModes.clear();
+    m_deinterlaceMethods.clear();
+
+    if (m_RenderFeaturesCallBackFn)
+    {
+      (*m_RenderFeaturesCallBackFn)(m_RenderFeaturesCallBackCtx, m_renderFeatures);
+      // after setting up m_renderFeatures, we are done with the callback
+      m_RenderFeaturesCallBackFn = NULL;
+      m_RenderFeaturesCallBackCtx = NULL;
+    }
     g_application.m_pPlayer->GetRenderFeatures(m_renderFeatures);
     g_application.m_pPlayer->GetDeinterlaceMethods(m_deinterlaceMethods);
     g_application.m_pPlayer->GetDeinterlaceModes(m_deinterlaceModes);
@@ -220,6 +268,18 @@ int CLinuxRendererGLES::GetImage(YV12Image *image, int source, bool readonly)
   {
     return source;
   }
+#ifdef HAS_LIBSTAGEFRIGHT
+  if ( m_renderMethod & RENDER_EGLIMG )
+  {
+    return source;
+  }
+
+#endif
+  if ( m_renderMethod & RENDER_MEDIACODEC )
+  {
+    return source;
+  }
+
 #ifdef HAVE_VIDEOTOOLBOXDECODER
   if (m_renderMethod & RENDER_CVREF )
   {
@@ -238,12 +298,7 @@ int CLinuxRendererGLES::GetImage(YV12Image *image, int source, bool readonly)
   if( readonly )
     im.flags |= IMAGE_FLAG_READING;
   else
-  {
-    if( !m_eventTexturesDone[source]->WaitMSec(500) )
-      CLog::Log(LOGWARNING, "%s - Timeout waiting for texture %d", __FUNCTION__, source);
-
     im.flags |= IMAGE_FLAG_WRITING;
-  }
 
   // copy the image - should be operator of YV12Image
   for (int p=0;p<MAX_PLANES;p++)
@@ -259,16 +314,11 @@ int CLinuxRendererGLES::GetImage(YV12Image *image, int source, bool readonly)
   image->bpp      = 1;
 
   return source;
-
-  return -1;
 }
 
 void CLinuxRendererGLES::ReleaseImage(int source, bool preserve)
 {
   YV12Image &im = m_buffers[source].image;
-
-  if( im.flags & IMAGE_FLAG_WRITING )
-    m_eventTexturesDone[source]->Set();
 
   im.flags &= ~IMAGE_FLAG_INUSE;
   im.flags |= IMAGE_FLAG_READY;
@@ -341,7 +391,7 @@ void CLinuxRendererGLES::CalculateTextureSourceRects(int source, int num_planes)
 
 void CLinuxRendererGLES::LoadPlane( YUVPLANE& plane, int type, unsigned flipindex
                                 , unsigned width, unsigned height
-                                , int stride, void* data )
+                                , unsigned int stride, void* data )
 {
   if(plane.flipindex == flipindex)
     return;
@@ -356,7 +406,7 @@ void CLinuxRendererGLES::LoadPlane( YUVPLANE& plane, int type, unsigned flipinde
   if(stride != width * bps)
   {
     unsigned char* src = (unsigned char*)data;
-    for (int y = 0; y < height;++y, src += stride)
+    for (unsigned int y = 0; y < height;++y, src += stride)
       glTexSubImage2D(m_textureTarget, 0, 0, y, width, 1, type, GL_UNSIGNED_BYTE, src);
   } else {
     glTexSubImage2D(m_textureTarget, 0, 0, 0, width, height, type, GL_UNSIGNED_BYTE, pixelData);
@@ -386,16 +436,29 @@ void CLinuxRendererGLES::Reset()
   {
     /* reset all image flags, this will cleanup textures later */
     m_buffers[i].image.flags = 0;
-    /* reset texture locks, a bit ugly, could result in tearing */
-    m_eventTexturesDone[i]->Set();
   }
 }
 
-void CLinuxRendererGLES::Update(bool bPauseDrawing)
+void CLinuxRendererGLES::Flush()
+{
+  if (!m_bValidated)
+    return;
+
+  glFinish();
+
+  for (int i = 0 ; i < m_NumYV12Buffers ; i++)
+    (this->*m_textureDelete)(i);
+
+  glFinish();
+  m_bValidated = false;
+  m_fbo.Cleanup();
+  m_iYV12RenderBuffer = 0;
+}
+
+void CLinuxRendererGLES::Update()
 {
   if (!m_bConfigured) return;
   ManageDisplay();
-  ManageTextures();
 }
 
 void CLinuxRendererGLES::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
@@ -409,28 +472,22 @@ void CLinuxRendererGLES::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
   if (m_renderMethod & RENDER_BYPASS)
   {
     ManageDisplay();
-    ManageTextures();
     // if running bypass, then the player might need the src/dst rects
     // for sizing video playback on a layer other than the gles layer.
     if (m_RenderUpdateCallBackFn)
       (*m_RenderUpdateCallBackFn)(m_RenderUpdateCallBackCtx, m_sourceRect, m_destRect);
 
-    RESOLUTION res = GetResolution();
-    int iWidth = g_settings.m_ResInfo[res].iWidth;
-    int iHeight = g_settings.m_ResInfo[res].iHeight;
+    CRect old = g_graphicsContext.GetScissors();
 
     g_graphicsContext.BeginPaint();
+    g_graphicsContext.SetScissors(m_destRect);
 
-    glScissor(m_destRect.x1, 
-              iHeight - m_destRect.y2, 
-              m_destRect.x2 - m_destRect.x1, 
-              m_destRect.y2 - m_destRect.y1);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
-    glScissor(0, 0, iWidth, iHeight);
 
+    g_graphicsContext.SetScissors(old);
     g_graphicsContext.EndPaint();
     return;
   }
@@ -441,7 +498,7 @@ void CLinuxRendererGLES::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
   int index = m_iYV12RenderBuffer;
   YUVBUFFER& buf =  m_buffers[index];
 
-  if (m_format != RENDER_FMT_OMXEGL)
+  if (m_format != RENDER_FMT_OMXEGL && m_format != RENDER_FMT_EGLIMG && m_format != RENDER_FMT_MEDIACODEC)
   {
     if (!buf.fields[FIELD_FULL][0].id) return;
   }
@@ -449,23 +506,10 @@ void CLinuxRendererGLES::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
     return;
 
   ManageDisplay();
-  ManageTextures();
 
   g_graphicsContext.BeginPaint();
 
-  if( !m_eventTexturesDone[index]->WaitMSec(500))
-  {
-    CLog::Log(LOGWARNING, "%s - Timeout waiting for texture %d", __FUNCTION__, index);
-
-    // render the previous frame if this one isn't ready yet
-    if (m_iLastRenderBuffer > -1)
-    {
-      m_iYV12RenderBuffer = m_iLastRenderBuffer;
-      index = m_iYV12RenderBuffer;
-    }
-  }
-  else
-    m_iLastRenderBuffer = index;
+  m_iLastRenderBuffer = index;
 
   if (clear)
   {
@@ -517,7 +561,7 @@ unsigned int CLinuxRendererGLES::PreInit()
   m_bConfigured = false;
   m_bValidated = false;
   UnInit();
-  m_resolution = g_guiSettings.m_LookAndFeelResolution;
+  m_resolution = CDisplaySettings::Get().GetCurrentResolution();
   if ( m_resolution == RES_WINDOW )
     m_resolution = RES_DESKTOP;
 
@@ -525,12 +569,19 @@ unsigned int CLinuxRendererGLES::PreInit()
   m_NumYV12Buffers = 2;
 
   m_formats.push_back(RENDER_FMT_YUV420P);
+  m_formats.push_back(RENDER_FMT_NV12);
   m_formats.push_back(RENDER_FMT_BYPASS);
 #if defined(HAVE_LIBOPENMAX)
   m_formats.push_back(RENDER_FMT_OMXEGL);
 #endif
 #ifdef HAVE_VIDEOTOOLBOXDECODER
   m_formats.push_back(RENDER_FMT_CVBREF);
+#endif
+#ifdef HAS_LIBSTAGEFRIGHT
+  m_formats.push_back(RENDER_FMT_EGLIMG);
+#endif
+#if defined(TARGET_ANDROID)
+  m_formats.push_back(RENDER_FMT_MEDIACODEC);
 #endif
 
   // setup the background colour
@@ -544,9 +595,9 @@ unsigned int CLinuxRendererGLES::PreInit()
 
 void CLinuxRendererGLES::UpdateVideoFilter()
 {
-  if (m_scalingMethodGui == g_settings.m_currentVideoSettings.m_ScalingMethod)
+  if (m_scalingMethodGui == CMediaSettings::Get().GetCurrentVideoSettings().m_ScalingMethod)
     return;
-  m_scalingMethodGui = g_settings.m_currentVideoSettings.m_ScalingMethod;
+  m_scalingMethodGui = CMediaSettings::Get().GetCurrentVideoSettings().m_ScalingMethod;
   m_scalingMethod    = m_scalingMethodGui;
 
   if(!Supports(m_scalingMethod))
@@ -611,7 +662,7 @@ void CLinuxRendererGLES::LoadShaders(int field)
 #ifdef TARGET_DARWIN_IOS
   float ios_version = GetIOSVersion();
 #endif
-  int requestedMethod = g_guiSettings.GetInt("videoplayer.rendermethod");
+  int requestedMethod = CSettings::Get().GetInt("videoplayer.rendermethod");
   CLog::Log(LOGDEBUG, "GL: Requested render method: %d", requestedMethod);
 
   if (m_pYUVShader)
@@ -629,6 +680,18 @@ void CLinuxRendererGLES::LoadShaders(int field)
       {
         CLog::Log(LOGNOTICE, "GL: Using OMXEGL RGBA render method");
         m_renderMethod = RENDER_OMXEGL;
+        break;
+      }
+      else if (m_format == RENDER_FMT_EGLIMG)
+      {
+        CLog::Log(LOGNOTICE, "GL: Using EGL Image render method");
+        m_renderMethod = RENDER_EGLIMG;
+        break;
+      }
+      else if (m_format == RENDER_FMT_MEDIACODEC)
+      {
+        CLog::Log(LOGNOTICE, "GL: Using MediaCodec render method");
+        m_renderMethod = RENDER_MEDIACODEC;
         break;
       }
       else if (m_format == RENDER_FMT_BYPASS)
@@ -664,7 +727,7 @@ void CLinuxRendererGLES::LoadShaders(int field)
           UpdateVideoFilter();
           break;
         }
-        else
+        else if (m_pYUVShader)
         {
           m_pYUVShader->Free();
           delete m_pYUVShader;
@@ -705,6 +768,24 @@ void CLinuxRendererGLES::LoadShaders(int field)
     m_textureCreate = &CLinuxRendererGLES::CreateBYPASSTexture;
     m_textureDelete = &CLinuxRendererGLES::DeleteBYPASSTexture;
   }
+  else if (m_format == RENDER_FMT_EGLIMG)
+  {
+    m_textureUpload = &CLinuxRendererGLES::UploadEGLIMGTexture;
+    m_textureCreate = &CLinuxRendererGLES::CreateEGLIMGTexture;
+    m_textureDelete = &CLinuxRendererGLES::DeleteEGLIMGTexture;
+  }
+  else if (m_format == RENDER_FMT_MEDIACODEC)
+  {
+    m_textureUpload = &CLinuxRendererGLES::UploadSurfaceTexture;
+    m_textureCreate = &CLinuxRendererGLES::CreateSurfaceTexture;
+    m_textureDelete = &CLinuxRendererGLES::DeleteSurfaceTexture;
+  }
+  else if (m_format == RENDER_FMT_NV12)
+  {
+    m_textureUpload = &CLinuxRendererGLES::UploadNV12Texture;
+    m_textureCreate = &CLinuxRendererGLES::CreateNV12Texture;
+    m_textureDelete = &CLinuxRendererGLES::DeleteNV12Texture;
+  }
   else
   {
     // default to YV12 texture handlers
@@ -742,6 +823,7 @@ void CLinuxRendererGLES::UnInit()
     m_dllSwScale->sws_freeContext(m_sw_context);
     m_sw_context = NULL;
   }
+
   // cleanup framebuffer object if it was in use
   m_fbo.Cleanup();
   m_bValidated = false;
@@ -749,6 +831,8 @@ void CLinuxRendererGLES::UnInit()
   m_bConfigured = false;
   m_RenderUpdateCallBackFn = NULL;
   m_RenderUpdateCallBackCtx = NULL;
+  m_RenderFeaturesCallBackFn = NULL;
+  m_RenderFeaturesCallBackCtx = NULL;
 }
 
 inline void CLinuxRendererGLES::ReorderDrawPoints()
@@ -756,7 +840,7 @@ inline void CLinuxRendererGLES::ReorderDrawPoints()
 
   CBaseRenderer::ReorderDrawPoints();//call base impl. for rotating the points
 
-  //corevideo is flipped in y
+  //corevideo and EGL are flipped in y
   if(m_renderMethod & RENDER_CVREF)
   {
     CPoint tmp;
@@ -767,6 +851,22 @@ inline void CLinuxRendererGLES::ReorderDrawPoints()
     m_rotatedDestCoords[1] = m_rotatedDestCoords[2];
     m_rotatedDestCoords[2] = tmp;
   }
+}
+
+void CLinuxRendererGLES::ReleaseBuffer(int idx)
+{
+#ifdef HAVE_VIDEOTOOLBOXDECODER
+  YUVBUFFER &buf = m_buffers[idx];
+
+  if (buf.cvBufferRef)
+    CVBufferRelease(buf.cvBufferRef);
+  buf.cvBufferRef = NULL;
+#endif
+#if defined(TARGET_ANDROID)
+  YUVBUFFER &buf = m_buffers[idx];
+
+  SAFE_RELEASE(buf.mediacodec);
+#endif
 }
 
 void CLinuxRendererGLES::Render(DWORD flags, int index)
@@ -814,10 +914,19 @@ void CLinuxRendererGLES::Render(DWORD flags, int index)
     RenderOpenMax(index, m_currentField);
     VerifyGLState();
   }
+  else if (m_renderMethod & RENDER_EGLIMG)
+  {
+    RenderEglImage(index, m_currentField);
+    VerifyGLState();
+  }
   else if (m_renderMethod & RENDER_CVREF)
   {
     RenderCoreVideoRef(index, m_currentField);
     VerifyGLState();
+  }
+  else if (m_renderMethod & RENDER_MEDIACODEC)
+  {
+    RenderSurfaceTexture(index, m_currentField);
   }
   else
   {
@@ -858,8 +967,8 @@ void CLinuxRendererGLES::RenderSinglePass(int index, int field)
   glActiveTexture(GL_TEXTURE0);
   VerifyGLState();
 
-  m_pYUVShader->SetBlack(g_settings.m_currentVideoSettings.m_Brightness * 0.01f - 0.5f);
-  m_pYUVShader->SetContrast(g_settings.m_currentVideoSettings.m_Contrast * 0.02f);
+  m_pYUVShader->SetBlack(CMediaSettings::Get().GetCurrentVideoSettings().m_Brightness * 0.01f - 0.5f);
+  m_pYUVShader->SetContrast(CMediaSettings::Get().GetCurrentVideoSettings().m_Contrast * 0.02f);
   m_pYUVShader->SetWidth(im.width);
   m_pYUVShader->SetHeight(im.height);
   if     (field == FIELD_TOP)
@@ -980,8 +1089,8 @@ void CLinuxRendererGLES::RenderMultiPass(int index, int field)
   m_fbo.BeginRender();
   VerifyGLState();
 
-  m_pYUVShader->SetBlack(g_settings.m_currentVideoSettings.m_Brightness * 0.01f - 0.5f);
-  m_pYUVShader->SetContrast(g_settings.m_currentVideoSettings.m_Contrast * 0.02f);
+  m_pYUVShader->SetBlack(CMediaSettings::Get().GetCurrentVideoSettings().m_Brightness * 0.01f - 0.5f);
+  m_pYUVShader->SetContrast(CMediaSettings::Get().GetCurrentVideoSettings().m_Contrast * 0.02f);
   m_pYUVShader->SetWidth(im.width);
   m_pYUVShader->SetHeight(im.height);
   if     (field == FIELD_TOP)
@@ -1014,16 +1123,16 @@ void CLinuxRendererGLES::RenderMultiPass(int index, int field)
     CLog::Log(LOGERROR, "GL: Error enabling YUV shader");
   }
 
-  float imgwidth  = planes[0].rect.x2 - planes[0].rect.x1;
-  float imgheight = planes[0].rect.y2 - planes[0].rect.y1;
-  if (m_textureTarget == GL_TEXTURE_2D)
-  {
-    imgwidth  *= planes[0].texwidth;
-    imgheight *= planes[0].texheight;
-  }
-
-  // 1st Pass to video frame size
+// 1st Pass to video frame size
 //TODO
+//  float imgwidth  = planes[0].rect.x2 - planes[0].rect.x1;
+//  float imgheight = planes[0].rect.y2 - planes[0].rect.y1;
+//  if (m_textureTarget == GL_TEXTURE_2D)
+//  {
+//    imgwidth  *= planes[0].texwidth;
+//    imgheight *= planes[0].texheight;
+//  }
+//  
 //  glBegin(GL_QUADS);
 //
 //  glMultiTexCoord2fARB(GL_TEXTURE0, planes[0].rect.x1, planes[0].rect.y1);
@@ -1091,10 +1200,10 @@ void CLinuxRendererGLES::RenderMultiPass(int index, int field)
 
   VerifyGLState();
 
-  imgwidth  /= m_sourceWidth;
-  imgheight /= m_sourceHeight;
-
 //TODO
+//  imgwidth  /= m_sourceWidth;
+//  imgheight /= m_sourceHeight;
+//
 //  glBegin(GL_QUADS);
 //
 //  glMultiTexCoord2fARB(GL_TEXTURE0, 0.0f    , 0.0f);
@@ -1138,10 +1247,7 @@ void CLinuxRendererGLES::RenderSoftware(int index, int field)
   GLubyte idx[4] = {0, 1, 3, 2};        //determines order of triangle strip
   GLfloat ver[4][4];
   GLfloat tex[4][2];
-  float col[4][3];
-
-  for (int index = 0;index < 4;++index)
-    col[index][0] = col[index][1] = col[index][2] = 1.0;
+  GLfloat col[3] = {1.0f, 1.0f, 1.0f};
 
   GLint   posLoc = g_Windowing.GUIShaderGetPos();
   GLint   texLoc = g_Windowing.GUIShaderGetCoord0();
@@ -1201,12 +1307,7 @@ void CLinuxRendererGLES::RenderOpenMax(int index, int field)
   GLubyte idx[4] = {0, 1, 3, 2};        //determines order of triangle strip
   GLfloat ver[4][4];
   GLfloat tex[4][2];
-  float col[4][3];
-
-  for (int index = 0;index < 4;++index)
-  {
-    col[index][0] = col[index][1] = col[index][2] = 1.0;
-  }
+  GLfloat col[3] = {1.0f, 1.0f, 1.0f};
 
   GLint   posLoc = g_Windowing.GUIShaderGetPos();
   GLint   texLoc = g_Windowing.GUIShaderGetCoord0();
@@ -1250,6 +1351,150 @@ void CLinuxRendererGLES::RenderOpenMax(int index, int field)
 #endif
 }
 
+void CLinuxRendererGLES::RenderEglImage(int index, int field)
+{
+#if defined(HAS_LIBSTAGEFRIGHT)
+#ifdef DEBUG_VERBOSE
+  unsigned int time = XbmcThreads::SystemClockMillis();
+#endif
+
+  YUVPLANE &plane = m_buffers[index].fields[field][0];
+
+  glDisable(GL_DEPTH_TEST);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(m_textureTarget, plane.id);
+
+  g_Windowing.EnableGUIShader(SM_TEXTURE_RGBA);
+
+  GLubyte idx[4] = {0, 1, 3, 2};        //determines order of triangle strip
+  GLfloat ver[4][4];
+  GLfloat tex[4][2];
+  GLfloat col[3] = {1.0f, 1.0f, 1.0f};
+
+  GLint   posLoc = g_Windowing.GUIShaderGetPos();
+  GLint   texLoc = g_Windowing.GUIShaderGetCoord0();
+  GLint   colLoc = g_Windowing.GUIShaderGetCol();
+
+  glVertexAttribPointer(posLoc, 4, GL_FLOAT, 0, 0, ver);
+  glVertexAttribPointer(texLoc, 2, GL_FLOAT, 0, 0, tex);
+  glVertexAttribPointer(colLoc, 3, GL_FLOAT, 0, 0, col);
+
+  glEnableVertexAttribArray(posLoc);
+  glEnableVertexAttribArray(texLoc);
+  glEnableVertexAttribArray(colLoc);
+
+  // Set vertex coordinates
+  for(int i = 0; i < 4; i++)
+  {
+    ver[i][0] = m_rotatedDestCoords[i].x;
+    ver[i][1] = m_rotatedDestCoords[i].y;
+    ver[i][2] = 0.0f;// set z to 0
+    ver[i][3] = 1.0f;
+  }
+
+  // Set texture coordinates (is flipped in y)
+  tex[0][0] = tex[3][0] = 0;
+  tex[0][1] = tex[1][1] = 1;
+  tex[1][0] = tex[2][0] = 1;
+  tex[2][1] = tex[3][1] = 0;
+
+  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+
+  glDisableVertexAttribArray(posLoc);
+  glDisableVertexAttribArray(texLoc);
+  glDisableVertexAttribArray(colLoc);
+
+  g_Windowing.DisableGUIShader();
+  VerifyGLState();
+
+  glBindTexture(m_textureTarget, 0);
+  VerifyGLState();
+
+#ifdef DEBUG_VERBOSE
+  CLog::Log(LOGDEBUG, "RenderEglImage %d: tm:%d\n", index, XbmcThreads::SystemClockMillis() - time);
+#endif
+#endif
+}
+
+void CLinuxRendererGLES::RenderSurfaceTexture(int index, int field)
+{
+#if defined(TARGET_ANDROID)
+  #ifdef DEBUG_VERBOSE
+    unsigned int time = XbmcThreads::SystemClockMillis();
+  #endif
+
+  YUVPLANE &plane = m_buffers[index].fields[0][0];
+
+  glDisable(GL_DEPTH_TEST);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_EXTERNAL_OES, plane.id);
+
+  g_Windowing.EnableGUIShader(SM_TEXTURE_RGBA_OES);
+
+  glUniformMatrix4fv(g_Windowing.GUIShaderGetCoord0Matrix(), 1, GL_FALSE, m_textureMatrix);
+
+  GLubyte idx[4] = {0, 1, 3, 2};        //determines order of triangle strip
+  GLfloat ver[4][4];
+  GLfloat tex[4][4];
+
+  GLint   posLoc = g_Windowing.GUIShaderGetPos();
+  GLint   texLoc = g_Windowing.GUIShaderGetCoord0();
+
+
+  glVertexAttribPointer(posLoc, 4, GL_FLOAT, 0, 0, ver);
+  glVertexAttribPointer(texLoc, 4, GL_FLOAT, 0, 0, tex);
+
+  glEnableVertexAttribArray(posLoc);
+  glEnableVertexAttribArray(texLoc);
+
+  // Set vertex coordinates
+  for(int i = 0; i < 4; i++)
+  {
+    ver[i][0] = m_rotatedDestCoords[i].x;
+    ver[i][1] = m_rotatedDestCoords[i].y;
+    ver[i][2] = 0.0f;        // set z to 0
+    ver[i][3] = 1.0f;
+  }
+
+  // Set texture coordinates (MediaCodec is flipped in y)
+  tex[0][0] = tex[3][0] = 0.0f;
+  tex[0][1] = tex[1][1] = 1.0f;
+  tex[1][0] = tex[2][0] = 1.0f;
+  tex[2][1] = tex[3][1] = 0.0f;
+
+  for(int i = 0; i < 4; i++)
+  {
+    tex[i][2] = 0.0f;
+    tex[i][3] = 1.0f;
+  }
+
+  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+
+  glDisableVertexAttribArray(posLoc);
+  glDisableVertexAttribArray(texLoc);
+
+  const float identity[16] = {
+      1.0f, 0.0f, 0.0f, 0.0f,
+      0.0f, 1.0f, 0.0f, 0.0f,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+  };
+  glUniformMatrix4fv(g_Windowing.GUIShaderGetCoord0Matrix(),  1, GL_FALSE, identity);
+
+  g_Windowing.DisableGUIShader();
+  VerifyGLState();
+
+  glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+  VerifyGLState();
+
+  #ifdef DEBUG_VERBOSE
+    CLog::Log(LOGDEBUG, "RenderMediaCodecImage %d: tm:%d", index, XbmcThreads::SystemClockMillis() - time);
+  #endif
+#endif
+}
+
 void CLinuxRendererGLES::RenderCoreVideoRef(int index, int field)
 {
 #ifdef HAVE_VIDEOTOOLBOXDECODER
@@ -1266,12 +1511,7 @@ void CLinuxRendererGLES::RenderCoreVideoRef(int index, int field)
   GLubyte idx[4] = {0, 1, 3, 2};        //determines order of triangle strip
   GLfloat ver[4][4];
   GLfloat tex[4][2];
-  float col[4][3];
-
-  for (int index = 0;index < 4;++index)
-  {
-    col[index][0] = col[index][1] = col[index][2] = 1.0;
-  }
+  GLfloat col[3] = {1.0f, 1.0f, 1.0f};
 
   GLint   posLoc = g_Windowing.GUIShaderGetPos();
   GLint   texLoc = g_Windowing.GUIShaderGetCoord0();
@@ -1319,6 +1559,14 @@ bool CLinuxRendererGLES::RenderCapture(CRenderCapture* capture)
   if (!m_bValidated)
     return false;
 
+  // If rendered directly by the hardware
+  if (m_renderMethod & RENDER_BYPASS)
+  {
+    capture->BeginRender();
+    capture->EndRender();
+    return true;
+  }
+
   // save current video rect
   CRect saveSize = m_destRect;
   saveRotatedCoords();//backup current m_rotatedDestCoords
@@ -1332,9 +1580,9 @@ bool CLinuxRendererGLES::RenderCapture(CRenderCapture* capture)
 
   g_matrices.MatrixMode(MM_MODELVIEW);
   g_matrices.PushMatrix();
-  // fixme - we know that cvref is already flipped in y direction
+  // fixme - we know that cvref  & eglimg are already flipped in y direction
   // but somehow this also effects the rendercapture here
-  // for cvref we have to skip the flip here or we get upside down
+  // therefore we have to skip the flip here or we get upside down
   // images
   if (m_renderMethod != RENDER_CVREF)
   {
@@ -1352,7 +1600,7 @@ bool CLinuxRendererGLES::RenderCapture(CRenderCapture* capture)
   // OpenGLES returns in RGBA order but CRenderCapture needs BGRA order
   // XOR Swap RGBA -> BGRA
   unsigned char* pixels = (unsigned char*)capture->GetRenderBuffer();
-  for (int i = 0; i < capture->GetWidth() * capture->GetHeight(); i++, pixels+=4)
+  for (unsigned int i = 0; i < capture->GetWidth() * capture->GetHeight(); i++, pixels+=4)
   {
     std::swap(pixels[0], pixels[2]);
   }
@@ -1386,7 +1634,6 @@ void CLinuxRendererGLES::UploadYV12Texture(int source)
   if (!(im->flags&IMAGE_FLAG_READY))
 #endif
   {
-    m_eventTexturesDone[source]->Set();
     return;
   }
 
@@ -1488,7 +1735,7 @@ void CLinuxRendererGLES::UploadYV12Texture(int source)
                , im->width >> im->cshift_x, im->height >> (im->cshift_y + 1)
                , im->stride[1]*2, im->plane[1] );
 
-      LoadPlane( fields[FIELD_TOP][2], GL_LUMINANCE, buf.flipindex
+      LoadPlane( fields[FIELD_TOP][2], GL_ALPHA, buf.flipindex
                , im->width >> im->cshift_x, im->height >> (im->cshift_y + 1)
                , im->stride[2]*2, im->plane[2] );
 
@@ -1497,7 +1744,7 @@ void CLinuxRendererGLES::UploadYV12Texture(int source)
                , im->width >> im->cshift_x, im->height >> (im->cshift_y + 1)
                , im->stride[1]*2, im->plane[1] + im->stride[1] );
 
-      LoadPlane( fields[FIELD_BOT][2], GL_LUMINANCE, buf.flipindex
+      LoadPlane( fields[FIELD_BOT][2], GL_ALPHA, buf.flipindex
                , im->width >> im->cshift_x, im->height >> (im->cshift_y + 1)
                , im->stride[2]*2, im->plane[2] + im->stride[2] );
 
@@ -1508,13 +1755,11 @@ void CLinuxRendererGLES::UploadYV12Texture(int source)
                , im->width >> im->cshift_x, im->height >> im->cshift_y
                , im->stride[1], im->plane[1] );
 
-      LoadPlane( fields[FIELD_FULL][2], GL_LUMINANCE, buf.flipindex
+      LoadPlane( fields[FIELD_FULL][2], GL_ALPHA, buf.flipindex
                , im->width >> im->cshift_x, im->height >> im->cshift_y
                , im->stride[2], im->plane[2] );
     }
   }
-  m_eventTexturesDone[source]->Set();
-
   CalculateTextureSourceRects(source, 3);
 
   glDisable(m_textureTarget);
@@ -1642,12 +1887,25 @@ bool CLinuxRendererGLES::CreateYV12Texture(int index)
       }
       else
       {
+        GLenum format;
+        GLint internalformat;
+        if (p == 2) //V plane needs an alpha texture
+        {
+          format = GL_ALPHA;
+          internalformat = GL_ALPHA;
+        }
+        else
+        {
+          format = GL_LUMINANCE;
+          internalformat = GL_LUMINANCE;
+        }
+
         if(m_renderMethod & RENDER_POT)
           CLog::Log(LOGDEBUG, "GL: Creating YUV POT texture of size %d x %d",  plane.texwidth, plane.texheight);
         else
           CLog::Log(LOGDEBUG,  "GL: Creating YUV NPOT texture of size %d x %d", plane.texwidth, plane.texheight);
 
-        glTexImage2D(m_textureTarget, 0, GL_LUMINANCE, plane.texwidth, plane.texheight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(m_textureTarget, 0, internalformat, plane.texwidth, plane.texheight, 0, format, GL_UNSIGNED_BYTE, NULL);
       }
 
       glTexParameteri(m_textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1658,8 +1916,219 @@ bool CLinuxRendererGLES::CreateYV12Texture(int index)
     }
   }
   glDisable(m_textureTarget);
-  m_eventTexturesDone[index]->Set();
   return true;
+}
+
+//********************************************************************************************************
+// NV12 Texture loading, creation and deletion
+//********************************************************************************************************
+void CLinuxRendererGLES::UploadNV12Texture(int source)
+{
+  YUVBUFFER& buf    =  m_buffers[source];
+  YV12Image* im     = &buf.image;
+  YUVFIELDS& fields =  buf.fields;
+
+  if (!(im->flags & IMAGE_FLAG_READY))
+    return;
+  bool deinterlacing;
+  if (m_currentField == FIELD_FULL)
+    deinterlacing = false;
+  else
+    deinterlacing = true;
+
+  glEnable(m_textureTarget);
+  VerifyGLState();
+
+  glPixelStorei(GL_UNPACK_ALIGNMENT, im->bpp);
+
+  if (deinterlacing)
+  {
+    // Load Odd Y field
+    LoadPlane( fields[FIELD_TOP][0] , GL_LUMINANCE, buf.flipindex
+             , im->width, im->height >> 1
+             , im->stride[0]*2, im->plane[0] );
+
+    // Load Even Y field
+    LoadPlane( fields[FIELD_BOT][0], GL_LUMINANCE, buf.flipindex
+             , im->width, im->height >> 1
+             , im->stride[0]*2, im->plane[0] + im->stride[0]) ;
+
+    // Load Odd UV Fields
+    LoadPlane( fields[FIELD_TOP][1], GL_LUMINANCE_ALPHA, buf.flipindex
+             , im->width >> im->cshift_x, im->height >> (im->cshift_y + 1)
+             , im->stride[1]*2, im->plane[1] );
+
+    // Load Even UV Fields
+    LoadPlane( fields[FIELD_BOT][1], GL_LUMINANCE_ALPHA, buf.flipindex
+             , im->width >> im->cshift_x, im->height >> (im->cshift_y + 1)
+             , im->stride[1]*2, im->plane[1] + im->stride[1] );
+
+  }
+  else
+  {
+    // Load Y plane
+    LoadPlane( fields[FIELD_FULL][0], GL_LUMINANCE, buf.flipindex
+             , im->width, im->height
+             , im->stride[0], im->plane[0] );
+
+    // Load UV plane
+    LoadPlane( fields[FIELD_FULL][1], GL_LUMINANCE_ALPHA, buf.flipindex
+             , im->width >> im->cshift_x, im->height >> im->cshift_y
+             , im->stride[1], im->plane[1] );
+  }
+
+  VerifyGLState();
+
+  CalculateTextureSourceRects(source, 3);
+
+  glDisable(m_textureTarget);
+  return;
+}
+
+bool CLinuxRendererGLES::CreateNV12Texture(int index)
+{
+  // since we also want the field textures, pitch must be texture aligned
+  YV12Image &im     = m_buffers[index].image;
+  YUVFIELDS &fields = m_buffers[index].fields;
+
+  // Delete any old texture
+  DeleteNV12Texture(index);
+
+  im.height = m_sourceHeight;
+  im.width  = m_sourceWidth;
+  im.cshift_x = 1;
+  im.cshift_y = 1;
+  im.bpp = 1;
+
+  im.stride[0] = im.width;
+  im.stride[1] = im.width;
+  im.stride[2] = 0;
+
+  im.plane[0] = NULL;
+  im.plane[1] = NULL;
+  im.plane[2] = NULL;
+
+  // Y plane
+  im.planesize[0] = im.stride[0] * im.height;
+  // packed UV plane
+  im.planesize[1] = im.stride[1] * im.height / 2;
+  // third plane is not used
+  im.planesize[2] = 0;
+
+  for (int i = 0; i < 2; i++)
+    im.plane[i] = new BYTE[im.planesize[i]];
+
+  glEnable(m_textureTarget);
+  for(int f = 0;f<MAX_FIELDS;f++)
+  {
+    for(int p = 0;p<2;p++)
+    {
+      if (!glIsTexture(fields[f][p].id))
+      {
+        glGenTextures(1, &fields[f][p].id);
+        VerifyGLState();
+      }
+    }
+    fields[f][2].id = fields[f][1].id;
+  }
+
+  // YUV
+  for (int f = FIELD_FULL; f<=FIELD_BOT ; f++)
+  {
+    int fieldshift = (f==FIELD_FULL) ? 0 : 1;
+    YUVPLANES &planes = fields[f];
+
+    planes[0].texwidth  = im.width;
+    planes[0].texheight = im.height >> fieldshift;
+
+    if (m_renderMethod & RENDER_SW)
+    {
+      planes[1].texwidth  = 0;
+      planes[1].texheight = 0;
+      planes[2].texwidth  = 0;
+      planes[2].texheight = 0;
+    }
+    else
+    {
+      planes[1].texwidth  = planes[0].texwidth  >> im.cshift_x;
+      planes[1].texheight = planes[0].texheight >> im.cshift_y;
+      planes[2].texwidth  = planes[1].texwidth;
+      planes[2].texheight = planes[1].texheight;
+    }
+
+    if(m_renderMethod & RENDER_POT)
+    {
+      for(int p = 0; p < 3; p++)
+      {
+        planes[p].texwidth  = NP2(planes[p].texwidth);
+        planes[p].texheight = NP2(planes[p].texheight);
+      }
+    }
+
+    for(int p = 0; p < 2; p++)
+    {
+      YUVPLANE &plane = planes[p];
+      if (plane.texwidth * plane.texheight == 0)
+        continue;
+
+      glBindTexture(m_textureTarget, plane.id);
+      if (m_renderMethod & RENDER_SW)
+      {
+        glTexImage2D(m_textureTarget, 0, GL_RGBA, plane.texwidth, plane.texheight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, NULL);
+      }
+      else
+      {
+        if (p == 1)
+          glTexImage2D(m_textureTarget, 0, GL_LUMINANCE_ALPHA, plane.texwidth, plane.texheight, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, NULL);
+        else
+          glTexImage2D(m_textureTarget, 0, GL_LUMINANCE, plane.texwidth, plane.texheight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, NULL);
+      }
+
+      glTexParameteri(m_textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(m_textureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+      VerifyGLState();
+    }
+  }
+  glDisable(m_textureTarget);
+
+  return true;
+}
+void CLinuxRendererGLES::DeleteNV12Texture(int index)
+{
+  YV12Image &im     = m_buffers[index].image;
+  YUVFIELDS &fields = m_buffers[index].fields;
+
+  if( fields[FIELD_FULL][0].id == 0 ) return;
+
+  // finish up all textures, and delete them
+  g_graphicsContext.BeginPaint();  //FIXME
+  for(int f = 0;f<MAX_FIELDS;f++)
+  {
+    for(int p = 0;p<2;p++)
+    {
+      if( fields[f][p].id )
+      {
+        if (glIsTexture(fields[f][p].id))
+        {
+          glDeleteTextures(1, &fields[f][p].id);
+        }
+        fields[f][p].id = 0;
+      }
+    }
+    fields[f][2].id = 0;
+  }
+  g_graphicsContext.EndPaint();
+
+  for(int p = 0;p<2;p++)
+  {
+    if (im.plane[p])
+    {
+      delete[] im.plane[p];
+      im.plane[p] = NULL;
+    }
+  }
 }
 
 //********************************************************************************************************
@@ -1717,8 +2186,6 @@ void CLinuxRendererGLES::UploadCVRefTexture(int index)
 
     plane.flipindex = m_buffers[index].flipindex;
   }
-
-  m_eventTexturesDone[index]->Set();
 #endif
 }
 void CLinuxRendererGLES::DeleteCVRefTexture(int index)
@@ -1790,8 +2257,6 @@ bool CLinuxRendererGLES::CreateCVRefTexture(int index)
   #endif
   glBindTexture(m_textureTarget, 0);
   glDisable(m_textureTarget);
-
-  m_eventTexturesDone[index]->Set();
 #endif
   return true;
 }
@@ -1801,14 +2266,131 @@ bool CLinuxRendererGLES::CreateCVRefTexture(int index)
 //********************************************************************************************************
 void CLinuxRendererGLES::UploadBYPASSTexture(int index)
 {
-  m_eventTexturesDone[index]->Set();
 }
 void CLinuxRendererGLES::DeleteBYPASSTexture(int index)
 {
 }
 bool CLinuxRendererGLES::CreateBYPASSTexture(int index)
 {
-  m_eventTexturesDone[index]->Set();
+  return true;
+}
+
+//********************************************************************************************************
+// EGLIMG creation, deletion, copying + clearing
+//********************************************************************************************************
+void CLinuxRendererGLES::UploadEGLIMGTexture(int index)
+{
+#ifdef HAS_LIBSTAGEFRIGHT
+#ifdef DEBUG_VERBOSE
+  unsigned int time = XbmcThreads::SystemClockMillis();
+#endif
+
+  if(m_buffers[index].eglimg != EGL_NO_IMAGE_KHR)
+  {
+    YUVPLANE &plane = m_buffers[index].fields[0][0];
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(m_textureTarget, plane.id);
+    glEGLImageTargetTexture2DOES(m_textureTarget, (EGLImageKHR)m_buffers[index].eglimg);
+    glBindTexture(m_textureTarget, 0);
+
+    plane.flipindex = m_buffers[index].flipindex;
+  }
+
+#ifdef DEBUG_VERBOSE
+  CLog::Log(LOGDEBUG, "UploadEGLIMGTexture %d: img:%p, tm:%d\n", index, m_buffers[index].eglimg, XbmcThreads::SystemClockMillis() - time);
+#endif
+#endif
+}
+void CLinuxRendererGLES::DeleteEGLIMGTexture(int index)
+{
+#ifdef HAS_LIBSTAGEFRIGHT
+  YUVPLANE &plane = m_buffers[index].fields[0][0];
+
+  if(plane.id && glIsTexture(plane.id))
+    glDeleteTextures(1, &plane.id);
+  plane.id = 0;
+#endif
+}
+bool CLinuxRendererGLES::CreateEGLIMGTexture(int index)
+{
+#ifdef HAS_LIBSTAGEFRIGHT
+  YV12Image &im     = m_buffers[index].image;
+  YUVFIELDS &fields = m_buffers[index].fields;
+  YUVPLANE  &plane  = fields[0][0];
+
+  DeleteEGLIMGTexture(index);
+
+  memset(&im    , 0, sizeof(im));
+  memset(&fields, 0, sizeof(fields));
+
+  im.height = m_sourceHeight;
+  im.width  = m_sourceWidth;
+
+  plane.texwidth  = im.width;
+  plane.texheight = im.height;
+
+  if(m_renderMethod & RENDER_POT)
+  {
+    plane.texwidth  = NP2(plane.texwidth);
+    plane.texheight = NP2(plane.texheight);
+  }
+  glEnable(m_textureTarget);
+  glGenTextures(1, &plane.id);
+  VerifyGLState();
+
+  glBindTexture(m_textureTarget, plane.id);
+
+  glTexParameteri(m_textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(m_textureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// This is necessary for non-power-of-two textures
+  glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  glTexImage2D(m_textureTarget, 0, GL_RGBA, plane.texwidth, plane.texheight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+  glDisable(m_textureTarget);
+#endif
+  return true;
+}
+
+//********************************************************************************************************
+// SurfaceTexture creation, deletion, copying + clearing
+//********************************************************************************************************
+void CLinuxRendererGLES::UploadSurfaceTexture(int index)
+{
+#if defined(TARGET_ANDROID)
+#ifdef DEBUG_VERBOSE
+  unsigned int time = XbmcThreads::SystemClockMillis();
+  int mindex = -1;
+#endif
+
+  YUVBUFFER &buf = m_buffers[index];
+
+  if (buf.mediacodec)
+  {
+#ifdef DEBUG_VERBOSE
+    mindex = buf.mediacodec->GetIndex();
+#endif
+    buf.fields[0][0].id = buf.mediacodec->GetTextureID();
+    buf.mediacodec->UpdateTexImage();
+    buf.mediacodec->GetTransformMatrix(m_textureMatrix);
+    SAFE_RELEASE(buf.mediacodec);
+  }
+
+#ifdef DEBUG_VERBOSE
+  CLog::Log(LOGDEBUG, "UploadSurfaceTexture %d: img: %d tm:%d", index, mindex, XbmcThreads::SystemClockMillis() - time);
+#endif
+#endif
+}
+void CLinuxRendererGLES::DeleteSurfaceTexture(int index)
+{
+#if defined(TARGET_ANDROID)
+  SAFE_RELEASE(m_buffers[index].mediacodec);
+#endif
+}
+bool CLinuxRendererGLES::CreateSurfaceTexture(int index)
+{
   return true;
 }
 
@@ -1901,6 +2483,9 @@ bool CLinuxRendererGLES::Supports(EDEINTERLACEMODE mode)
   if(m_renderMethod & RENDER_OMXEGL)
     return false;
 
+  if(m_renderMethod & RENDER_EGLIMG)
+    return false;
+
   if(m_renderMethod & RENDER_CVREF)
     return false;
 
@@ -1921,6 +2506,12 @@ bool CLinuxRendererGLES::Supports(EINTERLACEMETHOD method)
   }
 
   if(m_renderMethod & RENDER_OMXEGL)
+    return false;
+
+  if(m_renderMethod & RENDER_EGLIMG)
+    return false;
+
+  if(m_renderMethod & RENDER_MEDIACODEC)
     return false;
 
   if(m_renderMethod & RENDER_CVREF)
@@ -1962,13 +2553,16 @@ EINTERLACEMETHOD CLinuxRendererGLES::AutoInterlaceMethod()
   // Player controls render, let it pick the auto-deinterlace method
   if((m_renderMethod & RENDER_BYPASS))
   {
-    if (m_deinterlaceMethods.size())
+    if (!m_deinterlaceMethods.empty())
       return ((EINTERLACEMETHOD)m_deinterlaceMethods[0]);
     else
       return VS_INTERLACEMETHOD_NONE;
   }
 
   if(m_renderMethod & RENDER_OMXEGL)
+    return VS_INTERLACEMETHOD_NONE;
+
+  if(m_renderMethod & RENDER_EGLIMG)
     return VS_INTERLACEMETHOD_NONE;
 
   if(m_renderMethod & RENDER_CVREF)
@@ -1981,22 +2575,80 @@ EINTERLACEMETHOD CLinuxRendererGLES::AutoInterlaceMethod()
 #endif
 }
 
-#ifdef HAVE_LIBOPENMAX
-void CLinuxRendererGLES::AddProcessor(COpenMax* openMax, DVDVideoPicture *picture)
+unsigned int CLinuxRendererGLES::GetProcessorSize()
 {
-  YUVBUFFER &buf = m_buffers[NextYV12Texture()];
+  if(m_format == RENDER_FMT_OMXEGL
+  || m_format == RENDER_FMT_CVBREF
+  || m_format == RENDER_FMT_EGLIMG
+  || m_format == RENDER_FMT_MEDIACODEC)
+    return 1;
+  else
+    return 0;
+}
+
+#ifdef HAVE_LIBOPENMAX
+void CLinuxRendererGLES::AddProcessor(COpenMax* openMax, DVDVideoPicture *picture, int index)
+{
+  YUVBUFFER &buf = m_buffers[index];
   buf.openMaxBuffer = picture->openMaxBuffer;
 }
 #endif
 #ifdef HAVE_VIDEOTOOLBOXDECODER
-void CLinuxRendererGLES::AddProcessor(struct __CVBuffer *cvBufferRef)
+void CLinuxRendererGLES::AddProcessor(struct __CVBuffer *cvBufferRef, int index)
 {
-  YUVBUFFER &buf = m_buffers[NextYV12Texture()];
+  YUVBUFFER &buf = m_buffers[index];
   if (buf.cvBufferRef)
     CVBufferRelease(buf.cvBufferRef);
   buf.cvBufferRef = cvBufferRef;
   // retain another reference, this way dvdplayer and renderer can issue releases.
   CVBufferRetain(buf.cvBufferRef);
+}
+#endif
+#ifdef HAS_LIBSTAGEFRIGHT
+void CLinuxRendererGLES::AddProcessor(CDVDVideoCodecStageFright* stf, EGLImageKHR eglimg, int index)
+{
+#ifdef DEBUG_VERBOSE
+  unsigned int time = XbmcThreads::SystemClockMillis();
+#endif
+
+  YUVBUFFER &buf = m_buffers[index];
+  if (buf.eglimg != EGL_NO_IMAGE_KHR)
+    stf->ReleaseBuffer(buf.eglimg);
+  stf->LockBuffer(eglimg);
+
+  buf.stf = stf;
+  buf.eglimg = eglimg;
+
+#ifdef DEBUG_VERBOSE
+  CLog::Log(LOGDEBUG, "AddProcessor %d: img:%p: tm:%d\n", index, eglimg, XbmcThreads::SystemClockMillis() - time);
+#endif
+}
+#endif
+
+#if defined(TARGET_ANDROID)
+void CLinuxRendererGLES::AddProcessor(CDVDMediaCodecInfo *mediacodec, int index)
+{
+#ifdef DEBUG_VERBOSE
+  unsigned int time = XbmcThreads::SystemClockMillis();
+  int mindex = -1;
+#endif
+
+  YUVBUFFER &buf = m_buffers[index];
+  if (mediacodec)
+  {
+    buf.mediacodec = mediacodec->Retain();
+#ifdef DEBUG_VERBOSE
+    mindex = buf.mediacodec->GetIndex();
+#endif
+    // releaseOutputBuffer must be in same thread as
+    // dequeueOutputBuffer. We are in DVDPlayerVideo
+    // thread here, so we are safe.
+    buf.mediacodec->ReleaseOutputBuffer(true);
+  }
+
+#ifdef DEBUG_VERBOSE
+  CLog::Log(LOGDEBUG, "AddProcessor %d: img:%d tm:%d", index, mindex, XbmcThreads::SystemClockMillis() - time);
+#endif
 }
 #endif
 

@@ -2,8 +2,8 @@
 #define KEYBOARDLAYOUTCONFIGURATION_H
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,9 +24,9 @@
 // Comment OUT, if not really debugging!!!
 // #define DEBUG_KEYBOARD_GETCHAR
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include "linux/PlatformDefs.h"
-#elif defined (WIN32)
+#elif defined (TARGET_WINDOWS)
 #include "windows.h"
 #else
 #include "xtl.h"

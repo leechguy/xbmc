@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 #include "FileItem.h"
 #include "PVRChannel.h"
+#include "settings/ISettingCallback.h"
 #include "utils/JobManager.h"
 
 #include <boost/shared_ptr.hpp>
@@ -54,9 +55,9 @@ namespace PVR
   typedef boost::shared_ptr<PVR::CPVRChannelGroup> CPVRChannelGroupPtr;
 
   /** A group of channels */
-  class CPVRChannelGroup : private Observer,
-                           public Observable,
-                           public IJobCallback
+  class CPVRChannelGroup : public Observable,
+                           public IJobCallback,
+                           public ISettingCallback
 
   {
     friend class CPVRChannelGroups;
@@ -232,7 +233,7 @@ namespace PVR
 
     //@}
 
-    void Notify(const Observable &obs, const ObservableMessage msg);
+    virtual void OnSettingChanged(const CSetting *setting);
 
     /*!
      * @brief Get a channel given it's EPG ID.
@@ -412,6 +413,13 @@ namespace PVR
     virtual bool AddAndUpdateChannels(const CPVRChannelGroup &channels, bool bUseBackendChannelNumbers);
 
     bool RemoveDeletedChannels(const CPVRChannelGroup &channels);
+
+    /*!
+     * @brief Create an EPG table for each channel.
+     * @brief bForce Create the tables, even if they already have been created before.
+     * @return True if all tables were created successfully, false otherwise.
+     */
+    virtual bool CreateChannelEpgs(bool bForce = false);
 
     /*!
      * @brief Remove invalid channels from this container.

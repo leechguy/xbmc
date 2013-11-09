@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,12 +32,12 @@
 #include "threads/Thread.h"
 
 #include "DVDDemuxers/DVDDemux.h"
-#include "DVDStreamInfo.h"
 #include "DVDCodecs/Video/DVDVideoCodec.h"
 #include "DVDOverlayContainer.h"
 #include "DVDMessageQueue.h"
 #include "utils/BitstreamStats.h"
 #include "linux/DllBCM.h"
+#include "cores/VideoRenderers/RenderManager.h"
 
 using namespace std;
 
@@ -49,47 +49,37 @@ protected:
   bool                      m_open;
   CDVDStreamInfo            m_hints;
   double                    m_iCurrentPts;
+  double                    m_nextOverlay;
   OMXClock                  *m_av_clock;
   COMXVideo                 m_omxVideo;
   float                     m_fFrameRate;
-  bool                      m_Deinterlace;
   bool                      m_hdmi_clock_sync;
   double                    m_iVideoDelay;
   int                       m_speed;
-  double                    m_FlipTimeStamp; // time stamp of last flippage. used to play at a forced framerate
-  int                       m_audio_count;
   bool                      m_stalled;
   bool                      m_started;
+  bool                      m_flush;
   std::string               m_codecname;
-  double                    m_droptime;
-  double                    m_dropbase;
-  unsigned int              m_autosync;
   double                    m_iSubtitleDelay;
   bool                      m_bRenderSubs;
   bool                      m_bAllowFullscreen;
 
   float                     m_fForcedAspectRatio;
-  unsigned int              m_width;
-  unsigned int              m_height;
-  unsigned int              m_video_width;
-  unsigned int              m_video_height;
   unsigned                  m_flags;
-  float                     m_fps;
 
   CRect                     m_dst_rect;
   int                       m_view_mode;
 
+  uint32_t                  m_history_valid_pts;
   DllBcmHost                m_DllBcmHost;
-  bool                      m_send_eos;
 
   CDVDOverlayContainer  *m_pOverlayContainer;
   CDVDMessageQueue      &m_messageParent;
 
   BitstreamStats m_videoStats;
 
-  DVDVideoPicture* m_pTempOverlayPicture;
-
-  void ProcessOverlays(int iGroupId, double pts);
+  void ProcessOverlays(double pts);
+  double NextOverlay(double pts);
 
   virtual void OnStartup();
   virtual void OnExit();
@@ -107,30 +97,35 @@ public:
   void WaitForBuffers()                             { m_messageQueue.WaitUntilEmpty(); }
   int  GetLevel() const                             { return m_messageQueue.GetLevel(); }
   bool IsStalled()                                  { return m_stalled;  }
-  bool IsEOS()                                      { return m_send_eos; };
+  bool IsEOS();
   bool CloseStream(bool bWaitForBuffers);
-  void Output(int iGroupId, double pts, bool bDropPacket);
+  void Output(double pts, bool bDropPacket);
   void Flush();
   bool OpenDecoder();
   int  GetDecoderBufferSize();
   int  GetDecoderFreeSpace();
-  double GetCurrentPTS() { return m_iCurrentPts; };
+  double GetCurrentPts() { return m_iCurrentPts; };
   double GetFPS() { return m_fFrameRate; };
-  void  WaitCompletion();
+  void  SubmitEOS();
+  bool SubmittedEOS();
   void SetDelay(double delay) { m_iVideoDelay = delay; }
   double GetDelay() { return m_iVideoDelay; }
   void SetSpeed(int iSpeed);
   std::string GetPlayerInfo();
   int GetVideoBitrate();
+  std::string GetStereoMode();
   double GetOutputDelay();
   double GetSubtitleDelay()                         { return m_iSubtitleDelay; }
   void SetSubtitleDelay(double delay)               { m_iSubtitleDelay = delay; }
   void EnableSubtitle(bool bEnable)                 { m_bRenderSubs = bEnable; }
   bool IsSubtitleEnabled()                          { return m_bRenderSubs; }
   void EnableFullscreen(bool bEnable)               { m_bAllowFullscreen = bEnable; }
+  float GetAspectRatio()                            { return g_renderManager.GetAspectRatio(); }
   void SetFlags(unsigned flags)                     { m_flags = flags; };
   int GetFreeSpace();
   void  SetVideoRect(const CRect &SrcRect, const CRect &DestRect);
   static void RenderUpdateCallBack(const void *ctx, const CRect &SrcRect, const CRect &DestRect);
+  void ResolutionUpdateCallBack(uint32_t width, uint32_t height, float pixel_aspect);
+  static void ResolutionUpdateCallBack(void *ctx, uint32_t width, uint32_t height, float pixel_aspect);
 };
 #endif

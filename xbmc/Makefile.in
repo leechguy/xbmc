@@ -1,5 +1,7 @@
 SRCS=Application.cpp \
      ApplicationMessenger.cpp \
+     ApplicationPlayer.cpp \
+     AppParamParser.cpp \
      Autorun.cpp \
      AutoSwitch.cpp \
      BackgroundInfoLoader.cpp \
@@ -7,12 +9,13 @@ SRCS=Application.cpp \
      DatabaseManager.cpp \
      DbUrl.cpp \
      DynamicDll.cpp \
-     Favourites.cpp \
      FileItem.cpp \
-     LangInfo.cpp \
+     FileItemListModification.cpp \
+     GitRevision.cpp \
      GUIInfoManager.cpp \
      GUILargeTextureManager.cpp \
      GUIPassword.cpp \
+     LangInfo.cpp \
      MediaSource.cpp \
      NfoFile.cpp \
      PasswordManager.cpp \

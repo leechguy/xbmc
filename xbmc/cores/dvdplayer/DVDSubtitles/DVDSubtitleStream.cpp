@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ bool CDVDSubtitleStream::Open(const string& strFile)
       {
         buffer[size_read] = buffer[size_read + 1] = '\0';
         CStdStringW temp; 
-        g_charsetConverter.utf16LEtoW(CStdString16((uint16_t*)buffer),temp); 
+        g_charsetConverter.utf16LEtoW(std::u16string((char16_t*)buffer),temp); 
         wstringstream << temp; 
       }
       delete pInputStream;

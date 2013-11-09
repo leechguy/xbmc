@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,7 +23,9 @@
 #include "FileItem.h"
 #include "GUIUserMessages.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "input/MouseStat.h"
+#include "cores/IPlayer.h"
 
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
@@ -60,12 +62,6 @@ void CGUIDialogVideoOSD::FrameMove()
 
 bool CGUIDialogVideoOSD::OnAction(const CAction &action)
 {
-  if (action.GetID() == ACTION_NEXT_ITEM || action.GetID() == ACTION_PREV_ITEM || action.GetID() == ACTION_CHANNEL_UP || action.GetID() == ACTION_CHANNEL_DOWN)
-  {
-    // these could indicate next chapter if video supports it
-    if (g_application.m_pPlayer != NULL && g_application.m_pPlayer->OnAction(action))
-      return true;
-  }
   if (action.GetID() == ACTION_SHOW_OSD)
   {
     Close();

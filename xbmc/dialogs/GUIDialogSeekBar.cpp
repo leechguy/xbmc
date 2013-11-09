@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,7 +24,6 @@
 #include "GUIInfoManager.h"
 #include "utils/TimeUtils.h"
 #include "FileItem.h"
-#include "settings/GUISettings.h"
 #include "utils/SeekHandler.h"
 
 #define SEEK_BAR_DISPLAY_TIME 2000L
@@ -63,7 +62,7 @@ bool CGUIDialogSeekBar::OnMessage(CGUIMessage& message)
 
 void CGUIDialogSeekBar::FrameMove()
 {
-  if (!g_application.m_pPlayer)
+  if (!g_application.m_pPlayer->HasPlayer())
   {
     Close(true);
     return;
@@ -74,7 +73,7 @@ void CGUIDialogSeekBar::FrameMove()
   { // position the bar at our current time
     CGUISliderControl *pSlider = (CGUISliderControl*)GetControl(POPUP_SEEK_SLIDER);
     if (pSlider && g_infoManager.GetTotalPlayTime())
-      pSlider->SetPercentage((int)((float)g_infoManager.GetPlayTime()/g_infoManager.GetTotalPlayTime() * 0.1f));
+      pSlider->SetPercentage((float)g_infoManager.GetPlayTime()/g_infoManager.GetTotalPlayTime() * 0.1f);
 
     CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), POPUP_SEEK_LABEL);
     msg.SetLabel(g_infoManager.GetCurrentPlayTime());
@@ -84,7 +83,7 @@ void CGUIDialogSeekBar::FrameMove()
   {
     CGUISliderControl *pSlider = (CGUISliderControl*)GetControl(POPUP_SEEK_SLIDER);
     if (pSlider)
-      pSlider->SetPercentage((int)g_application.GetSeekHandler()->GetPercent());
+      pSlider->SetPercentage(g_application.GetSeekHandler()->GetPercent());
 
     CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), POPUP_SEEK_LABEL);
     msg.SetLabel(g_infoManager.GetCurrentSeekTime());

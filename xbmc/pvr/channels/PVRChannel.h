@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@ namespace PVR
   typedef boost::shared_ptr<PVR::CPVRChannel> CPVRChannelPtr;
 
   /** PVR Channel class */
-  class CPVRChannel : public Observable, public ISerializable
+  class CPVRChannel : public Observable, public ISerializable, public ISortable
   {
     friend class CPVRDatabase;
     friend class CPVRChannelGroupInternal;
@@ -320,7 +320,7 @@ namespace PVR
      */
     CStdString Path(void) const;
 
-    void ToSortable(SortItem& sortable) const;
+    virtual void ToSortable(SortItem& sortable, Field field) const;
 
     /*!
      * @brief Update the path after the channel number in the internal group changed.

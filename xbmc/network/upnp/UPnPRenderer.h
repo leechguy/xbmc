@@ -1,6 +1,5 @@
-#pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
+ *      Copyright (C) 2012-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -18,6 +17,7 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
+#pragma once
 #include "PltMediaRenderer.h"
 #include "interfaces/IAnnouncer.h"
 

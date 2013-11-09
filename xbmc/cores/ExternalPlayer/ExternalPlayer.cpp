@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -38,7 +38,8 @@
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
 #include "cores/AudioEngine/AEFactory.h"
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
+  #include "utils/CharsetConverter.h"
   #include "Windows.h"
   #ifdef HAS_IRSERVERSUITE
     #include "input/windows/IRServerSuite.h"
@@ -61,13 +62,13 @@
 
 using namespace XFILE;
 
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
 extern HWND g_hWnd;
 #endif
 
 CExternalPlayer::CExternalPlayer(IPlayerCallback& callback)
     : IPlayer(callback),
-      CThread("CExternalPlayer")
+      CThread("ExternalPlayer")
 {
   m_bAbortRequest = false;
   m_bIsPlaying = false;
@@ -85,8 +86,12 @@ CExternalPlayer::CExternalPlayer(IPlayerCallback& callback)
   m_playOneStackItem = false;
 
   m_dialog = NULL;
+  m_hwndXbmc = NULL;
+  m_xPos = 0;
+  m_yPos = 0;
 
-#if defined(_WIN32)
+
+#if defined(TARGET_WINDOWS)
   memset(&m_processInfo, 0, sizeof(m_processInfo));
 #endif
 }
@@ -121,7 +126,7 @@ bool CExternalPlayer::CloseFile()
 
   if (m_dialog && m_dialog->IsActive()) m_dialog->Close();
 
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   if (m_bIsPlaying && m_processInfo.hProcess)
   {
     TerminateProcess(m_processInfo.hProcess, 1);
@@ -180,7 +185,7 @@ void CExternalPlayer::Process()
       CStdString strMatch = vecSplit[0];
       strMatch.Replace(",,",",");
       bool bCaseless = vecSplit[3].Find('i') > -1;
-      CRegExp regExp(bCaseless);
+      CRegExp regExp(bCaseless, true);
 
       if (!regExp.RegComp(strMatch.c_str()))
       { // invalid regexp - complain in logs
@@ -207,7 +212,7 @@ void CExternalPlayer::Process()
         while ((iStart = regExp.RegFind(mainFile, iStart)) > -1)
         {
           int iLength = regExp.GetFindLen();
-          mainFile = mainFile.Left(iStart) + regExp.GetReplaceString(strRep.c_str()).c_str() + mainFile.Mid(iStart+iLength);
+          mainFile = mainFile.Left(iStart) + regExp.GetReplaceString(strRep).c_str() + mainFile.Mid(iStart + iLength);
           if (!bGlobal)
             break;
         }
@@ -226,7 +231,7 @@ void CExternalPlayer::Process()
   // make sure we surround the arguments with quotes where necessary
   CStdString strFName;
   CStdString strFArgs;
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   // W32 batch-file handline
   if (m_filename.Right(4) == ".bat" || m_filename.Right(4) == ".cmd")
   {
@@ -257,7 +262,7 @@ void CExternalPlayer::Process()
     strFArgs.append("\"");
   }
 
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   if (m_warpcursor)
   {
     GetCursorPos(&m_ptCursorpos);
@@ -290,7 +295,7 @@ void CExternalPlayer::Process()
     CLog::Log(LOGNOTICE, "%s: Hiding XBMC window", __FUNCTION__);
     g_Windowing.Hide();
   }
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   else if (currentStyle & WS_EX_TOPMOST)
   {
     CLog::Log(LOGNOTICE, "%s: Lowering XBMC window", __FUNCTION__);
@@ -305,18 +310,24 @@ void CExternalPlayer::Process()
 
   /* Suspend AE temporarily so exclusive or hog-mode sinks */
   /* don't block external player's access to audio device  */
-  if (!CAEFactory::Suspend())
+  CAEFactory::Suspend();
+  // wait for AE has completed suspended
+  XbmcThreads::EndTime timer(2000);
+  while (!timer.IsTimePast() && !CAEFactory::IsSuspended())
   {
-    CLog::Log(LOGNOTICE,"%s: Failed to suspend AudioEngine before launching external player", __FUNCTION__);
+    Sleep(50);
+  }
+  if (timer.IsTimePast())
+  {
+    CLog::Log(LOGERROR,"%s: AudioEngine did not suspend before launching external player", __FUNCTION__);
   }
 
-
   BOOL ret = TRUE;
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   ret = ExecuteAppW32(strFName.c_str(),strFArgs.c_str());
 #elif defined(TARGET_ANDROID)
   ret = ExecuteAppAndroid(m_filename.c_str(), mainFile.c_str());
-#elif defined(_LINUX) || defined(TARGET_DARWIN_OSX)
+#elif defined(TARGET_POSIX) || defined(TARGET_DARWIN_OSX)
   ret = ExecuteAppLinux(strFArgs.c_str());
 #endif
   int64_t elapsedMillis = XbmcThreads::SystemClockMillis() - m_playbackStartTime;
@@ -344,7 +355,7 @@ void CExternalPlayer::Process()
   m_bIsPlaying = false;
   CLog::Log(LOGNOTICE, "%s: Stop", __FUNCTION__);
 
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   g_Windowing.Restore();
 
   if (currentStyle & WS_EX_TOPMOST)
@@ -360,7 +371,7 @@ void CExternalPlayer::Process()
     g_Windowing.Show();
   }
 
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   if (m_warpcursor)
   {
     m_xPos = 0;
@@ -391,7 +402,7 @@ void CExternalPlayer::Process()
     m_callback.OnPlayBackEnded();
 }
 
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
 BOOL CExternalPlayer::ExecuteAppW32(const char* strPath, const char* strSwitches)
 {
   CLog::Log(LOGNOTICE, "%s: %s %s", __FUNCTION__, strPath, strSwitches);
@@ -448,7 +459,7 @@ BOOL CExternalPlayer::ExecuteAppW32(const char* strPath, const char* strSwitches
 }
 #endif
 
-#if !defined(TARGET_ANDROID) && (defined(_LINUX) || defined(TARGET_DARWIN_OSX))
+#if !defined(TARGET_ANDROID) && (defined(TARGET_POSIX) || defined(TARGET_DARWIN_OSX))
 BOOL CExternalPlayer::ExecuteAppLinux(const char* strSwitches)
 {
   CLog::Log(LOGNOTICE, "%s: %s", __FUNCTION__, strSwitches);
@@ -522,7 +533,7 @@ bool CExternalPlayer::CanSeek()
   return false;
 }
 
-void CExternalPlayer::Seek(bool bPlus, bool bLargeStep)
+void CExternalPlayer::Seek(bool bPlus, bool bLargeStep, bool bChapterOverride)
 {
 }
 
@@ -640,7 +651,7 @@ bool CExternalPlayer::Initialize(TiXmlElement* pConfig)
   XMLUtils::GetBoolean(pConfig, "hidexbmc", m_hidexbmc);
   if (!XMLUtils::GetBoolean(pConfig, "hideconsole", m_hideconsole))
   {
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
     // Default depends on whether player is a batch file
     m_hideconsole = m_filename.Right(4) == ".bat";
 #endif
@@ -651,7 +662,7 @@ bool CExternalPlayer::Initialize(TiXmlElement* pConfig)
     m_warpcursor = WARP_BOTTOM_RIGHT;
 
   CStdString warpCursor;
-  if (XMLUtils::GetString(pConfig, "warpcursor", warpCursor))
+  if (XMLUtils::GetString(pConfig, "warpcursor", warpCursor) && !warpCursor.empty())
   {
     if (warpCursor == "bottomright") m_warpcursor = WARP_BOTTOM_RIGHT;
     else if (warpCursor == "bottomleft") m_warpcursor = WARP_BOTTOM_LEFT;
@@ -673,7 +684,7 @@ bool CExternalPlayer::Initialize(TiXmlElement* pConfig)
           m_islauncher ? "true" : "false",
           warpCursor.c_str());
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
   m_filenameReplacers.push_back("^smb:// , / , \\\\ , g");
   m_filenameReplacers.push_back("^smb:\\\\\\\\ , smb:(\\\\\\\\[^\\\\]*\\\\) , \\1 , ");
 #endif

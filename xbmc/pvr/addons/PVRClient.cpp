@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
  */
 
 #include <vector>
+#include "Application.h"
 #include "PVRClient.h"
 #include "pvr/PVRManager.h"
 #include "epg/Epg.h"
@@ -27,8 +28,8 @@
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "pvr/recordings/PVRRecordings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 #include "utils/log.h"
-#include "settings/GUISettings.h"
 
 using namespace std;
 using namespace ADDON;
@@ -78,8 +79,6 @@ void CPVRClient::ResetProperties(int iClientId /* = PVR_INVALID_CLIENT_ID */)
   memset(&m_addonCapabilities, 0, sizeof(m_addonCapabilities));
   ResetQualityData(m_qualityInfo);
   m_apiVersion = AddonVersion("0.0.0");
-  m_bCanPauseStream       = false;
-  m_bCanSeekStream        = false;
 }
 
 ADDON_STATUS CPVRClient::Create(int iClientId)
@@ -178,15 +177,17 @@ void CPVRClient::WriteClientRecordingInfo(const CPVRRecording &xbmcRecording, PV
 
   memset(&addonRecording, 0, sizeof(addonRecording));
 
-  addonRecording.recordingTime  = recTime - g_advancedSettings.m_iPVRTimeCorrection;
+  addonRecording.recordingTime       = recTime - g_advancedSettings.m_iPVRTimeCorrection;
   strncpy(addonRecording.strRecordingId, xbmcRecording.m_strRecordingId.c_str(), sizeof(addonRecording.strRecordingId) - 1);
   strncpy(addonRecording.strTitle, xbmcRecording.m_strTitle.c_str(), sizeof(addonRecording.strTitle) - 1);
   strncpy(addonRecording.strPlotOutline, xbmcRecording.m_strPlotOutline.c_str(), sizeof(addonRecording.strPlotOutline) - 1);
   strncpy(addonRecording.strPlot, xbmcRecording.m_strPlot.c_str(), sizeof(addonRecording.strPlot) - 1);
   strncpy(addonRecording.strChannelName, xbmcRecording.m_strChannelName.c_str(), sizeof(addonRecording.strChannelName) - 1);
-  addonRecording.iDuration      = xbmcRecording.GetDuration();
-  addonRecording.iPriority      = xbmcRecording.m_iPriority;
-  addonRecording.iLifetime      = xbmcRecording.m_iLifetime;
+  addonRecording.iDuration           = xbmcRecording.GetDuration();
+  addonRecording.iPriority           = xbmcRecording.m_iPriority;
+  addonRecording.iLifetime           = xbmcRecording.m_iLifetime;
+  addonRecording.iPlayCount          = xbmcRecording.m_playCount;
+  addonRecording.iLastPlayedPosition = (int)xbmcRecording.m_resumePoint.timeInSeconds;
   strncpy(addonRecording.strDirectory, xbmcRecording.m_strDirectory.c_str(), sizeof(addonRecording.strDirectory) - 1);
   strncpy(addonRecording.strStreamURL, xbmcRecording.m_strStreamURL.c_str(), sizeof(addonRecording.strStreamURL) - 1);
   strncpy(addonRecording.strIconPath, xbmcRecording.m_strIconPath.c_str(), sizeof(addonRecording.strIconPath) - 1);
@@ -257,6 +258,13 @@ bool CPVRClient::IsCompatibleAPIVersion(const ADDON::AddonVersion &minVersion, c
   return (version >= myMinVersion && minVersion <= myVersion);
 }
 
+bool CPVRClient::IsCompatibleGUIAPIVersion(const ADDON::AddonVersion &minVersion, const ADDON::AddonVersion &version)
+{
+  AddonVersion myMinVersion = AddonVersion(XBMC_GUI_MIN_API_VERSION);
+  AddonVersion myVersion = AddonVersion(XBMC_GUI_API_VERSION);
+  return (version >= myMinVersion && minVersion <= myVersion);
+}
+
 bool CPVRClient::CheckAPIVersion(void)
 {
   /* check the API version */
@@ -267,6 +275,18 @@ bool CPVRClient::CheckAPIVersion(void)
   if (!IsCompatibleAPIVersion(minVersion, m_apiVersion))
   {
     CLog::Log(LOGERROR, "PVR - Add-on '%s' is using an incompatible API version. XBMC minimum API version = '%s', add-on API version '%s'", Name().c_str(), minVersion.c_str(), m_apiVersion.c_str());
+    return false;
+  }
+
+  /* check the GUI API version */
+  AddonVersion guiVersion = AddonVersion("0.0.0");
+  minVersion = AddonVersion(XBMC_GUI_MIN_API_VERSION);
+  try { guiVersion = AddonVersion(m_pStruct->GetGUIAPIVersion()); }
+  catch (exception &e) { LogException(e, "GetGUIAPIVersion()"); return false;  }
+
+  if (!IsCompatibleGUIAPIVersion(minVersion, guiVersion))
+  {
+    CLog::Log(LOGERROR, "PVR - Add-on '%s' is using an incompatible GUI API version. XBMC minimum GUI API version = '%s', add-on GUI API version '%s'", Name().c_str(), minVersion.c_str(), guiVersion.c_str());
     return false;
   }
 
@@ -375,12 +395,41 @@ PVR_ERROR CPVRClient::StartChannelScan(void)
   return PVR_ERROR_UNKNOWN;
 }
 
-void CPVRClient::CallMenuHook(const PVR_MENUHOOK &hook)
+void CPVRClient::CallMenuHook(const PVR_MENUHOOK &hook, const CFileItem *item)
 {
   if (!m_bReadyToUse)
     return;
 
-  try { m_pStruct->MenuHook(hook); }
+  try {
+    PVR_MENUHOOK_DATA hookData;
+    hookData.cat = PVR_MENUHOOK_UNKNOWN;
+
+    if (item)
+    {
+      if (item->IsEPG())
+      {
+        hookData.cat = PVR_MENUHOOK_EPG;
+        hookData.data.iEpgUid = item->GetEPGInfoTag()->BroadcastId();
+      }
+      else if (item->IsPVRChannel())
+      {
+        hookData.cat = PVR_MENUHOOK_CHANNEL;
+        WriteClientChannelInfo(*item->GetPVRChannelInfoTag(), hookData.data.channel);
+      }
+      else if (item->IsPVRRecording())
+      {
+        hookData.cat = PVR_MENUHOOK_RECORDING;
+        WriteClientRecordingInfo(*item->GetPVRRecordingInfoTag(), hookData.data.recording);
+      }
+      else if (item->IsPVRTimer())
+      {
+        hookData.cat = PVR_MENUHOOK_TIMER;
+        WriteClientTimerInfo(*item->GetPVRTimerInfoTag(), hookData.data.timer);
+      }
+    }
+
+    m_pStruct->MenuHook(hook, hookData);
+  }
   catch (exception &e) { LogException(e, __FUNCTION__); }
 }
 
@@ -698,6 +747,40 @@ int CPVRClient::GetRecordingLastPlayedPosition(const CPVRRecording &recording)
   return iReturn;
 }
 
+std::vector<PVR_EDL_ENTRY> CPVRClient::GetRecordingEdl(const CPVRRecording &recording)
+{
+  std::vector<PVR_EDL_ENTRY> edl;
+  if (!m_bReadyToUse)
+    return edl;
+
+  if (!m_addonCapabilities.bSupportsRecordingEdl)
+    return edl;
+
+  try
+  {
+    PVR_RECORDING tag;
+    WriteClientRecordingInfo(recording, tag);
+
+    PVR_EDL_ENTRY edl_array[PVR_ADDON_EDL_LENGTH];
+    int size = PVR_ADDON_EDL_LENGTH;
+    PVR_ERROR retval = m_pStruct->GetRecordingEdl(tag, edl_array, &size);
+    if (retval == PVR_ERROR_NO_ERROR)
+    {
+      edl.reserve(size);
+      for (int i = 0; i < size; ++i)
+      {
+        edl.push_back(edl_array[i]);
+      }
+    }
+  }
+  catch (exception &e)
+  {
+    LogException(e, __FUNCTION__);
+  }
+
+  return edl;
+}
+
 int CPVRClient::GetTimersAmount(void)
 {
   int iReturn(-EINVAL);
@@ -934,11 +1017,6 @@ bool CPVRClient::SwitchChannel(const CPVRChannel &channel)
     try
     {
       bSwitched = m_pStruct->SwitchChannel(tag);
-      if (bSwitched)
-      {
-        m_bCanPauseStream = m_pStruct->CanPauseStream();
-        m_bCanSeekStream = m_pStruct->CanSeekStream();
-      }
     }
     catch (exception &e) { LogException(e, __FUNCTION__); }
   }
@@ -1152,6 +1230,11 @@ bool CPVRClient::SupportsRecordingPlayCount(void) const
   return m_addonCapabilities.bSupportsRecordingPlayCount;
 }
 
+bool CPVRClient::SupportsRecordingEdl(void) const
+{
+  return m_addonCapabilities.bSupportsRecordingEdl;
+}
+
 bool CPVRClient::SupportsTimers(void) const
 {
   return m_addonCapabilities.bSupportsTimers;
@@ -1264,11 +1347,6 @@ bool CPVRClient::OpenStream(const CPVRChannel &channel, bool bIsSwitchingChannel
     try
     {
       bReturn = m_pStruct->OpenLiveStream(tag);
-      if (bReturn)
-      {
-        m_bCanPauseStream = m_pStruct->CanPauseStream();
-        m_bCanSeekStream = m_pStruct->CanSeekStream();
-      }
     }
     catch (exception &e) { LogException(e, __FUNCTION__); }
   }
@@ -1298,11 +1376,6 @@ bool CPVRClient::OpenStream(const CPVRRecording &recording)
     try
     {
       bReturn = m_pStruct->OpenRecordedStream(tag);
-      if (bReturn)
-      {
-        m_bCanPauseStream = m_pStruct->CanPauseStream();
-        m_bCanSeekStream = m_pStruct->CanSeekStream();
-      }
     }
     catch (exception &e) { LogException(e, __FUNCTION__); }
   }
@@ -1336,9 +1409,6 @@ void CPVRClient::CloseStream(void)
     CSingleLock lock(m_critSection);
     m_bIsPlayingRecording = false;
   }
-
-  m_bCanPauseStream = false;
-  m_bCanSeekStream = false;
 }
 
 void CPVRClient::PauseStream(bool bPaused)
@@ -1361,24 +1431,37 @@ void CPVRClient::SetSpeed(int speed)
 
 bool CPVRClient::CanPauseStream(void) const
 {
+  bool bReturn(false);
   if (IsPlaying())
-    return m_bCanPauseStream;
+  {
+    try
+    {
+      bReturn = m_pStruct->CanPauseStream();
+    }
+    catch (exception &e) { LogException(e, __FUNCTION__); }
+  }
 
-  return false;
+  return bReturn;
 }
 
 bool CPVRClient::CanSeekStream(void) const
 {
+  bool bReturn(false);
   if (IsPlaying())
-    return m_bCanSeekStream;
-
-  return false;
+  {
+    try
+    {
+      bReturn = m_pStruct->CanSeekStream();
+    }
+    catch (exception &e) { LogException(e, __FUNCTION__); }
+  }
+  return bReturn;
 }
 
 void CPVRClient::ResetQualityData(PVR_SIGNAL_STATUS &qualityInfo)
 {
   memset(&qualityInfo, 0, sizeof(qualityInfo));
-  if (g_guiSettings.GetBool("pvrplayback.signalquality"))
+  if (CSettings::Get().GetBool("pvrplayback.signalquality"))
   {
     strncpy(qualityInfo.strAdapterName, g_localizeStrings.Get(13205).c_str(), PVR_ADDON_NAME_STRING_LENGTH - 1);
     strncpy(qualityInfo.strAdapterStatus, g_localizeStrings.Get(13205).c_str(), PVR_ADDON_NAME_STRING_LENGTH - 1);
@@ -1413,7 +1496,7 @@ void CPVRClient::UpdateCharInfoSignalStatus(void)
   PVR_SIGNAL_STATUS qualityInfo;
   ResetQualityData(qualityInfo);
 
-  if (g_guiSettings.GetBool("pvrplayback.signalquality"))
+  if (CSettings::Get().GetBool("pvrplayback.signalquality"))
     SignalQuality(qualityInfo);
 
   CSingleLock lock(m_critSection);

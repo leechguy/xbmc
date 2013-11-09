@@ -36,16 +36,16 @@ if [ -f "/usr/libexec/fauxsu/libfauxsu.dylib" ]; then
 elif [ -f "/usr/bin/sudo" ]; then
   SUDO="/usr/bin/sudo"
 fi
-if [ -f "/Users/Shared/xbmc-depends/toolchain/bin/dpkg-deb" ]; then
+if [ -f "/Users/Shared/xbmc-depends/buildtools-native/bin/dpkg-deb" ]; then
   # make sure we pickup our tar, gnutar will fail when dpkg -i
-  bin_path=$(cd /Users/Shared/xbmc-depends/toolchain/bin; pwd)
+  bin_path=$(cd /Users/Shared/xbmc-depends/buildtools-native/bin; pwd)
   export PATH=${bin_path}:${PATH}
 fi
 
 PACKAGE=org.xbmc.xbmc-atv2
 
 VERSION=13.0
-REVISION=0~alpha1
+REVISION=0~alpha10
 ARCHIVE=${PACKAGE}_${VERSION}-${REVISION}_iphoneos-arm.deb
 
 echo Creating $PACKAGE package version $VERSION revision $REVISION
@@ -79,6 +79,8 @@ chmod +x $DIRNAME/$PACKAGE/DEBIAN/prerm
 # postinst: symlink XBMC.frappliance into correct location and reload Lowtide/AppleTV.
 echo "#!/bin/sh"                                  >  $DIRNAME/$PACKAGE/DEBIAN/postinst
 echo "chown -R mobile:mobile /Applications/XBMC.frappliance" >> $DIRNAME/$PACKAGE/DEBIAN/postinst
+echo "cp /Applications/XBMC.frappliance/AppIcon.png /Applications/AppleTV.app/com.apple.frontrow.appliance.xbmc\@720p.png" >> $DIRNAME/$PACKAGE/DEBIAN/postinst
+echo "cp /Applications/XBMC.frappliance/AppIcon.png /Applications/XBMC.frappliance/TopRowIcon.png" >> $DIRNAME/$PACKAGE/DEBIAN/postinst
 echo "if [ \"\`uname -r\`\" = \"10.3.1\" ]; then" >> $DIRNAME/$PACKAGE/DEBIAN/postinst
 echo "  ln -sf /Applications/XBMC.frappliance /Applications/Lowtide.app/Appliances/XBMC.frappliance" >> $DIRNAME/$PACKAGE/DEBIAN/postinst
 echo "  killall Lowtide"                          >> $DIRNAME/$PACKAGE/DEBIAN/postinst

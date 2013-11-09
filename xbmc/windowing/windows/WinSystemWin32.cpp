@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,13 +20,14 @@
 
 #include "WinSystemWin32.h"
 #include "WinEventsWin32.h"
-#include "settings/Settings.h"
 #include "resource.h"
-#include "settings/GUISettings.h"
+#include "guilib/gui3d.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/DisplaySettings.h"
+#include "settings/Settings.h"
 #include "utils/log.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include <tpcshrd.h>
 
 CWinSystemWin32::CWinSystemWin32()
@@ -59,6 +60,12 @@ bool CWinSystemWin32::InitWindowSystem()
   if(!CWinSystemBase::InitWindowSystem())
     return false;
 
+  if(m_MonitorsInfo.empty())
+  {
+    CLog::Log(LOGERROR, "%s - no suitable monitor found, aborting...", __FUNCTION__);
+    return false;
+  }
+
   return true;
 }
 
@@ -72,6 +79,9 @@ bool CWinSystemWin32::CreateNewWindow(const CStdString& name, bool fullScreen, R
 {
   m_hInstance = ( HINSTANCE )GetModuleHandle( NULL );
 
+  if(m_hInstance == NULL)
+    CLog::Log(LOGDEBUG, "%s : GetModuleHandle failed with %d", __FUNCTION__, GetLastError());
+
   m_nWidth  = res.iWidth;
   m_nHeight = res.iHeight;
   m_bFullScreen = fullScreen;
@@ -82,7 +92,7 @@ bool CWinSystemWin32::CreateNewWindow(const CStdString& name, bool fullScreen, R
   // Register the windows class
   WNDCLASS wndClass;
   wndClass.style = CS_OWNDC; // For OpenGL
-  wndClass.lpfnWndProc = CWinEvents::WndProc;
+  wndClass.lpfnWndProc = CWinEventsWin32::WndProc;
   wndClass.cbClsExtra = 0;
   wndClass.cbWndExtra = 0;
   wndClass.hInstance = m_hInstance;
@@ -94,6 +104,7 @@ bool CWinSystemWin32::CreateNewWindow(const CStdString& name, bool fullScreen, R
 
   if( !RegisterClass( &wndClass ) )
   {
+    CLog::Log(LOGERROR, "%s : RegisterClass failed with %d", __FUNCTION__, GetLastError());
     return false;
   }
 
@@ -102,6 +113,7 @@ bool CWinSystemWin32::CreateNewWindow(const CStdString& name, bool fullScreen, R
     NULL, m_hInstance, userFunction );
   if( hWnd == NULL )
   {
+    CLog::Log(LOGERROR, "%s : CreateWindow failed with %d", __FUNCTION__, GetLastError());
     return false;
   }
 
@@ -154,7 +166,11 @@ bool CWinSystemWin32::CreateBlankWindows()
   wcex.hIconSm= 0;
 
   // Now we can go ahead and register our new window class
-  int reg = RegisterClassEx(&wcex);
+  if(!RegisterClassEx(&wcex))
+  {
+    CLog::Log(LOGERROR, "%s : RegisterClass failed with %d", __FUNCTION__, GetLastError());
+    return false;
+  }
 
   // We need as many blank windows as there are screens (minus 1)
   int BlankWindowsCount = m_MonitorsInfo.size() -1;
@@ -165,7 +181,10 @@ bool CWinSystemWin32::CreateBlankWindows()
     CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, NULL, NULL);
 
     if(hBlankWindow ==  NULL)
+    {
+      CLog::Log(LOGERROR, "%s : CreateWindowEx failed with %d", __FUNCTION__, GetLastError());
       return false;
+    }
 
     m_hBlankWindows.push_back(hBlankWindow);
   }
@@ -175,7 +194,7 @@ bool CWinSystemWin32::CreateBlankWindows()
 
 bool CWinSystemWin32::BlankNonActiveMonitors(bool bBlank)
 {
-  if(m_hBlankWindows.size() == 0)
+  if(m_hBlankWindows.empty())
     return false;
 
   if(bBlank == false)
@@ -213,7 +232,7 @@ bool CWinSystemWin32::BlankNonActiveMonitors(bool bBlank)
 
 bool CWinSystemWin32::CenterWindow()
 {
-  RESOLUTION_INFO DesktopRes = g_settings.m_ResInfo[RES_DESKTOP];
+  RESOLUTION_INFO DesktopRes = CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP);
 
   m_nLeft = (DesktopRes.iWidth / 2) - (m_nWidth / 2);
   m_nTop = (DesktopRes.iHeight / 2) - (m_nHeight / 2);
@@ -256,7 +275,7 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
 {
   m_IsAlteringWindow = true;
 
-  CLog::Log(LOGDEBUG, "%s (%s) on screen %d with size %dx%d, refresh %f%s", __FUNCTION__, !fullScreen ? "windowed" : (g_guiSettings.GetBool("videoscreen.fakefullscreen") ? "windowed fullscreen" : "true fullscreen"), res.iScreen, res.iWidth, res.iHeight, res.fRefreshRate, (res.dwFlags & D3DPRESENTFLAG_INTERLACED) ? "i" : "");
+  CLog::Log(LOGDEBUG, "%s (%s) on screen %d with size %dx%d, refresh %f%s", __FUNCTION__, !fullScreen ? "windowed" : (CSettings::Get().GetBool("videoscreen.fakefullscreen") ? "windowed fullscreen" : "true fullscreen"), res.iScreen, res.iWidth, res.iHeight, res.fRefreshRate, (res.dwFlags & D3DPRESENTFLAG_INTERLACED) ? "i" : "");
 
   bool forceResize = false;
 
@@ -266,15 +285,19 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
     RestoreDesktopResolution(m_nScreen);
   }
 
-  if(!m_bFullScreen && fullScreen)
+  if(m_hWnd && !m_bFullScreen && fullScreen)
   {
     // save position of windowed mode
     WINDOWINFO wi;
     wi.cbSize = sizeof(WINDOWINFO);
-    GetWindowInfo(m_hWnd, &wi);
-    m_nLeft = wi.rcClient.left;
-    m_nTop = wi.rcClient.top;
-    m_ValidWindowedPosition = true;
+    if(GetWindowInfo(m_hWnd, &wi))
+    {
+      m_nLeft = wi.rcClient.left;
+      m_nTop = wi.rcClient.top;
+      m_ValidWindowedPosition = true;
+    }
+    else
+      CLog::Log(LOGERROR, "%s : GetWindowInfo failed with %d", __FUNCTION__, GetLastError());
   }
 
   m_bFullScreen = fullScreen;
@@ -283,7 +306,7 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
   m_nHeight = res.iHeight;
   m_bBlankOtherDisplay = blankOtherDisplays;
 
-  if (fullScreen && g_guiSettings.GetBool("videoscreen.fakefullscreen"))
+  if (fullScreen && CSettings::Get().GetBool("videoscreen.fakefullscreen"))
     ChangeResolution(res);
 
   ResizeInternal(forceResize);
@@ -300,13 +323,13 @@ void CWinSystemWin32::RestoreDesktopResolution(int screen)
   int resIdx = RES_DESKTOP;
   for (int idx = RES_DESKTOP; idx < RES_DESKTOP + GetNumScreens(); idx++)
   {
-    if (g_settings.m_ResInfo[idx].iScreen == screen)
+    if (CDisplaySettings::Get().GetResolutionInfo(idx).iScreen == screen)
     {
       resIdx = idx;
       break;
     }
   }
-  ChangeResolution(g_settings.m_ResInfo[resIdx]);
+  ChangeResolution(CDisplaySettings::Get().GetResolutionInfo(resIdx));
 }
 
 const MONITOR_DETAILS &CWinSystemWin32::GetMonitor(int screen) const
@@ -336,7 +359,8 @@ RECT CWinSystemWin32::ScreenRect(int screen)
   DEVMODE sDevMode;
   ZeroMemory(&sDevMode, sizeof(DEVMODE));
   sDevMode.dmSize = sizeof(DEVMODE);
-  EnumDisplaySettings(details.DeviceName, ENUM_CURRENT_SETTINGS, &sDevMode);
+  if(!EnumDisplaySettings(details.DeviceName, ENUM_CURRENT_SETTINGS, &sDevMode))
+    CLog::Log(LOGERROR, "%s : EnumDisplaySettings failed with %d", __FUNCTION__, GetLastError());
 
   RECT rc;
   rc.left = sDevMode.dmPosition.x;
@@ -349,6 +373,8 @@ RECT CWinSystemWin32::ScreenRect(int screen)
 
 bool CWinSystemWin32::ResizeInternal(bool forceRefresh)
 {
+  if (m_hWnd == NULL)
+    return false;
   DWORD dwStyle = WS_CLIPCHILDREN;
   HWND windowAfter;
   RECT rc;
@@ -388,7 +414,11 @@ bool CWinSystemWin32::ResizeInternal(bool forceRefresh)
 
   WINDOWINFO wi;
   wi.cbSize = sizeof (WINDOWINFO);
-  GetWindowInfo(m_hWnd, &wi);
+  if(!GetWindowInfo(m_hWnd, &wi))
+  {
+    CLog::Log(LOGERROR, "%s : GetWindowInfo failed with %d", __FUNCTION__, GetLastError());
+    return false;
+  }
   RECT wr = wi.rcWindow;
 
   if (forceRefresh || wr.bottom  - wr.top != rc.bottom - rc.top || wr.right - wr.left != rc.right - rc.left ||
@@ -438,7 +468,7 @@ bool CWinSystemWin32::ChangeResolution(RESOLUTION_INFO res)
     LONG rc = ChangeDisplaySettingsEx(details.DeviceName, &sDevMode, NULL, CDS_FULLSCREEN, NULL);
     if (rc != DISP_CHANGE_SUCCESSFUL)
     {
-      CLog::Log(LOGERROR, "%s: error, code %d", __FUNCTION__, rc);
+      CLog::Log(LOGERROR, "%s : ChangeDisplaySettingsEx failed with %d", __FUNCTION__, rc);
       return false;
     }
     else
@@ -458,7 +488,7 @@ void CWinSystemWin32::UpdateResolutions()
 
   UpdateResolutionsInternal();
 
-  if(m_MonitorsInfo.size() < 1)
+  if(m_MonitorsInfo.empty())
     return;
 
   float refreshRate = 0;
@@ -476,8 +506,8 @@ void CWinSystemWin32::UpdateResolutions()
     refreshRate = (float)m_MonitorsInfo[m_nPrimary].RefreshRate;
   dwFlags = m_MonitorsInfo[m_nPrimary].Interlaced ? D3DPRESENTFLAG_INTERLACED : 0;
 
-  UpdateDesktopResolution(g_settings.m_ResInfo[RES_DESKTOP], 0, w, h, refreshRate, dwFlags);
-  CLog::Log(LOGNOTICE, "Primary mode: %s", g_settings.m_ResInfo[RES_DESKTOP].strMode.c_str());
+  UpdateDesktopResolution(CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP), 0, w, h, refreshRate, dwFlags);
+  CLog::Log(LOGNOTICE, "Primary mode: %s", CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP).strMode.c_str());
 
   // Desktop resolution of the other screens
   if(m_MonitorsInfo.size() >= 2)
@@ -499,7 +529,7 @@ void CWinSystemWin32::UpdateResolutions()
 
         RESOLUTION_INFO res;
         UpdateDesktopResolution(res, xbmcmonitor++, w, h, refreshRate, dwFlags);
-        g_settings.m_ResInfo.push_back(res);
+        CDisplaySettings::Get().AddResolutionInfo(res);
         CLog::Log(LOGNOTICE, "Secondary mode: %s", res.strMode.c_str());
       }
     }
@@ -535,17 +565,19 @@ void CWinSystemWin32::UpdateResolutions()
 
 void CWinSystemWin32::AddResolution(const RESOLUTION_INFO &res)
 {
-  for (unsigned int i = 0; i < g_settings.m_ResInfo.size(); i++)
-    if (g_settings.m_ResInfo[i].iScreen      == res.iScreen &&
-        g_settings.m_ResInfo[i].iWidth       == res.iWidth &&
-        g_settings.m_ResInfo[i].iHeight      == res.iHeight &&
-        g_settings.m_ResInfo[i].iScreenWidth == res.iScreenWidth &&
-        g_settings.m_ResInfo[i].iScreenHeight== res.iScreenHeight &&
-        g_settings.m_ResInfo[i].fRefreshRate == res.fRefreshRate &&
-        g_settings.m_ResInfo[i].dwFlags      == res.dwFlags)
+  for (unsigned int i = 0; i < CDisplaySettings::Get().ResolutionInfoSize(); i++)
+  {
+    if (CDisplaySettings::Get().GetResolutionInfo(i).iScreen      == res.iScreen &&
+        CDisplaySettings::Get().GetResolutionInfo(i).iWidth       == res.iWidth &&
+        CDisplaySettings::Get().GetResolutionInfo(i).iHeight      == res.iHeight &&
+        CDisplaySettings::Get().GetResolutionInfo(i).iScreenWidth == res.iScreenWidth &&
+        CDisplaySettings::Get().GetResolutionInfo(i).iScreenHeight== res.iScreenHeight &&
+        CDisplaySettings::Get().GetResolutionInfo(i).fRefreshRate == res.fRefreshRate &&
+        CDisplaySettings::Get().GetResolutionInfo(i).dwFlags      == res.dwFlags)
       return; // already have this resolution
+  }
 
-  g_settings.m_ResInfo.push_back(res);
+  CDisplaySettings::Get().AddResolutionInfo(res);
 }
 
 bool CWinSystemWin32::UpdateResolutionsInternal()

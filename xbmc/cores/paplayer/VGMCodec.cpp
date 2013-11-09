@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -201,7 +201,6 @@ bool VGMCodec::IsSupportedFormat(const CStdString& strExt)
       strExt == "rwsd" ||
       strExt == "rwav" ||
       strExt == "rws" ||
-      strExt == "rwsd" ||
       strExt == "rwx" ||
       strExt == "rxw" ||
       strExt == "sad" ||

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -42,10 +42,15 @@
 #import <OpenGLES/ES2/gl.h>
 #import <OpenGLES/ES2/glext.h>
 #import "IOSEAGLView.h"
-#import "XBMCController.h"
+#if defined(TARGET_DARWIN_IOS_ATV2)
+#import "xbmc/osx/atv2/XBMCController.h"
+#elif defined(TARGET_DARWIN_IOS)
+#import "xbmc/osx/ios/XBMCController.h"
+#endif
 #import "IOSScreenManager.h"
 #import "AutoPool.h"
 #import "DarwinUtils.h"
+#import "XBMCDebugHelpers.h"
 
 //--------------------------------------------------------------
 @interface IOSEAGLView (PrivateMethods)
@@ -145,7 +150,7 @@
 //--------------------------------------------------------------
 - (id)initWithFrame:(CGRect)frame withScreen:(UIScreen *)screen
 {
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  //PRINT_SIGNATURE();
   framebufferResizeRequested = FALSE;
   if ((self = [super initWithFrame:frame]))
   {
@@ -165,9 +170,9 @@
       initWithAPI:kEAGLRenderingAPIOpenGLES2];
     
     if (!aContext)
-      NSLog(@"Failed to create ES context");
+      ELOG(@"Failed to create ES context");
     else if (![EAGLContext setCurrentContext:aContext])
-      NSLog(@"Failed to set ES context current");
+      ELOG(@"Failed to set ES context current");
     
     self.context = aContext;
     [aContext release];
@@ -188,7 +193,7 @@
 //--------------------------------------------------------------
 - (void) dealloc
 {
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  //PRINT_SIGNATURE();
   [self deleteFramebuffer];    
   [context release];
   
@@ -203,7 +208,7 @@
 //--------------------------------------------------------------
 - (void)setContext:(EAGLContext *)newContext
 {
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  PRINT_SIGNATURE();
   if (context != newContext)
   {
     [self deleteFramebuffer];
@@ -220,7 +225,7 @@
 {
   if (context && !defaultFramebuffer)
   {
-    //NSLog(@"%s", __PRETTY_FUNCTION__);
+    //PRINT_SIGNATURE();
     [EAGLContext setCurrentContext:context];
     
     // Create default framebuffer object.
@@ -241,7 +246,7 @@
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRenderbuffer);
     
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-      NSLog(@"Failed to make complete framebuffer object %x", glCheckFramebufferStatus(GL_FRAMEBUFFER));
+      ELOG(@"Failed to make complete framebuffer object %x", glCheckFramebufferStatus(GL_FRAMEBUFFER));
   }
 }
 //--------------------------------------------------------------
@@ -249,7 +254,7 @@
 {
   if (context && !pause)
   {
-    //NSLog(@"%s", __PRETTY_FUNCTION__);
+    PRINT_SIGNATURE();
     [EAGLContext setCurrentContext:context];
     
     if (defaultFramebuffer)
@@ -311,20 +316,24 @@
 //--------------------------------------------------------------
 - (void) pauseAnimation
 {
+  PRINT_SIGNATURE();
   pause = TRUE;
+  g_application.SetInBackground(true);
 }
 //--------------------------------------------------------------
 - (void) resumeAnimation
 {
+  PRINT_SIGNATURE();
   pause = FALSE;
+  g_application.SetInBackground(false);
 }
 //--------------------------------------------------------------
 - (void) startAnimation
 {
+  PRINT_SIGNATURE();
 	if (!animating && context)
 	{
 		animating = TRUE;
-    CWinEventsIOS::Init();
 
     // kick off an animation thread
     animationThreadLock = [[NSConditionLock alloc] initWithCondition: FALSE];
@@ -338,6 +347,7 @@
 //--------------------------------------------------------------
 - (void) stopAnimation
 {
+  PRINT_SIGNATURE();
 	if (animating && context)
 	{
     [self deinitDisplayLink];
@@ -351,7 +361,6 @@
     // wait for animation thread to die
     if ([animationThread isFinished] == NO)
       [animationThreadLock lockWhenCondition:TRUE];
-    CWinEventsIOS::DeInit();
 	}
 }
 //--------------------------------------------------------------
@@ -385,19 +394,19 @@
   if (!g_application.Create())
   {
     readyToRun = false;
-    NSLog(@"%sUnable to create application", __PRETTY_FUNCTION__);
+    ELOG(@"%sUnable to create application", __PRETTY_FUNCTION__);
   }
 
   if (!g_application.CreateGUI())
   {
     readyToRun = false;
-    NSLog(@"%sUnable to create GUI", __PRETTY_FUNCTION__);
+    ELOG(@"%sUnable to create GUI", __PRETTY_FUNCTION__);
   }
 
   if (!g_application.Initialize())
   {
     readyToRun = false;
-    NSLog(@"%sUnable to initialize application", __PRETTY_FUNCTION__);
+    ELOG(@"%sUnable to initialize application", __PRETTY_FUNCTION__);
   }
   
   if (readyToRun)
@@ -412,7 +421,7 @@
     }
     catch(...)
     {
-      NSLog(@"%sException caught on main loop. Exiting", __PRETTY_FUNCTION__);
+      ELOG(@"%sException caught on main loop. Exiting", __PRETTY_FUNCTION__);
     }
   }
 

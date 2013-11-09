@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,9 +18,9 @@
  *
  */
 
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
+#if (defined HAVE_CONFIG_H) && (!defined TARGET_WINDOWS)
   #include "config.h"
-#elif defined(_WIN32)
+#elif defined(TARGET_WINDOWS)
 #include "system.h"
 #endif
 
@@ -103,6 +103,9 @@ COpenMax::COpenMax()
   m_is_open = false;
 
   m_omx_decoder = NULL;
+  m_omx_client_state = DEAD;
+  m_omx_decoder_state = 0;
+  sem_init(m_omx_decoder_state_change, 0, 0);
   /*
   m_omx_flush_input  = (sem_t*)malloc(sizeof(sem_t));
   sem_init(m_omx_flush_input, 0, 0);
@@ -167,11 +170,10 @@ OMX_ERRORTYPE COpenMax::DecoderFillBufferDoneCallback(
 // Wait for a component to transition to the specified state
 OMX_ERRORTYPE COpenMax::WaitForState(OMX_STATETYPE state)
 {
-  OMX_ERRORTYPE omx_error = OMX_ErrorNone;
   OMX_STATETYPE test_state;
   int tries = 0;
   struct timespec timeout;
-  omx_error = OMX_GetState(m_omx_decoder, &test_state);
+  OMX_ERRORTYPE omx_error = OMX_GetState(m_omx_decoder, &test_state);
 
   #if defined(OMX_DEBUG_VERBOSE)
   CLog::Log(LOGDEBUG, "%s::%s - waiting for state(%d)\n", CLASSNAME, __func__, state);

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -13,9 +13,8 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -85,7 +84,7 @@ public class Helper
     Node doc = null
     def ret = ''
 
-    // make the class name or namespave
+    // make the class name or namespace
     String doxygenId = findFullClassName(methodOrClass,'_1_1')
     boolean isInClass = doxygenId != null
     if (!doxygenId)
@@ -106,8 +105,9 @@ public class Helper
     else // it's a method of some sort ... or it better be
     {
       Node memberdef = docspec.depthFirst().find { 
-        return ((it.name() == 'memberdef' && it.@kind == 'function' && it.@id.startsWith(doxygenId)) &&
-                (it.name != null && it.name.text().trim() == methodOrClass.@sym_name))
+        return (it instanceof String) ? false :
+          ((it.name() == 'memberdef' && (it.@kind == 'function' || it.@kind == 'variable') && it.@id.startsWith(doxygenId)) &&
+           (it.name != null && it.name.text().trim() == methodOrClass.@sym_name))
       }
 
       doc = memberdef != null ? memberdef.detaileddescription[0] : null
@@ -478,6 +478,19 @@ public class Helper
       List allMethods = ret.depthFirst().findAll({ it.name() == 'function' || it.name() == 'destructor' || it.name() == 'constructor'})
       allMethods.each {
          if (it.@access != null && it.@access != 'public' && it.name() != 'constructor')
+            it.parent().remove(it)
+         else
+         {
+           def doc = retrieveDocStringFromDoxygen(it)
+           if (doc != null && doc != '' && doc.trim() != ' ')
+             new Node(it,'doc',['value' : doc])
+         }
+      }
+      
+      // now remove all non-public variables
+      List allVariables = ret.depthFirst().findAll({ it.name() == 'variable' })
+      allVariables.each {
+         if (it.@access != null && it.@access != 'public')
             it.parent().remove(it)
          else
          {

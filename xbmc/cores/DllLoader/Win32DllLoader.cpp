@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -157,7 +157,7 @@ bool Win32DllLoader::Load()
   CStdString strFileName = GetFileName();
 
   CStdStringW strDllW;
-  g_charsetConverter.utf8ToW(CSpecialProtocol::TranslatePath(strFileName), strDllW);
+  g_charsetConverter.utf8ToW(CSpecialProtocol::TranslatePath(strFileName), strDllW, false, false, false);
   m_dllHandle = LoadLibraryExW(strDllW.c_str(), NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
   if (!m_dllHandle)
   {
@@ -392,7 +392,6 @@ bool FunctionNeedsWrapping(Export *exports, const char *functionName, void **fix
 
 bool Win32DllLoader::ResolveImport(const char *dllName, const char *functionName, void **fixup)
 {
-  char *dll = GetName();
   return FunctionNeedsWrapping(win32_exports, functionName, fixup);
 }
 

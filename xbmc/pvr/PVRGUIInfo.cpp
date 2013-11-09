@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,14 +32,14 @@
 #include "pvr/channels/PVRChannel.h"
 #include "epg/EpgInfoTag.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 
 using namespace PVR;
 using namespace EPG;
 using namespace std;
 
 CPVRGUIInfo::CPVRGUIInfo(void) :
-    CThread("PVR GUI info updater"),
+    CThread("PVRGUIInfo"),
     m_playingEpgTag(NULL)
 {
   ResetProperties();
@@ -79,7 +79,7 @@ void CPVRGUIInfo::ResetProperties(void)
   m_iAddonInfoToggleCurrent     = 0;
   m_iTimerInfoToggleStart       = 0;
   m_iTimerInfoToggleCurrent     = 0;
-  m_iToggleShowInfo             = 0;
+  m_ToggleShowInfo.SetInfinite();
   m_iDuration                   = 0;
   m_bHasNonRecordingTimers      = false;
   m_bIsPlayingTV                = false;
@@ -123,7 +123,7 @@ void CPVRGUIInfo::ShowPlayerInfo(int iTimeout)
   CSingleLock lock(m_critSection);
 
   if (iTimeout > 0)
-    m_iToggleShowInfo = (int) XbmcThreads::SystemClockMillis() + iTimeout * 1000;
+    m_ToggleShowInfo.Set(iTimeout * 1000);
 
   g_infoManager.SetShowInfo(true);
 }
@@ -132,9 +132,9 @@ void CPVRGUIInfo::ToggleShowInfo(void)
 {
   CSingleLock lock(m_critSection);
 
-  if (m_iToggleShowInfo > 0 && m_iToggleShowInfo < (unsigned int) XbmcThreads::SystemClockMillis())
+  if (m_ToggleShowInfo.IsTimePast())
   {
-    m_iToggleShowInfo = 0;
+    m_ToggleShowInfo.SetInfinite();
     g_infoManager.SetShowInfo(false);
   }
 }
@@ -238,7 +238,7 @@ void CPVRGUIInfo::UpdateQualityData(void)
   ClearQualityInfo(qualityInfo);
 
   PVR_CLIENT client;
-  if (g_guiSettings.GetBool("pvrplayback.signalquality") &&
+  if (CSettings::Get().GetBool("pvrplayback.signalquality") &&
       g_PVRClients->GetPlayingClient(client))
   {
     client->SignalQuality(qualityInfo);

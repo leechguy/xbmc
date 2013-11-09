@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -419,7 +419,7 @@ void CPlayList::SetUnPlayable(int iItem)
 bool CPlayList::Load(const CStdString& strFileName)
 {
   Clear();
-  URIUtils::GetDirectory(strFileName, m_strBasePath);
+  m_strBasePath = URIUtils::GetDirectory(strFileName);
 
   CFileStream file;
   if (!file.Open(strFileName))
@@ -437,14 +437,9 @@ bool CPlayList::Load(const CStdString& strFileName)
 bool CPlayList::LoadData(std::istream &stream)
 {
   // try to read as a string
-  CStdString data;
-#if _MSC_VER > 1500
-  std::stringstream _stream(data);
-  _stream << stream;
-#else
-  std::stringstream(data) << stream;
-#endif
-  return LoadData(data);
+  std::ostringstream ostr;
+  ostr << stream.rdbuf();
+  return LoadData(ostr.str());
 }
 
 bool CPlayList::LoadData(const CStdString& strData)
@@ -490,7 +485,9 @@ void CPlayList::UpdateItem(const CFileItem *item)
     CFileItemPtr playlistItem = *it;
     if (playlistItem->IsSamePath(item))
     {
+      CStdString temp = playlistItem->GetPath(); // save path, it may have been altered
       *playlistItem = *item;
+      playlistItem->SetPath(temp);
       break;
     }
   }

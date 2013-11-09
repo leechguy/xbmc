@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
  *
  */
 
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
+#if (defined HAVE_CONFIG_H) && (!defined TARGET_WINDOWS)
   #include "config.h"
 #endif
 #include "network/Network.h"
@@ -33,10 +33,10 @@
 #include "MusicDatabaseDirectory.h"
 #include "MusicSearchDirectory.h"
 #include "VideoDatabaseDirectory.h"
+#include "FavouritesDirectory.h"
 #include "LibraryDirectory.h"
 #include "AddonsDirectory.h"
 #include "SourcesDirectory.h"
-#include "LastFMDirectory.h"
 #include "FTPDirectory.h"
 #include "HTTPDirectory.h"
 #include "DAVDirectory.h"
@@ -44,9 +44,10 @@
 #include "Application.h"
 #include "addons/Addon.h"
 #include "utils/log.h"
+#include "network/WakeOnAccess.h"
 
 #ifdef HAS_FILESYSTEM_SMB
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "windows/WINSMBDirectory.h"
 #else
 #include "SMBDirectory.h"
@@ -124,6 +125,7 @@ using namespace XFILE;
 IDirectory* CDirectoryFactory::Create(const CStdString& strPath)
 {
   CURL url(strPath);
+  CWakeOnAccess::Get().WakeUpHost(url);
 
   CFileItem item(strPath, false);
   IFileDirectory* pDir=CFileDirectoryFactory::Create(strPath, &item);
@@ -164,12 +166,12 @@ IDirectory* CDirectoryFactory::Create(const CStdString& strPath)
   if (strProtocol == "musicsearch") return new CMusicSearchDirectory();
   if (strProtocol == "videodb") return new CVideoDatabaseDirectory();
   if (strProtocol == "library") return new CLibraryDirectory();
+  if (strProtocol == "favourites") return new CFavouritesDirectory();
   if (strProtocol == "filereader")
     return CDirectoryFactory::Create(url.GetFileName());
 
   if( g_application.getNetwork().IsAvailable(true) )  // true to wait for the network (if possible)
   {
-    if (strProtocol == "lastfm") return new CLastFMDirectory();
     if (strProtocol == "tuxbox") return new CTuxBoxDirectory();
     if (strProtocol == "ftp" || strProtocol == "ftps") return new CFTPDirectory();
     if (strProtocol == "http" || strProtocol == "https") return new CHTTPDirectory();
@@ -178,7 +180,7 @@ IDirectory* CDirectoryFactory::Create(const CStdString& strPath)
     if (strProtocol == "sftp" || strProtocol == "ssh") return new CSFTPDirectory();
 #endif
 #ifdef HAS_FILESYSTEM_SMB
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
     if (strProtocol == "smb") return new CWINSMBDirectory();
 #else
     if (strProtocol == "smb") return new CSMBDirectory();

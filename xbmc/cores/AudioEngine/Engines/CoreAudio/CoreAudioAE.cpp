@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2011-2012 Team XBMC
+ *      Copyright (C) 2011-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -24,10 +24,10 @@
 
 #include "CoreAudioAEStream.h"
 #include "CoreAudioAESound.h"
+#include "Application.h"
 #include "cores/AudioEngine/Utils/AEUtil.h"
-#include "settings/GUISettings.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 #include "threads/SingleLock.h"
 #include "utils/EndianSwap.h"
 #include "utils/log.h"
@@ -51,8 +51,11 @@ OSStatus deviceChangedCB( AudioObjectID                       inObjectID,
                           void*                               inClientData)
 {
   CCoreAudioAE *pEngine = (CCoreAudioAE *)inClientData;
-  pEngine->AudioDevicesChanged();
-  CLog::Log(LOGDEBUG, "CCoreAudioAE - audiodevicelist changed!");
+  if (pEngine->GetHAL())
+  {
+    pEngine->AudioDevicesChanged();
+    CLog::Log(LOGDEBUG, "CCoreAudioAE - audiodevicelist changed!");
+  }
   return noErr;
 }
 
@@ -138,13 +141,20 @@ void CCoreAudioAE::Shutdown()
 
 void CCoreAudioAE::AudioDevicesChanged()
 {
+  if (!m_Initialized)
+    return;
+
   // give CA a bit time to realise that maybe the 
   // default device might have changed now - else
   // OpenCoreAudio might open the old default device
   // again (yeah that really is the case - duh)
   Sleep(500);
   CSingleLock engineLock(m_engineLock);
-  OpenCoreAudio(m_lastSampleRate, COREAUDIO_IS_RAW(m_lastStreamFormat), m_lastStreamFormat);
+
+  // re-check initialized since it can have changed when we waited and grabbed the lock
+  if (!m_Initialized)
+    return;
+  OpenCoreAudio(m_lastSampleRate, COREAUDIO_IS_RAW(m_lastStreamFormat), m_lastStreamFormat, m_transcode);
 }
 
 bool CCoreAudioAE::Initialize()
@@ -155,7 +165,7 @@ bool CCoreAudioAE::Initialize()
 
   Deinitialize();
 
-  bool ret = OpenCoreAudio(44100, false, AE_FMT_FLOAT);
+  bool ret = OpenCoreAudio(44100, false, AE_FMT_FLOAT, false);
   m_lastSampleRate = 44100;
   m_lastStreamFormat = AE_FMT_FLOAT;
 
@@ -165,9 +175,9 @@ bool CCoreAudioAE::Initialize()
 }
 
 bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
-  enum AEDataFormat rawDataFormat)
+  enum AEDataFormat rawDataFormat, bool forceTranscode)
 {
-
+  unsigned int maxChannelCountInStreams = 0;
   // remove any deleted streams
   CSingleLock streamLock(m_streamLock);
   for (StreamList::iterator itt = m_streams.begin(); itt != m_streams.end();)
@@ -184,6 +194,10 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
       // close all converter
       stream->CloseConverter();
     }
+
+    if (stream->GetChannelCount() > maxChannelCountInStreams)
+        maxChannelCountInStreams = stream->GetChannelCount();
+
     ++itt;
   }
 
@@ -200,12 +214,17 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
   if (m_rawPassthrough)
     CLog::Log(LOGINFO, "CCoreAudioAE::OpenCoreAudio - RAW passthrough enabled");
 
-  std::string m_outputDevice =  g_guiSettings.GetString("audiooutput.audiodevice");
+  m_transcode = forceTranscode;
+  
+  if (m_transcode)
+    CLog::Log(LOGINFO, "CCoreAudioAE::OpenCoreAudio - transcode to ac3 enabled");
+  
+  std::string m_outputDevice =  CSettings::Get().GetString("audiooutput.audiodevice");
 
   // on iOS devices we set fixed to two channels.
   m_stdChLayout = AE_CH_LAYOUT_2_0;
 #if defined(TARGET_DARWIN_OSX)
-  switch (g_guiSettings.GetInt("audiooutput.channels"))
+  switch (CSettings::Get().GetInt("audiooutput.channels"))
   {
     default:
     case  0: m_stdChLayout = AE_CH_LAYOUT_2_0; break; /* do not allow 1_0 output */
@@ -221,21 +240,18 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
     case 10: m_stdChLayout = AE_CH_LAYOUT_7_1; break;
   }
 #endif
-  // force optical/coax to 2.0 output channels
-  if (!m_rawPassthrough && g_guiSettings.GetInt("audiooutput.mode") == AUDIO_IEC958)
-    m_stdChLayout = AE_CH_LAYOUT_2_0;
 
   // setup the desired format
   m_format.m_channelLayout = CAEChannelInfo(m_stdChLayout);
 
   // if there is an audio resample rate set, use it.
-  if (g_advancedSettings.m_audioResample && !m_rawPassthrough)
+  if (CSettings::Get().GetInt("audiooutput.config") == AE_CONFIG_FIXED && !m_rawPassthrough)
   {
-    sampleRate = g_advancedSettings.m_audioResample;
+    sampleRate = CSettings::Get().GetInt("audiooutput.samplerate");
     CLog::Log(LOGINFO, "CCoreAudioAE::passthrough - Forcing samplerate to %d", sampleRate);
   }
 
-  if (m_rawPassthrough)
+  if (m_rawPassthrough && !m_transcode)
   {
     switch (rawDataFormat)
     {
@@ -257,13 +273,29 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
         m_format.m_dataFormat   = AE_FMT_S16NE;
         break;
       case AE_FMT_LPCM:
-        m_format.m_channelLayout = CAEChannelInfo(AE_CH_LAYOUT_7_1);
+        // audio midi setup can be setup to 2.0 or 7.1
+        // if we have the number of max channels from streams we use that for
+        // selecting either 2.0 or 7.1 setup depending on that.
+        // This allows DPII modes on amps for enhancing stereo sound
+        // (when switching to 7.1 - all 8 channels will be pushed out preventing most amps
+        // to switch to DPII mode)
+        if (maxChannelCountInStreams == 1 || maxChannelCountInStreams == 2)
+          m_format.m_channelLayout = CAEChannelInfo(AE_CH_LAYOUT_2_0);
+        else
+          m_format.m_channelLayout = CAEChannelInfo(AE_CH_LAYOUT_7_1);
         m_format.m_sampleRate   = sampleRate;
         m_format.m_dataFormat   = AE_FMT_FLOAT;
         break;
       default:
         break;
     }
+  }
+  else if (m_transcode)
+  {
+    // transcode is to ac3 only, do we copy the ac3 settings from above
+    m_format.m_channelLayout    = CAEChannelInfo(AE_CH_LAYOUT_2_0);
+    m_format.m_sampleRate       = 48000;
+    m_format.m_dataFormat       = AE_FMT_S16NE;
   }
   else
   {
@@ -280,7 +312,7 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
   AEAudioFormat initformat = m_format;
 
   // initialize audio hardware
-  m_Initialized = HAL->Initialize(this, m_rawPassthrough, initformat, rawDataFormat, m_outputDevice, m_volume);
+  m_Initialized = HAL->Initialize(this, m_rawPassthrough || m_transcode, initformat, m_transcode ? AE_FMT_AC3 : rawDataFormat, m_outputDevice, m_volume);
 
   unsigned int bps         = CAEUtil::DataFormatToBits(m_format.m_dataFormat);
   m_chLayoutCount          = m_format.m_channelLayout.Count();
@@ -288,7 +320,7 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
   //m_format.m_frames        = (unsigned int)(((float)m_format.m_sampleRate / 1000.0f) * (float)DELAY_FRAME_TIME);
   //m_format.m_frameSamples  = m_format.m_frames * m_format.m_channelLayout.Count();
 
-  if ((initformat.m_channelLayout.Count() != m_chLayoutCount) && !m_rawPassthrough)
+  if ((initformat.m_channelLayout.Count() != m_chLayoutCount) && !m_rawPassthrough && !m_transcode)
   {
     /* readjust parameters. hardware didn't accept channel count*/
     CLog::Log(LOGINFO, "CCoreAudioAE::Initialize: Setup channels (%d) greater than possible hardware channels (%d).",
@@ -309,6 +341,7 @@ bool CCoreAudioAE::OpenCoreAudio(unsigned int sampleRate, bool forceRaw,
   CLog::Log(LOGINFO, "  Frame Size    : %d", m_format.m_frameSize);
   CLog::Log(LOGINFO, "  Volume Level  : %f", m_volume);
   CLog::Log(LOGINFO, "  Passthrough   : %d", m_rawPassthrough);
+  CLog::Log(LOGINFO, "  Transcode     : %d", m_transcode);
 
   CSingleLock soundLock(m_soundLock);
   StopAllSounds();
@@ -370,11 +403,13 @@ void CCoreAudioAE::OnSettingsChange(const std::string& setting)
       setting == "audiooutput.custompassthrough" ||
       setting == "audiooutput.audiodevice"       ||
       setting == "audiooutput.customdevice"      ||
-      setting == "audiooutput.mode"              ||
       setting == "audiooutput.ac3passthrough"    ||
+      setting == "audiooutput.eac3passthrough"   ||
       setting == "audiooutput.dtspassthrough"    ||
-      setting == "audiooutput.channels"     ||
-      setting == "audiooutput.multichannellpcm")
+      setting == "audiooutput.channels"          ||
+      setting == "audiooutput.samplerate"        ||
+      setting == "audiooutput.config"            ||
+      setting == "audiooutput.passthrough"        )
   {
     // only reinit the engine if we not
     // suspended (resume will initialize
@@ -472,8 +507,30 @@ void CCoreAudioAE::SetSoundMode(const int mode)
     StopAllSounds();
 }
 
-bool CCoreAudioAE::SupportsRaw()
+bool CCoreAudioAE::SupportsRaw(AEDataFormat format)
 {
+  switch(format)
+  {
+    case AE_FMT_AC3:
+    case AE_FMT_DTS:
+    case AE_FMT_EAC3:
+    case AE_FMT_LPCM:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool CCoreAudioAE::IsSettingVisible(const std::string &settingId)
+{
+  if (settingId == "audiooutput.samplerate")
+  {
+    if (CSettings::Get().GetInt("audiooutput.config") == AE_CONFIG_FIXED)
+      return true;
+    else
+      return false;
+  }
+
   return true;
 }
 
@@ -488,13 +545,29 @@ IAEStream* CCoreAudioAE::MakeStream(enum AEDataFormat dataFormat,
   // if we are suspended we don't
   // want anyone to mess with us
   if (m_isSuspended && !m_softSuspend)
+#if defined(TARGET_DARWIN_IOS) && !defined(TARGET_DARWIN_IOS_ATV)
+    Resume();
+#else
     return NULL;
+#endif
 
   CAEChannelInfo channelInfo(channelLayout);
   CLog::Log(LOGINFO, "CCoreAudioAE::MakeStream - %s, %u, %u, %s",
     CAEUtil::DataFormatToStr(dataFormat), sampleRate, encodedSamplerate, ((std::string)channelInfo).c_str());
 
-  CCoreAudioAEStream *stream = new CCoreAudioAEStream(dataFormat, sampleRate, encodedSamplerate, channelLayout, options);
+  bool multichannelpcm = CSettings::Get().GetInt("audiooutput.channels") > AE_CH_LAYOUT_2_0; //if more then 2 channels are set - assume lpcm capability
+#if defined(TARGET_DARWIN_IOS)
+  multichannelpcm = false;
+#endif
+  // determine if we need to transcode this audio
+  // when we're called, we'll either get the audio in an encoded form (COREAUDIO_IS_RAW==true)
+  // that we can passthrough based on user options, or we'll get it unencoded
+  // if it's unencoded, and is 5.1, we'll transcode it to AC3 if possible
+  bool transcode = CSettings::Get().GetBool("audiooutput.passthrough") && CSettings::Get().GetBool("audiooutput.ac3passthrough") && !multichannelpcm &&
+                   !COREAUDIO_IS_RAW(dataFormat) &&
+                  (channelInfo.Count() == 6);
+  
+  CCoreAudioAEStream *stream = new CCoreAudioAEStream(dataFormat, sampleRate, encodedSamplerate, channelLayout, options, transcode);
   CSingleLock streamLock(m_streamLock);
   m_streams.push_back(stream);
   streamLock.Leave();
@@ -502,16 +575,17 @@ IAEStream* CCoreAudioAE::MakeStream(enum AEDataFormat dataFormat,
   if ((options & AESTREAM_PAUSED) == 0)
     Stop();
 
-  // reinit the engine if pcm format changes or always on raw format
+  // reinit the engine if pcm format changes or always on raw format or always on transcode
   if (m_Initialized && ( m_lastStreamFormat != dataFormat ||
                          m_lastChLayoutCount != channelLayout.Count() ||
                          m_lastSampleRate != sampleRate ||
-                         COREAUDIO_IS_RAW(dataFormat)))
+                         COREAUDIO_IS_RAW(dataFormat) ||
+                         transcode))
   {
     CSingleLock engineLock(m_engineLock);
     Stop();
     Deinitialize();
-    m_Initialized = OpenCoreAudio(sampleRate, COREAUDIO_IS_RAW(dataFormat), dataFormat);
+    m_Initialized = OpenCoreAudio(sampleRate, COREAUDIO_IS_RAW(dataFormat), dataFormat, transcode);
     m_lastStreamFormat = dataFormat;
     m_lastChLayoutCount = channelLayout.Count();
     m_lastSampleRate = sampleRate;
@@ -692,7 +766,7 @@ void CCoreAudioAE::MixSounds(float *buffer, unsigned int samples)
 void CCoreAudioAE::GarbageCollect()
 {
 #if defined(TARGET_DARWIN_OSX)
-  if (g_advancedSettings.m_streamSilence)
+  if (CSettings::Get().GetInt("audiooutput.streamsilence") != 0)
     return;
   
   if (!m_streamsPlaying && m_playing_sounds.empty())

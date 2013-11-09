@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 #include "system.h" // until we get sane int types used here
 #include "IAudioCallback.h"
+#include "IPlayerCallback.h"
 #include "utils/StdString.h"
 #include "guilib/Geometry.h"
 
@@ -34,21 +35,6 @@ namespace PVR
 {
   class CPVRChannel;
 }
-
-class IPlayerCallback
-{
-public:
-  virtual ~IPlayerCallback() {}
-  virtual void OnPlayBackEnded() = 0;
-  virtual void OnPlayBackStarted() = 0;
-  virtual void OnPlayBackPaused() {};
-  virtual void OnPlayBackResumed() {};
-  virtual void OnPlayBackStopped() = 0;
-  virtual void OnQueueNextItem() = 0;
-  virtual void OnPlayBackSeek(int iTime, int seekOffset) {};
-  virtual void OnPlayBackSeekChapter(int iChapter) {};
-  virtual void OnPlayBackSpeedChanged(int iSpeed) {};
-};
 
 class CPlayerOptions
 {
@@ -89,6 +75,45 @@ enum IPlayerSubtitleCapabilities
   IPC_SUBS_OFFSET
 };
 
+struct SPlayerAudioStreamInfo
+{
+  int bitrate;
+  int channels;
+  std::string language;
+  std::string name;
+  std::string audioCodecName;
+
+  SPlayerAudioStreamInfo()
+  {
+    bitrate = 0;
+    channels = 0;
+  }
+};
+
+struct SPlayerSubtitleStreamInfo
+{
+  std::string language;
+  std::string name;
+};
+
+struct SPlayerVideoStreamInfo
+{
+  int bitrate;
+  float videoAspectRatio;
+  std::string language;
+  std::string name;
+  std::string videoCodecName;
+  CRect SrcRect;
+  CRect DestRect;
+  std::string stereoMode;
+
+  SPlayerVideoStreamInfo()
+  {
+    bitrate = 0;
+    videoAspectRatio = 1.0f;
+  }
+};
+
 class IPlayer
 {
 public:
@@ -109,7 +134,7 @@ public:
   virtual bool HasAudio() const = 0;
   virtual bool IsPassthrough() const { return false;}
   virtual bool CanSeek() {return true;}
-  virtual void Seek(bool bPlus = true, bool bLargeStep = false) = 0;
+  virtual void Seek(bool bPlus = true, bool bLargeStep = false, bool bChapterOverride = false) = 0;
   virtual bool SeekScene(bool bPlus = true) {return false;}
   virtual void SeekPercentage(float fPercent = 0){}
   virtual float GetPercentage(){ return 0;}
@@ -121,9 +146,6 @@ public:
   virtual void GetAudioInfo( CStdString& strAudioInfo) = 0;
   virtual void GetVideoInfo( CStdString& strVideoInfo) = 0;
   virtual void GetGeneralInfo( CStdString& strVideoInfo) = 0;
-  virtual void Update(bool bPauseDrawing = false) = 0;
-  virtual void GetVideoRect(CRect& SrcRect, CRect& DestRect) {}
-  virtual void GetVideoAspectRatio(float& fAR) { fAR = 1.0f; }
   virtual bool CanRecord() { return false;};
   virtual bool IsRecording() { return false;};
   virtual bool Record(bool bOnOff) { return false;};
@@ -135,19 +157,16 @@ public:
   virtual float GetSubTitleDelay()    { return 0.0f; }
   virtual int  GetSubtitleCount()     { return 0; }
   virtual int  GetSubtitle()          { return -1; }
-  virtual void GetSubtitleName(int iStream, CStdString &strStreamName){};
-  virtual void GetSubtitleLanguage(int iStream, CStdString &strStreamLang){};
+  virtual void GetSubtitleStreamInfo(int index, SPlayerSubtitleStreamInfo &info){};
   virtual void SetSubtitle(int iStream){};
   virtual bool GetSubtitleVisible(){ return false;};
   virtual void SetSubtitleVisible(bool bVisible){};
-  virtual bool GetSubtitleExtension(CStdString &strSubtitleExtension){ return false;};
   virtual int  AddSubtitle(const CStdString& strSubPath) {return -1;};
 
   virtual int  GetAudioStreamCount()  { return 0; }
   virtual int  GetAudioStream()       { return -1; }
-  virtual void GetAudioStreamName(int iStream, CStdString &strStreamName){};
   virtual void SetAudioStream(int iStream){};
-  virtual void GetAudioStreamLanguage(int iStream, CStdString &strLanguage){};
+  virtual void GetAudioStreamInfo(int index, SPlayerAudioStreamInfo &info){};
 
   virtual TextCacheStruct_t* GetTeletextCache() { return NULL; };
   virtual void LoadPage(int p, int sp, unsigned char* buffer) {};
@@ -168,14 +187,10 @@ public:
    \brief total time in milliseconds
    */
   virtual int64_t GetTotalTime() { return 0; }
-  virtual int GetAudioBitrate(){ return 0;}
-  virtual int GetVideoBitrate(){ return 0;}
+  virtual void GetVideoStreamInfo(SPlayerVideoStreamInfo &info){};
   virtual int GetSourceBitrate(){ return 0;}
-  virtual int GetChannels(){ return 0;};
   virtual int GetBitsPerSample(){ return 0;};
   virtual int GetSampleRate(){ return 0;};
-  virtual CStdString GetAudioCodecName(){ return "";}
-  virtual CStdString GetVideoCodecName(){ return "";}
   virtual int GetPictureWidth(){ return 0;}
   virtual int GetPictureHeight(){ return 0;}
   virtual bool GetStreamDetails(CStreamDetails &details){ return false;}
@@ -194,7 +209,6 @@ public:
   virtual void DoAudioWork(){};
   virtual bool OnAction(const CAction &action) { return false; };
 
-  virtual bool GetCurrentSubtitle(CStdString& strSubtitle) { strSubtitle = ""; return false; }
   //returns a state that is needed for resuming from a specific time
   virtual CStdString GetPlayerState() { return ""; };
   virtual bool SetPlayerState(CStdString state) { return false;};

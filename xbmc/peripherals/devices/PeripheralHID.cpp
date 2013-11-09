@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
+ *      Copyright (C) 2005-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -20,17 +20,17 @@
 
 #include "PeripheralHID.h"
 #include "utils/log.h"
-#include "settings/Settings.h"
 #include "guilib/LocalizeStrings.h"
 #include "input/ButtonTranslator.h"
 
 using namespace PERIPHERALS;
 using namespace std;
 
-CPeripheralHID::CPeripheralHID(const PeripheralType type, const PeripheralBusType busType, const CStdString &strLocation, const CStdString &strDeviceName, int iVendorId, int iProductId) :
-  CPeripheral(type, busType, strLocation, strDeviceName.IsEmpty() ? g_localizeStrings.Get(35001) : strDeviceName, iVendorId, iProductId),
+CPeripheralHID::CPeripheralHID(const PeripheralScanResult& scanResult) :
+  CPeripheral(scanResult),
   m_bInitialised(false)
 {
+  m_strDeviceName = scanResult.m_strDeviceName.IsEmpty() ? g_localizeStrings.Get(35001) : scanResult.m_strDeviceName;
   m_features.push_back(FEATURE_HID);
 }
 

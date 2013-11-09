@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,14 +28,26 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "FileItem.h"
+#include "MusicInfoTag.h"
+#include "SpecialProtocol.h"
+#include "PlayList.h"
+#include "AEFactory.h"
 #include "ApplicationMessenger.h"
-#include "input/MouseStat.h"
+#include "Application.h"
+#include "interfaces/AnnouncementManager.h"
+#include "input/touch/generic/GenericTouchActionHandler.h"
+#include "guilib/GUIControl.h"
+#include "guilib/Key.h"
 #include "windowing/WindowingFactory.h"
 #include "video/VideoReferenceClock.h"
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
+#include "utils/Variant.h"
 #include "Util.h"
 #include "threads/Event.h"
+#define id _id
+#include "TextureCache.h"
+#undef id
 #include <math.h>
 
 #ifndef M_PI
@@ -45,12 +57,23 @@
 
 #undef BOOL
 
+#import <AVFoundation/AVAudioSession.h>
+#import <MediaPlayer/MPMediaItem.h>
+#ifdef __IPHONE_5_0
+#import <MediaPlayer/MPNowPlayingInfoCenter.h>
+#else
+const NSString *MPNowPlayingInfoPropertyElapsedPlaybackTime = @"MPNowPlayingInfoPropertyElapsedPlaybackTime";
+const NSString *MPNowPlayingInfoPropertyPlaybackRate = @"MPNowPlayingInfoPropertyPlaybackRate";
+const NSString *MPNowPlayingInfoPropertyPlaybackQueueIndex = @"MPNowPlayingInfoPropertyPlaybackQueueIndex";
+const NSString *MPNowPlayingInfoPropertyPlaybackQueueCount = @"MPNowPlayingInfoPropertyPlaybackQueueCount";
+#endif
 #import "IOSEAGLView.h"
 
 #import "XBMCController.h"
 #import "IOSScreenManager.h"
 #import "XBMCApplication.h"
 #import "XBMCDebugHelpers.h"
+#import "AutoPool.h"
 
 XBMCController *g_xbmcController;
 static CEvent screenChangeEvent;
@@ -60,11 +83,159 @@ static CEvent screenChangeEvent;
 extern NSString* kBRScreenSaverActivated;
 extern NSString* kBRScreenSaverDismissed;
 
+id objectFromVariant(const CVariant &data);
+
+NSArray *arrayFromVariantArray(const CVariant &data)
+{
+  if (!data.isArray())
+    return nil;
+  NSMutableArray *array = [[[NSMutableArray alloc] initWithCapacity:data.size()] autorelease];
+  for (CVariant::const_iterator_array itr = data.begin_array(); itr != data.end_array(); ++itr)
+  {
+    [array addObject:objectFromVariant(*itr)];
+  }
+  return array;
+}
+
+NSDictionary *dictionaryFromVariantMap(const CVariant &data)
+{
+  if (!data.isObject())
+    return nil;
+  NSMutableDictionary *dict = [[[NSMutableDictionary alloc] initWithCapacity:data.size()] autorelease];
+  for (CVariant::const_iterator_map itr = data.begin_map(); itr != data.end_map(); ++itr)
+  {
+    [dict setValue:objectFromVariant(itr->second) forKey:[NSString stringWithUTF8String:itr->first.c_str()]];
+  }
+  return dict;
+}
+
+id objectFromVariant(const CVariant &data)
+{
+  if (data.isNull())
+    return nil;
+  if (data.isString())
+    return [NSString stringWithUTF8String:data.asString().c_str()];
+  if (data.isWideString())
+    return [NSString stringWithCString:(const char *)data.asWideString().c_str() encoding:NSUnicodeStringEncoding];
+  if (data.isInteger())
+    return [NSNumber numberWithLongLong:data.asInteger()];
+  if (data.isUnsignedInteger())
+    return [NSNumber numberWithUnsignedLongLong:data.asUnsignedInteger()];
+  if (data.isBoolean())
+    return [NSNumber numberWithInt:data.asBoolean()?1:0];
+  if (data.isDouble())
+    return [NSNumber numberWithDouble:data.asDouble()];
+  if (data.isArray())
+    return arrayFromVariantArray(data);
+  if (data.isObject())
+    return dictionaryFromVariantMap(data);
+  return nil;
+}
+
+void AnnounceBridge(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+{
+  LOG(@"AnnounceBridge: [%s], [%s], [%s]", ANNOUNCEMENT::AnnouncementFlagToString(flag), sender, message);
+  NSDictionary *dict = dictionaryFromVariantMap(data);
+  LOG(@"data: %@", dict.description);
+  const std::string msg(message);
+  if (msg == "OnPlay")
+  {
+    NSDictionary *item = [dict valueForKey:@"item"];
+    NSDictionary *player = [dict valueForKey:@"player"];
+    [item setValue:[player valueForKey:@"speed"] forKey:@"speed"];
+    std::string thumb = g_application.CurrentFileItem().GetArt("thumb");
+    if (!thumb.empty())
+    {
+      bool needsRecaching;
+      CStdString cachedThumb(CTextureCache::Get().CheckCachedImage(thumb, false, needsRecaching));
+      LOG("thumb: %s, %s", thumb.c_str(), cachedThumb.c_str());
+      if (!cachedThumb.empty())
+      {
+        CStdString thumbRealPath = CSpecialProtocol::TranslatePath(cachedThumb);
+        [item setValue:[NSString stringWithUTF8String:thumbRealPath.c_str()] forKey:@"thumb"];
+      }
+    }
+    double duration = g_application.GetTotalTime();
+    if (duration > 0)
+      [item setValue:[NSNumber numberWithDouble:duration] forKey:@"duration"];
+    [item setValue:[NSNumber numberWithDouble:g_application.GetTime()] forKey:@"elapsed"];
+    int current = g_playlistPlayer.GetCurrentSong();
+    if (current >= 0)
+    {
+      [item setValue:[NSNumber numberWithInt:current] forKey:@"current"];
+      [item setValue:[NSNumber numberWithInt:g_playlistPlayer.GetPlaylist(g_playlistPlayer.GetCurrentPlaylist()).size()] forKey:@"total"];
+    }
+    if (g_application.CurrentFileItem().HasMusicInfoTag())
+    {
+      const std::vector<std::string> &genre = g_application.CurrentFileItem().GetMusicInfoTag()->GetGenre();
+      if (!genre.empty())
+      {
+        NSMutableArray *genreArray = [[NSMutableArray alloc] initWithCapacity:genre.size()];
+        for(std::vector<std::string>::const_iterator it = genre.begin(); it != genre.end(); ++it)
+        {
+          [genreArray addObject:[NSString stringWithUTF8String:it->c_str()]];
+        }
+        [item setValue:genreArray forKey:@"genre"];
+      }
+    }
+    LOG(@"item: %@", item.description);
+    [g_xbmcController performSelectorOnMainThread:@selector(onPlay:) withObject:item  waitUntilDone:NO];
+  }
+  else if (msg == "OnSpeedChanged")
+  {
+    NSDictionary *item = [dict valueForKey:@"item"];
+    NSDictionary *player = [dict valueForKey:@"player"];
+    [item setValue:[player valueForKey:@"speed"] forKey:@"speed"];
+    [item setValue:[NSNumber numberWithDouble:g_application.GetTime()] forKey:@"elapsed"];
+    LOG(@"item: %@", item.description);
+    [g_xbmcController performSelectorOnMainThread:@selector(OnSpeedChanged:) withObject:item  waitUntilDone:NO];
+  }
+  else if (msg == "OnPause")
+  {
+    CAEFactory::Suspend();
+    [g_xbmcController performSelectorOnMainThread:@selector(onPause:) withObject:[dict valueForKey:@"item"]  waitUntilDone:NO];
+  }
+  else if (msg == "OnStop")
+  {
+    CAEFactory::Suspend();
+    [g_xbmcController performSelectorOnMainThread:@selector(onStop:) withObject:[dict valueForKey:@"item"]  waitUntilDone:NO];
+  }
+}
+
+class AnnounceReceiver : public ANNOUNCEMENT::IAnnouncer
+{
+public:
+  virtual void Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+  {
+    // not all Announce called from xbmc main thread, we need an auto poll here.
+    CCocoaAutoPool pool;
+    AnnounceBridge(flag, sender, message, data);
+  }
+  virtual ~AnnounceReceiver() {}
+  static void init()
+  {
+    if (NULL==g_announceReceiver) {
+      g_announceReceiver = new AnnounceReceiver();
+      ANNOUNCEMENT::CAnnouncementManager::AddAnnouncer(g_announceReceiver);
+    }
+  }
+  static void dealloc()
+  {
+    ANNOUNCEMENT::CAnnouncementManager::RemoveAnnouncer(g_announceReceiver);
+    delete g_announceReceiver;
+  }
+private:
+  AnnounceReceiver() {}
+  static AnnounceReceiver *g_announceReceiver;
+};
+
+AnnounceReceiver *AnnounceReceiver::g_announceReceiver = NULL;
+
 //--------------------------------------------------------------
 //
 
 @interface XBMCController ()
-
+- (void)rescheduleNetworkAutoSuspend;
 @end
 
 @interface UIApplication (extended)
@@ -75,11 +246,56 @@ extern NSString* kBRScreenSaverDismissed;
 @synthesize animating;
 @synthesize lastGesturePoint;
 @synthesize screenScale;
-@synthesize lastEvent;
 @synthesize touchBeginSignaled;
 @synthesize m_screenIdx;
 @synthesize screensize;
+@synthesize m_networkAutoSuspendTimer;
+@synthesize nowPlayingInfo;
 //--------------------------------------------------------------
+- (void) sendKeypressEvent: (XBMC_Event) event
+{
+  event.type = XBMC_KEYDOWN;
+  CWinEvents::MessagePush(&event);
+
+  event.type = XBMC_KEYUP;
+  CWinEvents::MessagePush(&event);
+}
+
+// START OF UIKeyInput protocol
+- (BOOL)hasText
+{
+  return NO;
+}
+
+- (void)insertText:(NSString *)text
+{
+  XBMC_Event newEvent;
+  memset(&newEvent, 0, sizeof(newEvent));
+  unichar currentKey = [text characterAtIndex:0];
+
+  // handle upper case letters
+  if (currentKey >= 'A' && currentKey <= 'Z')
+  {
+    newEvent.key.keysym.mod = XBMCKMOD_LSHIFT;
+    currentKey += 0x20;// convert to lower case
+  }
+
+  // handle return
+  if (currentKey == '\n' || currentKey == '\r')
+    currentKey = XBMCK_RETURN;
+
+  newEvent.key.keysym.sym = (XBMCKey)currentKey;
+  newEvent.key.keysym.unicode = currentKey;
+
+  [self sendKeypressEvent:newEvent];
+}
+
+- (void)deleteBackward
+{
+  [self sendKey:XBMCK_BACKSPACE];
+}
+// END OF UIKeyInput protocol
+
 -(BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation
 {  
   //on external screens somehow the logic is rotated by 90°
@@ -140,12 +356,8 @@ extern NSString* kBRScreenSaverDismissed;
   
   //newEvent.key.keysym.unicode = key;
   newEvent.key.keysym.sym = key;
+  [self sendKeypressEvent:newEvent];
   
-  newEvent.type = XBMC_KEYDOWN;
-  CWinEventsIOS::MessagePush(&newEvent);
-  
-  newEvent.type = XBMC_KEYUP;
-  CWinEventsIOS::MessagePush(&newEvent);
 }
 //--------------------------------------------------------------
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer
@@ -154,11 +366,27 @@ extern NSString* kBRScreenSaverDismissed;
     return YES;
   }
 
+  if ([gestureRecognizer isKindOfClass:[UISwipeGestureRecognizer class]] && [otherGestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]]) {
+    return YES;
+  }
+
+  
   return NO;
 }
 //--------------------------------------------------------------
 - (void)createGestureRecognizers 
 {
+  //1 finger single tab
+  UITapGestureRecognizer *singleFingerSingleTap = [[UITapGestureRecognizer alloc]
+                                                   initWithTarget:self action:@selector(handleSingleFingerSingleTap:)];
+
+  singleFingerSingleTap.delaysTouchesBegan = YES;
+  singleFingerSingleTap.numberOfTapsRequired = 1;
+  singleFingerSingleTap.numberOfTouchesRequired = 1;
+
+  [m_glView addGestureRecognizer:singleFingerSingleTap];
+  [singleFingerSingleTap release];
+
   //2 finger single tab - right mouse
   //single finger double tab delays single finger single tab - so we
   //go for 2 fingers here - so single finger single tap is instant
@@ -181,15 +409,60 @@ extern NSString* kBRScreenSaverDismissed;
   [singleFingerSingleLongTap release];
 
   //double finger swipe left for backspace ... i like this fast backspace feature ;)
+  UISwipeGestureRecognizer *swipeLeft2 = [[UISwipeGestureRecognizer alloc]
+                                            initWithTarget:self action:@selector(handleSwipe:)];
+
+  swipeLeft2.delaysTouchesBegan = YES;
+  swipeLeft2.numberOfTouchesRequired = 2;
+  swipeLeft2.direction = UISwipeGestureRecognizerDirectionLeft;
+  swipeLeft2.delegate = self;
+  [m_glView addGestureRecognizer:swipeLeft2];
+  [swipeLeft2 release];
+
+  //single finger swipe left
   UISwipeGestureRecognizer *swipeLeft = [[UISwipeGestureRecognizer alloc]
-    initWithTarget:self action:@selector(handleSwipeLeft:)];
+                                          initWithTarget:self action:@selector(handleSwipe:)];
 
   swipeLeft.delaysTouchesBegan = YES;
-  swipeLeft.numberOfTouchesRequired = 2;
+  swipeLeft.numberOfTouchesRequired = 1;
   swipeLeft.direction = UISwipeGestureRecognizerDirectionLeft;
+  swipeLeft.delegate = self;
   [m_glView addGestureRecognizer:swipeLeft];
   [swipeLeft release];
+  
+  //single finger swipe right
+  UISwipeGestureRecognizer *swipeRight = [[UISwipeGestureRecognizer alloc]
+                                         initWithTarget:self action:@selector(handleSwipe:)];
+  
+  swipeRight.delaysTouchesBegan = YES;
+  swipeRight.numberOfTouchesRequired = 1;
+  swipeRight.direction = UISwipeGestureRecognizerDirectionRight;
+  swipeRight.delegate = self;
+  [m_glView addGestureRecognizer:swipeRight];
+  [swipeRight release];
+  
+  //single finger swipe up
+  UISwipeGestureRecognizer *swipeUp = [[UISwipeGestureRecognizer alloc]
+                                         initWithTarget:self action:@selector(handleSwipe:)];
+  
+  swipeUp.delaysTouchesBegan = YES;
+  swipeUp.numberOfTouchesRequired = 1;
+  swipeUp.direction = UISwipeGestureRecognizerDirectionUp;
+  swipeUp.delegate = self;
+  [m_glView addGestureRecognizer:swipeUp];
+  [swipeUp release];
 
+  //single finger swipe down
+  UISwipeGestureRecognizer *swipeDown = [[UISwipeGestureRecognizer alloc]
+                                         initWithTarget:self action:@selector(handleSwipe:)];
+  
+  swipeDown.delaysTouchesBegan = YES;
+  swipeDown.numberOfTouchesRequired = 1;
+  swipeDown.direction = UISwipeGestureRecognizerDirectionDown;
+  swipeDown.delegate = self;
+  [m_glView addGestureRecognizer:swipeDown];
+  [swipeDown release];
+  
   //for pan gestures with one finger
   UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
     initWithTarget:self action:@selector(handlePan:)];
@@ -228,6 +501,7 @@ extern NSString* kBRScreenSaverDismissed;
 {
   [view removeFromSuperview];
   m_glView.userInteractionEnabled = YES; 
+  [self becomeFirstResponder];
 }
 //--------------------------------------------------------------
 -(void)handlePinch:(UIPinchGestureRecognizer*)sender 
@@ -237,20 +511,18 @@ extern NSString* kBRScreenSaverDismissed;
     CGPoint point = [sender locationOfTouch:0 inView:m_glView];  
     point.x *= screenScale;
     point.y *= screenScale;
-  
+
     switch(sender.state)
     {
-      case UIGestureRecognizerStateBegan:  
-        CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_BEGIN, 0, (float)point.x, (float)point.y,
-                                                        0, 0), WINDOW_INVALID,false);
+      case UIGestureRecognizerStateBegan:
+        CGenericTouchActionHandler::Get().OnTouchGestureStart(point.x, point.y);
         break;
       case UIGestureRecognizerStateChanged:
-        CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_ZOOM, 0, (float)point.x, (float)point.y, 
-                                                                   [sender scale], 0), WINDOW_INVALID,false);
+        CGenericTouchActionHandler::Get().OnZoomPinch(point.x, point.y, [sender scale]);
         break;
       case UIGestureRecognizerStateEnded:
-        CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_END, 0, 0, 0,
-                                                        0, 0), WINDOW_INVALID,false);
+      case UIGestureRecognizerStateCancelled:
+        CGenericTouchActionHandler::Get().OnTouchGestureEnd(point.x, point.y, 0, 0, 0, 0);
         break;
       default:
         break;
@@ -269,14 +541,13 @@ extern NSString* kBRScreenSaverDismissed;
     switch(sender.state)
     {
       case UIGestureRecognizerStateBegan:
-        CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_BEGIN, 0, (float)point.x, (float)point.y,
-                                                        0, 0), WINDOW_INVALID,false);
+        CGenericTouchActionHandler::Get().OnTouchGestureStart(point.x, point.y);
         break;
       case UIGestureRecognizerStateChanged:
-        CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_ROTATE, 0, (float)point.x, (float)point.y,
-                                                        RADIANS_TO_DEGREES([sender rotation]), 0), WINDOW_INVALID,false);
+        CGenericTouchActionHandler::Get().OnRotate(point.x, point.y, RADIANS_TO_DEGREES([sender rotation]));
         break;
       case UIGestureRecognizerStateEnded:
+        CGenericTouchActionHandler::Get().OnTouchGestureEnd(point.x, point.y, 0, 0, 0, 0);
         break;
       default:
         break;
@@ -288,18 +559,20 @@ extern NSString* kBRScreenSaverDismissed;
 {
   if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
   { 
+    CGPoint velocity = [sender velocityInView:m_glView];
+
     if( [sender state] == UIGestureRecognizerStateBegan )
     {
-      CGPoint point = [sender locationOfTouch:0 inView:m_glView];  
+      CGPoint point = [sender locationOfTouch:0 inView:m_glView];
       point.x *= screenScale;
       point.y *= screenScale;
       touchBeginSignaled = false;
       lastGesturePoint = point;
     }
-    
+
     if( [sender state] == UIGestureRecognizerStateChanged )
     {
-      CGPoint point = [sender locationOfTouch:0 inView:m_glView];    
+      CGPoint point = [sender locationOfTouch:0 inView:m_glView];
       point.x *= screenScale;
       point.y *= screenScale;
       bool bNotify = false;
@@ -320,41 +593,68 @@ extern NSString* kBRScreenSaverDismissed;
       {
         if( !touchBeginSignaled )
         {
-          CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_BEGIN, 0, (float)point.x, (float)point.y, 
-                                                            0, 0), WINDOW_INVALID,false);
+          CGenericTouchActionHandler::Get().OnTouchGestureStart((float)point.x, (float)point.y);
           touchBeginSignaled = true;
-        }    
-        
-        CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_PAN, 0, (float)point.x, (float)point.y,
-                                                          xMovement, yMovement), WINDOW_INVALID,false);
+        }
+
+        CGenericTouchActionHandler::Get().OnTouchGesturePan((float)point.x, (float)point.y,
+                                                            (float)xMovement, (float)yMovement, 
+                                                            (float)velocity.x, (float)velocity.y);
         lastGesturePoint = point;
       }
     }
     
-    if( touchBeginSignaled && [sender state] == UIGestureRecognizerStateEnded )
+    if( touchBeginSignaled && ([sender state] == UIGestureRecognizerStateEnded || [sender state] == UIGestureRecognizerStateCancelled))
     {
-      CGPoint velocity = [sender velocityInView:m_glView];
       //signal end of pan - this will start inertial scrolling with deacceleration in CApplication
-      CApplicationMessenger::Get().SendAction(CAction(ACTION_GESTURE_END, 0, (float)velocity.x, (float)velocity.y, (int)lastGesturePoint.x, (int)lastGesturePoint.y),WINDOW_INVALID,false);
+      CGenericTouchActionHandler::Get().OnTouchGestureEnd((float)lastGesturePoint.x, (float)lastGesturePoint.y,
+                                                             (float)0.0, (float)0.0, 
+                                                             (float)velocity.x, (float)velocity.y);
+
       touchBeginSignaled = false;
     }
   }
 }
 //--------------------------------------------------------------
-- (IBAction)handleSwipeLeft:(UISwipeGestureRecognizer *)sender 
+- (IBAction)handleSwipe:(UISwipeGestureRecognizer *)sender
 {
   if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
   {
-    [self sendKey:XBMCK_BACKSPACE];
+    
+    
+    if (sender.state == UIGestureRecognizerStateRecognized)
+    {
+      CGPoint point = [sender locationOfTouch:0 inView:m_glView];
+      point.x *= screenScale;
+      point.y *= screenScale;
+
+      TouchMoveDirection direction = TouchMoveDirectionNone;
+      switch ([sender direction])
+      {
+        case UISwipeGestureRecognizerDirectionRight:
+          direction = TouchMoveDirectionRight;
+          break;
+        case UISwipeGestureRecognizerDirectionLeft:
+          direction = TouchMoveDirectionLeft;
+          break;
+        case UISwipeGestureRecognizerDirectionUp:
+          direction = TouchMoveDirectionUp;
+          break;
+        case UISwipeGestureRecognizerDirectionDown:
+          direction = TouchMoveDirectionDown;
+          break;
+      }
+      CGenericTouchActionHandler::Get().OnSwipe(direction,
+                                                0.0, 0.0,
+                                                point.x, point.y, 0, 0,
+                                                [sender numberOfTouches]);
+    }
   }
 }
 //--------------------------------------------------------------
 - (void)postMouseMotionEvent:(CGPoint)point
 {
   XBMC_Event newEvent;
-
-  point.x *= screenScale;
-  point.y *= screenScale;
 
   memset(&newEvent, 0, sizeof(newEvent));
 
@@ -366,10 +666,22 @@ extern NSString* kBRScreenSaverDismissed;
   newEvent.motion.y = point.y;
   newEvent.motion.xrel = 0;
   newEvent.motion.yrel = 0;
-  CWinEventsIOS::MessagePush(&newEvent);
+  CWinEvents::MessagePush(&newEvent);
 }
 //--------------------------------------------------------------
-- (IBAction)handleDoubleFingerSingleTap:(UIGestureRecognizer *)sender 
+- (IBAction)handleSingleFingerSingleTap:(UIGestureRecognizer *)sender 
+{
+  if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
+  {
+    CGPoint point = [sender locationOfTouch:0 inView:m_glView];
+    point.x *= screenScale;
+    point.y *= screenScale;
+    //NSLog(@"%s singleTap", __PRETTY_FUNCTION__);
+    CGenericTouchActionHandler::Get().OnTap((float)point.x, (float)point.y, [sender numberOfTouches]);
+  }
+}
+//--------------------------------------------------------------
+- (IBAction)handleDoubleFingerSingleTap:(UIGestureRecognizer *)sender
 {
   if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
   {
@@ -377,25 +689,7 @@ extern NSString* kBRScreenSaverDismissed;
     point.x *= screenScale;
     point.y *= screenScale;
     //NSLog(@"%s toubleTap", __PRETTY_FUNCTION__);
-
-    [self postMouseMotionEvent:point];
-
-    XBMC_Event newEvent;
-    memset(&newEvent, 0, sizeof(newEvent));
-    
-    newEvent.type = XBMC_MOUSEBUTTONDOWN;
-    newEvent.button.type = XBMC_MOUSEBUTTONDOWN;
-    newEvent.button.button = XBMC_BUTTON_RIGHT;
-    newEvent.button.x = point.x;
-    newEvent.button.y = point.y;
-    
-    CWinEventsIOS::MessagePush(&newEvent);    
-    
-    newEvent.type = XBMC_MOUSEBUTTONUP;
-    newEvent.button.type = XBMC_MOUSEBUTTONUP;
-    CWinEventsIOS::MessagePush(&newEvent);    
-    
-    memset(&lastEvent, 0x0, sizeof(XBMC_Event));         
+    CGenericTouchActionHandler::Get().OnTap((float)point.x, (float)point.y, [sender numberOfTouches]);
   }
 }
 //--------------------------------------------------------------
@@ -403,82 +697,41 @@ extern NSString* kBRScreenSaverDismissed;
 {
   if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
   {
+    CGPoint point = [sender locationOfTouch:0 inView:m_glView];
+    point.x *= screenScale;
+    point.y *= screenScale;
+
     if (sender.state == UIGestureRecognizerStateBegan)
     {
-      CGPoint point = [sender locationOfTouch:0 inView:m_glView];
-      [self postMouseMotionEvent:point];//selects the current control
+      lastGesturePoint = point;
+      // mark the control
+      CGenericTouchActionHandler::Get().OnSingleTouchStart((float)point.x, (float)point.y);
     }
 
     if (sender.state == UIGestureRecognizerStateEnded)
     {
-      [self handleDoubleFingerSingleTap:sender];
+      CGenericTouchActionHandler::Get().OnSingleTouchMove((float)point.x, (float)point.y, point.x - lastGesturePoint.x, point.y - lastGesturePoint.y, 0, 0);
     }
-  }
-}
-//--------------------------------------------------------------
-- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event 
-{
-  if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
-  {
-    UITouch *touch = [touches anyObject];
     
-    if( [touches count] == 1 && [touch tapCount] == 1)
-    {
-      lastGesturePoint = [touch locationInView:m_glView];    
-      [self postMouseMotionEvent:lastGesturePoint];//selects the current control
-
-      lastGesturePoint.x *= screenScale;
-      lastGesturePoint.y *= screenScale;  
-      XBMC_Event newEvent;
-      memset(&newEvent, 0, sizeof(newEvent));
-      
-      newEvent.type = XBMC_MOUSEBUTTONDOWN;
-      newEvent.button.type = XBMC_MOUSEBUTTONDOWN;
-      newEvent.button.button = XBMC_BUTTON_LEFT;
-      newEvent.button.x = lastGesturePoint.x;
-      newEvent.button.y = lastGesturePoint.y;  
-      CWinEventsIOS::MessagePush(&newEvent);    
-      
-      /* Store the tap action for later */
-      lastEvent = newEvent;
-    }
-  }
-}
-//--------------------------------------------------------------
-- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event 
-{
-  
-}
-//--------------------------------------------------------------
-- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event 
-{
-  if( [m_glView isXBMCAlive] )//NO GESTURES BEFORE WE ARE UP AND RUNNING
-  {
-    UITouch *touch = [touches anyObject];
-    
-    if( [touches count] == 1 && [touch tapCount] == 1 )
-    {
-      XBMC_Event newEvent = lastEvent;
-      
-      newEvent.type = XBMC_MOUSEBUTTONUP;
-      newEvent.button.type = XBMC_MOUSEBUTTONUP;
-      newEvent.button.button = XBMC_BUTTON_LEFT;
-      newEvent.button.x = lastGesturePoint.x;
-      newEvent.button.y = lastGesturePoint.y;
-      CWinEventsIOS::MessagePush(&newEvent);
-      
-      memset(&lastEvent, 0x0, sizeof(XBMC_Event));     
+    if (sender.state == UIGestureRecognizerStateEnded)
+    {	
+      CGenericTouchActionHandler::Get().OnLongPress((float)point.x, (float)point.y);
     }
   }
 }
 //--------------------------------------------------------------
 - (id)initWithFrame:(CGRect)frame withScreen:(UIScreen *)screen
 { 
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  PRINT_SIGNATURE();
   m_screenIdx = 0;
   self = [super init];
   if ( !self )
     return ( nil );
+
+  m_isPlayingBeforeInactive = NO;
+  m_isInterrupted = NO;
+  m_bgTask = UIBackgroundTaskInvalid;
+  m_playbackState = IOS_PLAYBACK_STOPPED;
 
   m_window = [[UIWindow alloc] initWithFrame:frame];
   [m_window setRootViewController:self];  
@@ -513,6 +766,8 @@ extern NSString* kBRScreenSaverDismissed;
   [m_window makeKeyAndVisible];
   g_xbmcController = self;  
   
+  AnnounceReceiver::init();
+
   return self;
 }
 //--------------------------------------------------------------
@@ -523,6 +778,11 @@ extern NSString* kBRScreenSaverDismissed;
 //--------------------------------------------------------------
 - (void)dealloc
 {
+  // stop background task
+  [m_networkAutoSuspendTimer invalidate];
+  [self enableNetworkAutoSuspend:nil];
+
+  AnnounceReceiver::dealloc();
   [m_glView stopAnimation];
   [m_glView release];
   [m_window release];
@@ -537,7 +797,7 @@ extern NSString* kBRScreenSaverDismissed;
 //--------------------------------------------------------------
 - (void)viewWillAppear:(BOOL)animated
 {
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  PRINT_SIGNATURE();
   
   // move this later into CocoaPowerSyscall
   [[UIApplication sharedApplication] setIdleTimerDisabled:YES];
@@ -547,9 +807,17 @@ extern NSString* kBRScreenSaverDismissed;
   [super viewWillAppear:animated];
 }
 //--------------------------------------------------------------
+-(void) viewDidAppear:(BOOL)animated
+{
+  [super viewDidAppear:animated];
+
+  [self becomeFirstResponder];
+  [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+}
+//--------------------------------------------------------------
 - (void)viewWillDisappear:(BOOL)animated
 {  
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  PRINT_SIGNATURE();
   
   [self pauseAnimation];
   
@@ -559,8 +827,26 @@ extern NSString* kBRScreenSaverDismissed;
   [super viewWillDisappear:animated];
 }
 //--------------------------------------------------------------
+-(UIView *)inputView
+{
+  // override our input view to an empty view
+  // this prevents the on screen keyboard
+  // which would be shown whenever this UIResponder
+  // becomes the first responder (which is always the case!)
+  // caused by implementing the UIKeyInput protocol
+  return [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+}
+//--------------------------------------------------------------
+- (BOOL) canBecomeFirstResponder
+{
+  return YES;
+}
+//--------------------------------------------------------------
 - (void)viewDidUnload
 {
+  [[UIApplication sharedApplication] endReceivingRemoteControlEvents];
+  [self resignFirstResponder];
+
 	[super viewDidUnload];	
 }
 //--------------------------------------------------------------
@@ -604,7 +890,7 @@ extern NSString* kBRScreenSaverDismissed;
 //--------------------------------------------------------------
 - (BOOL) recreateOnReselect
 { 
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  PRINT_SIGNATURE();
   return YES;
 }
 //--------------------------------------------------------------
@@ -614,6 +900,35 @@ extern NSString* kBRScreenSaverDismissed;
   [super didReceiveMemoryWarning];
   
   // Release any cached data, images, etc. that aren't in use.
+}
+//--------------------------------------------------------------
+- (void)disableNetworkAutoSuspend
+{
+  PRINT_SIGNATURE();
+  if (m_bgTask != UIBackgroundTaskInvalid)
+  {
+    [[UIApplication sharedApplication] endBackgroundTask: m_bgTask];
+    m_bgTask = UIBackgroundTaskInvalid;
+  }
+  // we have to alloc the background task for keep network working after screen lock and dark.
+  UIBackgroundTaskIdentifier newTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:nil];
+  m_bgTask = newTask;
+
+  if (m_networkAutoSuspendTimer)
+  {
+    [m_networkAutoSuspendTimer invalidate];
+    self.m_networkAutoSuspendTimer = nil;
+  }
+}
+//--------------------------------------------------------------
+- (void)enableNetworkAutoSuspend:(id)obj
+{
+  PRINT_SIGNATURE();
+  if (m_bgTask != UIBackgroundTaskInvalid)
+  {
+    [[UIApplication sharedApplication] endBackgroundTask: m_bgTask];
+    m_bgTask = UIBackgroundTaskInvalid;
+  }
 }
 //--------------------------------------------------------------
 - (void) disableSystemSleep
@@ -655,50 +970,271 @@ extern NSString* kBRScreenSaverDismissed;
   m_window.screen = screen;
 }
 //--------------------------------------------------------------
+- (void) remoteControlReceivedWithEvent: (UIEvent *) receivedEvent {
+  LOG(@"%s: type %d, subtype: %d", __PRETTY_FUNCTION__, receivedEvent.type, receivedEvent.subtype);
+  if (receivedEvent.type == UIEventTypeRemoteControl)
+  {
+    [self disableNetworkAutoSuspend];
+    switch (receivedEvent.subtype)
+    {
+      case UIEventSubtypeRemoteControlTogglePlayPause:
+        CApplicationMessenger::Get().SendAction(ACTION_PLAYER_PLAYPAUSE);
+        break;
+      case UIEventSubtypeRemoteControlPlay:
+        CApplicationMessenger::Get().SendAction(ACTION_PLAYER_PLAY);
+        break;
+      case UIEventSubtypeRemoteControlPause:
+        // ACTION_PAUSE sometimes cause unpause, use MediaPauseIfPlaying to make sure pause only
+        CApplicationMessenger::Get().MediaPauseIfPlaying();
+        break;
+      case UIEventSubtypeRemoteControlNextTrack:
+        CApplicationMessenger::Get().SendAction(ACTION_NEXT_ITEM);
+        break;
+      case UIEventSubtypeRemoteControlPreviousTrack:
+        CApplicationMessenger::Get().SendAction(ACTION_PREV_ITEM);
+        break;
+      case UIEventSubtypeRemoteControlBeginSeekingForward:
+        // use 4X speed forward.
+        CApplicationMessenger::Get().SendAction(ACTION_PLAYER_FORWARD);
+        CApplicationMessenger::Get().SendAction(ACTION_PLAYER_FORWARD);
+        break;
+      case UIEventSubtypeRemoteControlBeginSeekingBackward:
+        // use 4X speed rewind.
+        CApplicationMessenger::Get().SendAction(ACTION_PLAYER_REWIND);
+        CApplicationMessenger::Get().SendAction(ACTION_PLAYER_REWIND);
+        break;
+      case UIEventSubtypeRemoteControlEndSeekingForward:
+      case UIEventSubtypeRemoteControlEndSeekingBackward:
+        // restore to normal playback speed.
+        if (g_application.m_pPlayer->IsPlaying() && !g_application.m_pPlayer->IsPaused())
+          CApplicationMessenger::Get().SendAction(ACTION_PLAYER_PLAY);
+        break;
+      default:
+        LOG(@"unhandled subtype: %d", receivedEvent.subtype);
+        break;
+    }
+    [self rescheduleNetworkAutoSuspend];
+  }
+}
+//--------------------------------------------------------------
+- (void)enterBackground
+{
+  PRINT_SIGNATURE();
+  if (g_application.m_pPlayer->IsPlaying() && !g_application.m_pPlayer->IsPaused())
+  {
+    m_isPlayingBeforeInactive = YES;
+    CApplicationMessenger::Get().MediaPauseIfPlaying();
+  }
+}
+
+- (void)enterForeground
+{
+  PRINT_SIGNATURE();
+  // when we come back, restore playing if we were.
+  if (m_isPlayingBeforeInactive)
+  {
+    CApplicationMessenger::Get().MediaUnPause();
+    m_isPlayingBeforeInactive = NO;
+  }
+  m_isInterrupted = NO;
+}
+
+- (void)becomeInactive
+{
+  LOG(@"%s: was interrupted: %d", __PRETTY_FUNCTION__,  m_isInterrupted);
+  // if we were interrupted, already paused here
+  // else if user background us or lock screen, only pause video here, audio keep playing.
+  if (g_application.m_pPlayer->IsPlayingVideo() && !g_application.m_pPlayer->IsPaused())
+  {
+    m_isPlayingBeforeInactive = YES;
+    CApplicationMessenger::Get().MediaPauseIfPlaying();
+  }
+  // check whether we need disable network auto suspend.
+  [self rescheduleNetworkAutoSuspend];
+}
+
+- (void)beginInterruption
+{
+  PRINT_SIGNATURE();
+  m_isInterrupted = YES;
+  CAEFactory::Suspend();
+}
+
+- (void)endInterruption
+{
+  PRINT_SIGNATURE();
+  if (CAEFactory::IsSuspended())
+    CAEFactory::Resume();
+}
+//--------------------------------------------------------------
 - (void)pauseAnimation
 {
-  XBMC_Event newEvent;
-  memcpy(&newEvent, &lastEvent, sizeof(XBMC_Event));
-  
-  newEvent.appcommand.type = XBMC_APPCOMMAND;
-  newEvent.appcommand.action = ACTION_PLAYER_PLAYPAUSE;
-  CWinEventsIOS::MessagePush(&newEvent);
-  
-  /* Give player time to pause */
-  Sleep(2000);
-  //NSLog(@"%s", __PRETTY_FUNCTION__);
+  PRINT_SIGNATURE();
   
   [m_glView pauseAnimation];
-  
 }
 //--------------------------------------------------------------
 - (void)resumeAnimation
 {  
-  XBMC_Event newEvent;
-  memcpy(&newEvent, &lastEvent, sizeof(XBMC_Event));
-  
-  newEvent.appcommand.type = XBMC_APPCOMMAND;
-  newEvent.appcommand.action = ACTION_PLAYER_PLAY;
-  CWinEventsIOS::MessagePush(&newEvent);    
-  
+  PRINT_SIGNATURE();
+
   [m_glView resumeAnimation];
 }
 //--------------------------------------------------------------
 - (void)startAnimation
 {
+  PRINT_SIGNATURE();
+
   [m_glView startAnimation];
 }
 //--------------------------------------------------------------
 - (void)stopAnimation
 {
+  PRINT_SIGNATURE();
+
   [m_glView stopAnimation];
 }
+//--------------------------------------------------------------
+- (void)setIOSNowPlayingInfo:(NSDictionary *)info
+{
+  self.nowPlayingInfo = info;
+  // MPNowPlayingInfoCenter is an ios5+ class, following code will work on ios5 even if compiled by xcode3
+  Class NowPlayingInfoCenter = NSClassFromString(@"MPNowPlayingInfoCenter");
+  if (NowPlayingInfoCenter)
+    [[NowPlayingInfoCenter defaultCenter] setNowPlayingInfo:self.nowPlayingInfo];
+}
+//--------------------------------------------------------------
+- (void)onPlay:(NSDictionary *)item
+{
+  PRINT_SIGNATURE();
+  NSMutableDictionary * dict = [[NSMutableDictionary alloc] init];
+
+  NSString *title = [item objectForKey:@"title"];
+  if (title && title.length > 0)
+    [dict setObject:title forKey:MPMediaItemPropertyTitle];
+  NSString *album = [item objectForKey:@"album"];
+  if (album && album.length > 0)
+    [dict setObject:album forKey:MPMediaItemPropertyAlbumTitle];
+  NSArray *artists = [item objectForKey:@"artist"];
+  if (artists && artists.count > 0)
+    [dict setObject:[artists componentsJoinedByString:@" "] forKey:MPMediaItemPropertyArtist];
+  NSNumber *track = [item objectForKey:@"track"];
+  if (track)
+    [dict setObject:track forKey:MPMediaItemPropertyAlbumTrackNumber];
+  NSNumber *duration = [item objectForKey:@"duration"];
+  if (duration)
+    [dict setObject:duration forKey:MPMediaItemPropertyPlaybackDuration];
+  NSArray *genres = [item objectForKey:@"genre"];
+  if (genres && genres.count > 0)
+    [dict setObject:[genres componentsJoinedByString:@" "] forKey:MPMediaItemPropertyGenre];
+
+  if (NSClassFromString(@"MPNowPlayingInfoCenter"))
+  {
+    NSString *thumb = [item objectForKey:@"thumb"];
+    if (thumb && thumb.length > 0)
+    {
+      UIImage *image = [UIImage imageWithContentsOfFile:thumb];
+      if (image)
+      {
+        MPMediaItemArtwork *mArt = [[MPMediaItemArtwork alloc] initWithImage:image];
+        if (mArt)
+        {
+          [dict setObject:mArt forKey:MPMediaItemPropertyArtwork];
+          [mArt release];
+        }
+      }
+    }
+    // these proprity keys are ios5+ only
+    NSNumber *elapsed = [item objectForKey:@"elapsed"];
+    if (elapsed)
+      [dict setObject:elapsed forKey:MPNowPlayingInfoPropertyElapsedPlaybackTime];
+    NSNumber *speed = [item objectForKey:@"speed"];
+    if (speed)
+      [dict setObject:speed forKey:MPNowPlayingInfoPropertyPlaybackRate];
+    NSNumber *current = [item objectForKey:@"current"];
+    if (current)
+      [dict setObject:current forKey:MPNowPlayingInfoPropertyPlaybackQueueIndex];
+    NSNumber *total = [item objectForKey:@"total"];
+    if (total)
+      [dict setObject:total forKey:MPNowPlayingInfoPropertyPlaybackQueueCount];
+  }
+  /*
+   other properities can be set:
+   MPMediaItemPropertyAlbumTrackCount
+   MPMediaItemPropertyComposer
+   MPMediaItemPropertyDiscCount
+   MPMediaItemPropertyDiscNumber
+   MPMediaItemPropertyPersistentID
+
+   Additional metadata properties:
+   MPNowPlayingInfoPropertyChapterNumber;
+   MPNowPlayingInfoPropertyChapterCount;
+   */
+
+  [self setIOSNowPlayingInfo:dict];
+  [dict release];
+
+  m_playbackState = IOS_PLAYBACK_PLAYING;
+  [self disableNetworkAutoSuspend];
+}
+//--------------------------------------------------------------
+- (void)OnSpeedChanged:(NSDictionary *)item
+{
+  PRINT_SIGNATURE();
+  if (NSClassFromString(@"MPNowPlayingInfoCenter"))
+  {
+    NSMutableDictionary *info = [self.nowPlayingInfo mutableCopy];
+    NSNumber *elapsed = [item objectForKey:@"elapsed"];
+    if (elapsed)
+      [info setObject:elapsed forKey:MPNowPlayingInfoPropertyElapsedPlaybackTime];
+    NSNumber *speed = [item objectForKey:@"speed"];
+    if (speed)
+      [info setObject:speed forKey:MPNowPlayingInfoPropertyPlaybackRate];
+
+    [self setIOSNowPlayingInfo:info];
+  }
+}
+//--------------------------------------------------------------
+- (void)onPause:(NSDictionary *)item
+{
+  PRINT_SIGNATURE();
+  m_playbackState = IOS_PLAYBACK_PAUSED;
+  // schedule set network auto suspend state for save power if idle.
+  [self rescheduleNetworkAutoSuspend];
+}
+//--------------------------------------------------------------
+- (void)onStop:(NSDictionary *)item
+{
+  PRINT_SIGNATURE();
+  [self setIOSNowPlayingInfo:nil];
+
+  m_playbackState = IOS_PLAYBACK_STOPPED;
+  // delay set network auto suspend state in case we are switching playing item.
+  [self rescheduleNetworkAutoSuspend];
+}
+//--------------------------------------------------------------
+- (void)rescheduleNetworkAutoSuspend
+{
+  LOG(@"%s: playback state: %d", __PRETTY_FUNCTION__,  m_playbackState);
+  if (m_playbackState == IOS_PLAYBACK_PLAYING)
+  {
+    [self disableNetworkAutoSuspend];
+    return;
+  }
+  if (m_networkAutoSuspendTimer)
+    [m_networkAutoSuspendTimer invalidate];
+
+  int delay = m_playbackState == IOS_PLAYBACK_PAUSED ? 60 : 30;  // wait longer if paused than stopped
+  self.m_networkAutoSuspendTimer = [NSTimer scheduledTimerWithTimeInterval:delay target:self selector:@selector(enableNetworkAutoSuspend:) userInfo:nil repeats:NO];
+}
+
 #pragma mark -
 #pragma mark private helper methods
 //
 - (void)observeDefaultCenterStuff: (NSNotification *) notification
 {
-  //NSLog(@"default: %@", [notification name]);
+//  LOG(@"default: %@", [notification name]);
+//  LOG(@"userInfo: %@", [notification userInfo]);
 }
 
 @end

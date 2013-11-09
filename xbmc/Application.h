@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
+ *      Copyright (C) 2005-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -24,14 +24,15 @@
 #include "XBApplicationEx.h"
 
 #include "guilib/IMsgTargetCallback.h"
-#include "guilib/Key.h"
 #include "threads/Condition.h"
 #include "utils/GlobalsHandling.h"
 
 #include <map>
 
+class CAction;
 class CFileItem;
 class CFileItemList;
+class CKey;
 namespace ADDON
 {
   class CSkinInfo;
@@ -43,23 +44,28 @@ namespace MEDIA_DETECT
 {
   class CAutorun;
 }
+class CPlayerController;
 
-#include "cores/IPlayer.h"
+#include "cores/IPlayerCallback.h"
 #include "cores/playercorefactory/PlayerCoreFactory.h"
 #include "PlayListPlayer.h"
-#if !defined(_WIN32) && defined(HAS_DVD_DRIVE)
+#include "settings/ISettingsHandler.h"
+#include "settings/ISettingCallback.h"
+#include "settings/ISubSettings.h"
+#if !defined(TARGET_WINDOWS) && defined(HAS_DVD_DRIVE)
 #include "storage/DetectDVDType.h"
 #endif
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "win32/WIN32Util.h"
 #endif
 #include "utils/Stopwatch.h"
-#include "utils/CharsetConverter.h"
 #ifdef HAS_PERFORMANCE_SAMPLE
 #include "utils/PerformanceStats.h"
 #endif
 #include "windowing/XBMC_events.h"
 #include "threads/Thread.h"
+
+#include "ApplicationPlayer.h"
 
 class CSeekHandler;
 class CKaraokeLyricsManager;
@@ -67,20 +73,6 @@ class CInertialScrollingHandler;
 class DPMSSupport;
 class CSplash;
 class CBookmark;
-class CWebServer;
-#ifdef HAS_WEB_SERVER
-class CWebServer;
-class CHTTPImageHandler;
-class CHTTPVfsHandler;
-#ifdef HAS_JSONRPC
-class CHTTPJsonRpcHandler;
-#endif
-#ifdef HAS_WEB_INTERFACE
-class CHTTPWebinterfaceHandler;
-class CHTTPWebinterfaceAddonsHandler;
-#endif
-#endif
-
 class CNetwork;
 
 namespace VIDEO
@@ -93,6 +85,21 @@ namespace MUSIC_INFO
   class CMusicInfoScanner;
 }
 
+#define VOLUME_MINIMUM 0.0f        // -60dB
+#define VOLUME_MAXIMUM 1.0f        // 0dB
+#define VOLUME_DYNAMIC_RANGE 90.0f // 60dB
+#define VOLUME_CONTROL_STEPS 90    // 90 steps
+
+// replay gain settings struct for quick access by the player multiple
+// times per second (saves doing settings lookup)
+struct ReplayGainSettings
+{
+  int iPreAmp;
+  int iNoGainPreAmp;
+  int iType;
+  bool bAvoidClipping;
+};
+
 class CBackgroundPlayer : public CThread
 {
 public:
@@ -104,8 +111,10 @@ protected:
   int       m_iPlayList;
 };
 
-class CApplication : public CXBApplicationEx, public IPlayerCallback, public IMsgTargetCallback
+class CApplication : public CXBApplicationEx, public IPlayerCallback, public IMsgTargetCallback,
+                     public ISettingCallback, public ISettingsHandler, public ISubSettings
 {
+  friend class CApplicationPlayer;
 public:
 
   enum ESERVERS
@@ -137,27 +146,8 @@ public:
 
   bool StartServer(enum ESERVERS eServer, bool bStart, bool bWait = false);
 
-  bool StartWebServer();
-  void StopWebServer();
-  bool StartAirplayServer();
-  void StopAirplayServer(bool bWait);
-  bool StartJSONRPCServer();
-  void StopJSONRPCServer(bool bWait);
-  void StartUPnP();
-  void StopUPnP(bool bWait);
-  void StartUPnPClient();
-  void StopUPnPClient();
-  void StartUPnPRenderer();
-  void StopUPnPRenderer();
-  void StartUPnPServer();
-  void StopUPnPServer();
   void StartPVRManager(bool bOpenPVRWindow = false);
   void StopPVRManager();
-  bool StartEventServer();
-  bool StopEventServer(bool bWait, bool promptuser);
-  void RefreshEventServer();
-  void StartZeroconf();
-  void StopZeroconf();
   bool IsCurrentThread() const;
   void Stop(int exitCode);
   void RestartApp();
@@ -180,17 +170,13 @@ public:
   bool PlayMedia(const CFileItem& item, int iPlaylist = PLAYLIST_MUSIC);
   bool PlayMediaSync(const CFileItem& item, int iPlaylist = PLAYLIST_MUSIC);
   bool ProcessAndStartPlaylist(const CStdString& strPlayList, PLAYLIST::CPlayList& playlist, int iPlaylist, int track=0);
-  bool PlayFile(const CFileItem& item, bool bRestart = false);
+  PlayBackRet PlayFile(const CFileItem& item, bool bRestart = false);
   void SaveFileState(bool bForeground = false);
   void UpdateFileState();
   void StopPlaying();
   void Restart(bool bSamePosition = true);
   void DelayedPlayerRestart();
   void CheckDelayedPlayerRestart();
-  bool IsPlaying() const;
-  bool IsPaused() const;
-  bool IsPlayingAudio() const;
-  bool IsPlayingVideo() const;
   bool IsPlayingFullScreenVideo() const;
   bool IsStartingPlayback() const { return m_bPlaybackStarting; }
   bool IsFullScreen();
@@ -203,21 +189,21 @@ public:
   // Checks whether the screensaver and / or DPMS should become active.
   void CheckScreenSaverAndDPMS();
   void CheckPlayingProgress();
-  void CheckAudioScrobblerStatus();
   void ActivateScreenSaver(bool forceType = false);
+  void CloseNetworkShares();
 
   virtual void Process();
   void ProcessSlow();
   void ResetScreenSaver();
-  int GetVolume() const;
+  float GetVolume(bool percentage = true) const;
   void SetVolume(float iValue, bool isPercentage = true);
   bool IsMuted() const;
+  bool IsMutedInternal() const { return m_muted; }
   void ToggleMute(void);
+  void SetMute(bool mute);
   void ShowVolumeBar(const CAction *action = NULL);
-  int GetPlaySpeed() const;
   int GetSubtitleDelay() const;
   int GetAudioDelay() const;
-  void SetPlaySpeed(int iSpeed);
   void ResetSystemIdleTimer();
   void ResetScreenSaverTimer();
   void StopScreenSaverTimer();
@@ -275,29 +261,30 @@ public:
   MEDIA_DETECT::CAutorun* m_Autorun;
 #endif
 
-#if !defined(_WIN32) && defined(HAS_DVD_DRIVE)
+#if !defined(TARGET_WINDOWS) && defined(HAS_DVD_DRIVE)
   MEDIA_DETECT::CDetectDVDMedia m_DetectDVDType;
 #endif
 
-  IPlayer* m_pPlayer;
-
-#ifdef HAS_WEB_SERVER
-  CWebServer& m_WebServer;
-  CHTTPImageHandler& m_httpImageHandler;
-  CHTTPVfsHandler& m_httpVfsHandler;
-#ifdef HAS_JSONRPC
-  CHTTPJsonRpcHandler& m_httpJsonRpcHandler;
-#endif
-#ifdef HAS_WEB_INTERFACE
-  CHTTPWebinterfaceHandler& m_httpWebinterfaceHandler;
-  CHTTPWebinterfaceAddonsHandler& m_httpWebinterfaceAddonsHandler;
-#endif
-#endif
+  CApplicationPlayer* m_pPlayer;
 
   inline bool IsInScreenSaver() { return m_bScreenSave; };
   int m_iScreenSaveLock; // spiff: are we checking for a lock? if so, ignore the screensaver state, if -1 we have failed to input locks
 
   bool m_bPlaybackStarting;
+  typedef enum
+  {
+    PLAY_STATE_NONE = 0,
+    PLAY_STATE_STARTING,
+    PLAY_STATE_PLAYING,
+    PLAY_STATE_STOPPED,
+    PLAY_STATE_ENDED,
+  } PlayState;
+  PlayState m_ePlayState;
+  CCriticalSection m_playStateMutex;
+
+  bool m_bInBackground;
+  inline bool IsInBackground() { return m_bInBackground; };
+  void SetInBackground(bool background);
 
   CKaraokeLyricsManager* m_pKaraokeMgr;
 
@@ -305,8 +292,6 @@ public:
   CStdString m_strPlayListFile;
 
   int GlobalIdleTime();
-  void NewFrame();
-  bool WaitFrame(unsigned int timeout);
 
   void EnablePlatformDirectories(bool enable=true)
   {
@@ -345,8 +330,6 @@ public:
     return m_bTestMode;
   }
 
-  bool IsPresentFrame();
-
   void Minimize();
   bool ToggleDPMS(bool manual);
 
@@ -362,21 +345,43 @@ public:
 
   CSplash* GetSplash() { return m_splash; }
   void SetRenderGUI(bool renderGUI);
+  bool GetRenderGUI() const { return m_renderGUI; };
+
+  bool SetLanguage(const CStdString &strLanguage);
+
+  ReplayGainSettings& GetReplayGainSettings() { return m_replayGainSettings; }
+
+  void SetLoggingIn(bool loggingIn) { m_loggingIn = loggingIn; }
+
 protected:
+  virtual bool OnSettingsSaving() const;
+
+  virtual bool Load(const TiXmlNode *settings);
+  virtual bool Save(TiXmlNode *settings) const;
+
+  virtual void OnSettingChanged(const CSetting *setting);
+  virtual void OnSettingAction(const CSetting *setting);
+  virtual bool OnSettingUpdate(CSetting* &setting, const char *oldSettingId, const TiXmlNode *oldSettingNode);
+
   bool LoadSkin(const CStdString& skinID);
   void LoadSkin(const boost::shared_ptr<ADDON::CSkinInfo>& skin);
 
   bool m_skinReloading; // if true we disallow LoadSkin until ReloadSkin is called
 
+  bool m_loggingIn;
+
 #if defined(TARGET_DARWIN_IOS)
   friend class CWinEventsIOS;
+#endif
+#if defined(TARGET_ANDROID)
+  friend class CWinEventsAndroid;
 #endif
   // screensaver
   bool m_bScreenSave;
   ADDON::AddonPtr m_screenSaver;
 
   // timer information
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
   CWinIdleTimer m_idleTimer;
   CWinIdleTimer m_screenSaverTimer;
 #else
@@ -402,7 +407,6 @@ protected:
   CStdString m_prevMedia;
   CSplash* m_splash;
   ThreadIdentifier m_threadID;       // application thread ID.  Used in applicationMessanger to know where we are firing a thread with delay from.
-  PLAYERCOREID m_eCurrentPlayer;
   bool m_bInitializing;
   bool m_bPlatformDirectories;
 
@@ -410,7 +414,6 @@ protected:
   CFileItemPtr m_progressTrackingItem;
   bool m_progressTrackingPlayCountUpdate;
 
-  int m_iPlaySpeed;
   int m_currentStackPosition;
   int m_nextPlaylistItem;
 
@@ -423,12 +426,11 @@ protected:
   bool m_bTestMode;
   bool m_bSystemScreenSaverEnable;
 
-  int        m_frameCount;
-  CCriticalSection m_frameMutex;
-  XbmcThreads::ConditionVariable  m_frameCond;
-
   VIDEO::CVideoInfoScanner *m_videoInfoScanner;
   MUSIC_INFO::CMusicInfoScanner *m_musicInfoScanner;
+
+  bool m_muted;
+  float m_volumeLevel;
 
   void Mute();
   void UnMute();
@@ -437,14 +439,14 @@ protected:
 
   void VolumeChanged() const;
 
-  bool PlayStack(const CFileItem& item, bool bRestart);
+  PlayBackRet PlayStack(const CFileItem& item, bool bRestart);
   bool ProcessMouse();
   bool ProcessRemote(float frameTime);
   bool ProcessGamepad(float frameTime);
   bool ProcessEventServer(float frameTime);
   bool ProcessPeripherals(float frameTime);
-  bool ProcessJoystickEvent(const std::string& joystickName, int button, bool isAxis, float fAmount, unsigned int holdTime = 0);
-  bool ExecuteInputAction(CAction action);
+  bool ProcessJoystickEvent(const std::string& joystickName, int button, short inputType, float fAmount, unsigned int holdTime = 0);
+  bool ExecuteInputAction(const CAction &action);
   int  GetActiveWindowID(void);
 
   float NavigationIdleTime();
@@ -458,6 +460,7 @@ protected:
   void CreateUserDirs();
 
   CSeekHandler *m_seekHandler;
+  CPlayerController *m_playerController;
   CInertialScrollingHandler *m_pInertialScrollingHandler;
   CNetwork    *m_network;
 #ifdef HAS_PERFORMANCE_SAMPLE
@@ -468,6 +471,7 @@ protected:
   std::map<std::string, std::map<int, float> > m_lastAxisMap;
 #endif
 
+  ReplayGainSettings m_replayGainSettings;
 };
 
 XBMC_GLOBAL_REF(CApplication,g_application);

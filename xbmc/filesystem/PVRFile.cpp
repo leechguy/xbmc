@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -308,7 +308,7 @@ int CPVRFile::IoControl(EIoControl request, void *param)
   {
     if (!g_PVRManager.IsStarted())
       return 0;
-    else if (g_PVRClients->GetStreamLength() && g_PVRClients->SeekStream(0, SEEK_CUR) >= 0)
+    else if (g_PVRClients->CanSeekStream())
       return 1;
     else
       return 0;

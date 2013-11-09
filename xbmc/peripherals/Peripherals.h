@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
+ *      Copyright (C) 2005-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -22,8 +22,10 @@
 #include "system.h"
 #include "bus/PeripheralBus.h"
 #include "devices/Peripheral.h"
+#include "settings/ISettingCallback.h"
 #include "threads/CriticalSection.h"
 #include "threads/Thread.h"
+#include "utils/Observer.h"
 
 class CFileItemList;
 class CSetting;
@@ -36,7 +38,8 @@ namespace PERIPHERALS
 {
   #define g_peripherals CPeripherals::Get()
 
-  class CPeripherals
+  class CPeripherals :  public ISettingCallback,
+                        public Observable
   {
   public:
     static CPeripherals &Get(void);
@@ -111,11 +114,10 @@ namespace PERIPHERALS
     /*!
      * @brief Creates a new instance of a peripheral.
      * @param bus The bus on which this peripheral is present.
-     * @param type The type of the new peripheral.
-     * @param strLocation The location on the bus.
+     * @param result The scan result from the device scanning code.
      * @return The new peripheral or NULL if it could not be created.
      */
-    CPeripheral *CreatePeripheral(CPeripheralBus &bus, const PeripheralType type, const CStdString &strLocation, int iVendorId = 0, int iProductId = 0);
+    CPeripheral *CreatePeripheral(CPeripheralBus &bus, const PeripheralScanResult& result);
 
     /*!
      * @brief Add the settings that are defined in the mappings file to the peripheral (if there is anything defined).
@@ -169,6 +171,14 @@ namespace PERIPHERALS
     virtual bool ToggleMute(void);
 
     /*!
+     * @brief Try to toggle the playing device state via a peripheral.
+     * @param mode Whether to activate, put on standby or toggle the source.
+     * @param iPeripheral Optional CPeripheralCecAdapter pointer to a specific device, instead of iterating through all of them.
+     * @return True when the playing device has been switched on, false otherwise.
+     */
+    virtual bool ToggleDeviceState(const CecStateChange mode = STATE_SWITCH_TOGGLE, const unsigned int iPeripheral = 0);
+
+    /*!
      * @brief Try to mute the audio via a peripheral.
      * @return True when this change was handled by a peripheral (and should not be handled by anything else), false otherwise.
      */
@@ -196,11 +206,14 @@ namespace PERIPHERALS
       return false;
 #endif
     }
+    
+    virtual void OnSettingChanged(const CSetting *setting);
+    virtual void OnSettingAction(const CSetting *setting);
 
   private:
     CPeripherals(void);
     bool LoadMappings(void);
-    int GetMappingForDevice(const CPeripheralBus &bus, const PeripheralType classType, int iVendorId, int iProductId) const;
+    bool GetMappingForDevice(const CPeripheralBus &bus, PeripheralScanResult& result) const;
     static void GetSettingsFromMappingsFile(TiXmlElement *xmlNode, std::map<CStdString, CSetting *> &m_settings);
 
     bool                                 m_bInitialised;

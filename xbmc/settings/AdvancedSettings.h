@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
+ *      Copyright (C) 2005-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -20,10 +20,17 @@
  */
 
 #include <vector>
+
+#include "settings/ISettingCallback.h"
+#include "settings/ISettingsHandler.h"
 #include "utils/StdString.h"
 #include "utils/GlobalsHandling.h"
 
 class TiXmlElement;
+namespace ADDON
+{
+  class IAddon;
+}
 
 class DatabaseSettings
 {
@@ -36,6 +43,11 @@ public:
     user.clear();
     pass.clear();
     name.clear();
+    key.clear();
+    cert.clear();
+    ca.clear();
+    capath.clear();
+    ciphers.clear();
   };
   CStdString type;
   CStdString host;
@@ -43,6 +55,11 @@ public:
   CStdString user;
   CStdString pass;
   CStdString name;
+  CStdString key;
+  CStdString cert;
+  CStdString ca;
+  CStdString capath;
+  CStdString ciphers;
 };
 
 struct TVShowRegexp
@@ -78,14 +95,32 @@ struct RefreshVideoLatency
   float delay;
 };
 
+struct StagefrightConfig
+{
+  int useAVCcodec;
+  int useVC1codec;
+  int useVPXcodec;
+  int useMP4codec;
+  int useMPEG2codec;
+  bool useSwRenderer;
+  bool useInputDTS;
+};
+
 typedef std::vector<TVShowRegexp> SETTINGS_TVSHOWLIST;
 
-class CAdvancedSettings
+class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
 {
   public:
     CAdvancedSettings();
 
     static CAdvancedSettings* getInstance();
+
+    virtual void OnSettingsLoaded();
+    virtual void OnSettingsUnloaded();
+
+    virtual void OnSettingChanged(const CSetting *setting);
+
+    virtual void OnSettingAction(const CSetting *setting);
 
     void Initialize();
     bool Initialized() { return m_initialized; };
@@ -103,14 +138,6 @@ class CAdvancedSettings
     CStdString m_audioDefaultPlayer;
     float m_audioPlayCountMinimumPercent;
     bool m_dvdplayerIgnoreDTSinWAV;
-    int m_audioResample;
-    bool m_allowTranscode44100;
-    bool m_audioForceDirectSound;
-    bool m_audioAudiophile;
-    bool m_allChannelStereo;
-    bool m_streamSilence;
-    int m_audioSinkBufferDurationMsec;
-    CStdString m_audioTranscodeTo;
     float m_limiterHold;
     float m_limiterRelease;
 
@@ -133,6 +160,8 @@ class CAdvancedSettings
     int m_videoPercentSeekBackwardBig;
     CStdString m_videoPPFFmpegDeint;
     CStdString m_videoPPFFmpegPostProc;
+    bool m_videoVDPAUtelecine;
+    bool m_videoVDPAUdeintSkipChromaHD;
     bool m_musicUseTimeSeeking;
     int m_musicTimeSeekForward;
     int m_musicTimeSeekBackward;
@@ -148,7 +177,7 @@ class CAdvancedSettings
     CStdString m_audioHost;
     bool m_audioApplyDrc;
 
-    bool  m_videoVDPAUScaling;
+    int   m_videoVDPAUScaling;
     float m_videoNonLinStretchRatio;
     bool  m_videoEnableHighQualityHwScalers;
     float m_videoAutoScaleMaxFps;
@@ -164,6 +193,9 @@ class CAdvancedSettings
     bool m_DXVAForceProcessorRenderer;
     bool m_DXVANoDeintProcForProgressive;
     int  m_videoFpsDetect;
+    int  m_videoBusyDialogDelay_ms;
+    bool m_videoDisableHi10pMultithreading;
+    StagefrightConfig m_stagefrightConfig;
 
     CStdString m_videoDefaultPlayer;
     CStdString m_videoDefaultDVDPlayer;
@@ -176,6 +208,7 @@ class CAdvancedSettings
     int m_songInfoDuration;
     int m_logLevel;
     int m_logLevelHint;
+    int m_extraLogLevels;
     CStdString m_cddbAddress;
 
     //airtunes + airplay
@@ -231,6 +264,7 @@ class CAdvancedSettings
     int m_iMusicLibraryRecentlyAddedItems;
     bool m_bMusicLibraryAllItemsOnBottom;
     bool m_bMusicLibraryAlbumsSortByArtistThenYear;
+    bool m_bMusicLibraryCleanOnUpdate;
     CStdString m_strMusicLibraryAlbumFormat;
     CStdString m_strMusicLibraryAlbumFormatRight;
     bool m_prioritiseAPEv2tags;
@@ -284,7 +318,6 @@ class CAdvancedSettings
     int m_iEdlCommBreakAutowait;    // seconds
     int m_iEdlCommBreakAutowind;    // seconds
 
-    bool m_bFirstLoop;
     int m_curlconnecttimeout;
     int m_curllowspeedtime;
     int m_curlretries;
@@ -321,12 +354,11 @@ class CAdvancedSettings
 
     CStdString m_cpuTempCmd;
     CStdString m_gpuTempCmd;
-    int m_bgInfoLoaderMaxThreads;
 
     /* PVR/TV related advanced settings */
     int m_iPVRTimeCorrection;     /*!< @brief correct all times (epg tags, timer tags, recording tags) by this amount of minutes. defaults to 0. */
     int m_iPVRInfoToggleInterval; /*!< @brief if there are more than 1 pvr gui info item available (e.g. multiple recordings active at the same time), use this toggle delay in milliseconds. defaults to 3000. */
-    bool m_bPVRShowEpgInfoOnEpgItemSelect; /*!< @brief when selecting an EPG fileitem, show the EPG info dialog if this setting is true. start playback on the selected channel if false */
+    bool m_bPVRShowEpgInfoOnEpgItemSelect; /*!< @brief when selecting an EPG fileitem, show the EPG info dialog if this setting is true. start playback on the selected channel if false AND fileitem has started */
     int m_iPVRMinVideoCacheLevel;      /*!< @brief cache up to this level in the video buffer buffer before resuming playback if the buffers run dry */
     int m_iPVRMinAudioCacheLevel;      /*!< @brief cache up to this level in the audio buffer before resuming playback if the buffers run dry */
     bool m_bPVRCacheInDvdPlayer; /*!< @brief true to use "CACHESTATE_PVR" in CDVDPlayer (default) */
@@ -348,6 +380,8 @@ class CAdvancedSettings
     unsigned int m_addonPackageFolderSize;
 
     unsigned int m_cacheMemBufferSize;
+    unsigned int m_networkBufferMode;
+    float m_readBufferFactor;
 
     bool m_jsonOutputCompact;
     unsigned int m_jsonTcpPort;
@@ -360,6 +394,21 @@ class CAdvancedSettings
     bool m_initialized;
 
     void SetDebugMode(bool debug);
+    void SetExtraLogsFromAddon(ADDON::IAddon* addon);
+
+    // runtime settings which cannot be set from advancedsettings.xml
+    CStdString m_pictureExtensions;
+    CStdString m_musicExtensions;
+    CStdString m_videoExtensions;
+    CStdString m_discStubExtensions;
+    CStdString m_subtitlesExtensions;
+
+    CStdString m_stereoscopicflags_sbs;
+    CStdString m_stereoscopicflags_tab;
+
+    CStdString m_logFolder;
+
+    CStdString m_userAgent;
 };
 
 XBMC_GLOBAL(CAdvancedSettings,g_advancedSettings);

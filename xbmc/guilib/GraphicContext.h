@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -47,6 +47,8 @@
 #include "Resolution.h"
 #include "utils/GlobalsHandling.h"
 #include "DirtyRegion.h"
+#include "settings/ISettingCallback.h"
+#include "rendering/RenderSystem.h"
 
 enum VIEW_TYPE { VIEW_TYPE_NONE = 0,
                  VIEW_TYPE_LIST,
@@ -62,12 +64,21 @@ enum VIEW_TYPE { VIEW_TYPE_NONE = 0,
                  VIEW_TYPE_AUTO,
                  VIEW_TYPE_MAX };
 
+enum AdjustRefreshRate
+{
+  ADJUST_REFRESHRATE_OFF          = 0,
+  ADJUST_REFRESHRATE_ALWAYS,
+  ADJUST_REFRESHRATE_ON_STARTSTOP
+};
 
-class CGraphicContext : public CCriticalSection
+class CGraphicContext : public CCriticalSection,
+                        public ISettingCallback
 {
 public:
   CGraphicContext(void);
   virtual ~CGraphicContext(void);
+
+  virtual void OnSettingChanged(const CSetting *setting);
 
   // the following two functions should wrap any
   // GL calls to maintain thread safety
@@ -102,14 +113,20 @@ public:
   void ResetScreenParameters(RESOLUTION res);
   void Lock() { lock(); }
   void Unlock() { unlock(); }
-  float GetPixelRatio(RESOLUTION iRes) const;
   void CaptureStateBlock();
   void ApplyStateBlock();
   void Clear(color_t color = 0);
   void GetAllowedResolutions(std::vector<RESOLUTION> &res);
 
   // output scaling
-  const RESOLUTION_INFO &GetResInfo() const;
+  const RESOLUTION_INFO GetResInfo() const
+  {
+    return GetResInfo(m_Resolution);
+  }
+  const RESOLUTION_INFO GetResInfo(RESOLUTION res) const;
+  void SetResInfo(RESOLUTION res, const RESOLUTION_INFO& info);
+
+
   void SetRenderingResolution(const RESOLUTION_INFO &res, bool needsScaling);  ///< Sets scaling up for rendering
   void SetScalingResolution(const RESOLUTION_INFO &res, bool needsScaling);    ///< Sets scaling up for skin loading etc.
   float GetScalingPixelRatio() const;
@@ -133,6 +150,10 @@ public:
   void SetOrigin(float x, float y);
   void RestoreOrigin();
   void SetCameraPosition(const CPoint &camera);
+  void SetStereoView(RENDER_STEREO_VIEW view);
+  RENDER_STEREO_VIEW GetStereoView()  { return m_stereoView; }
+  void SetStereoMode(RENDER_STEREO_MODE mode) { m_nextStereoMode = mode; }
+  RENDER_STEREO_MODE GetStereoMode()  { return m_stereoMode; }
   void RestoreCameraPosition();
   /*! \brief Set a region in which to clip all rendering
    Anything that is rendered after setting a clip region will be clipped so that no part renders
@@ -169,17 +190,15 @@ public:
   void ApplyHardwareTransform();
   void RestoreHardwareTransform();
   void ClipRect(CRect &vertex, CRect &texture, CRect *diffuse = NULL);
-  inline unsigned int AddGUITransform()
+  inline void AddGUITransform()
   {
-    unsigned int size = m_groupTransform.size();
     m_groupTransform.push(m_guiTransform);
     UpdateFinalTransform(m_groupTransform.top());
-    return size;
   }
   inline TransformMatrix AddTransform(const TransformMatrix &matrix)
   {
-    ASSERT(m_groupTransform.size());
-    TransformMatrix absoluteMatrix = m_groupTransform.size() ? m_groupTransform.top() * matrix : matrix;
+    ASSERT(!m_groupTransform.empty());
+    TransformMatrix absoluteMatrix = m_groupTransform.empty() ? matrix : m_groupTransform.top() * matrix;
     m_groupTransform.push(absoluteMatrix);
     UpdateFinalTransform(absoluteMatrix);
     return absoluteMatrix;
@@ -188,21 +207,24 @@ public:
   {
     // TODO: We only need to add it to the group transform as other transforms may be added on top of this one later on
     //       Once all transforms are cached then this can be removed and UpdateFinalTransform can be called directly
-    ASSERT(m_groupTransform.size());
+    ASSERT(!m_groupTransform.empty());
     m_groupTransform.push(matrix);
     UpdateFinalTransform(m_groupTransform.top());
   }
-  inline unsigned int RemoveTransform()
+  inline void RemoveTransform()
   {
-    ASSERT(m_groupTransform.size());
-    if (m_groupTransform.size())
+    ASSERT(!m_groupTransform.empty());
+    if (!m_groupTransform.empty())
       m_groupTransform.pop();
-    if (m_groupTransform.size())
+    if (!m_groupTransform.empty())
       UpdateFinalTransform(m_groupTransform.top());
     else
       UpdateFinalTransform(TransformMatrix());
-    return m_groupTransform.size();
   }
+
+  /* modifies final coordinates according to stereo mode if needed */
+  CRect StereoCorrection(const CRect &rect) const;
+  CPoint StereoCorrection(const CPoint &point) const;
 
   CRect generateAABB(const CRect &rect) const;
 
@@ -232,6 +254,9 @@ private:
   TransformMatrix m_guiTransform;
   TransformMatrix m_finalTransform;
   std::stack<TransformMatrix> m_groupTransform;
+  RENDER_STEREO_VIEW m_stereoView;
+  RENDER_STEREO_MODE m_stereoMode;
+  RENDER_STEREO_MODE m_nextStereoMode;
 
   CRect m_scissors;
 };

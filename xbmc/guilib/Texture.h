@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "gui3d.h"
 #include "utils/StdString.h"
 #include "XBTF.h"
+#include "guilib/imagefactory.h"
 
 #pragma pack(1)
 struct COLOR {unsigned char b,g,r,x;};	// Windows GDI expects 4bytes per color
@@ -31,8 +32,8 @@ struct COLOR {unsigned char b,g,r,x;};	// Windows GDI expects 4bytes per color
 
 class CTexture;
 class CGLTexture;
+class CPiTexture;
 class CDXTexture;
-struct ImageInfo;
 
 /*!
 \ingroup textures
@@ -101,7 +102,7 @@ public:
   void ClampToEdge();
 
   static unsigned int PadPow2(unsigned int x);
-  bool SwapBlueRed(unsigned char *pixels, unsigned int height, unsigned int pitch, unsigned int elements = 4, unsigned int offset=0);
+  static bool SwapBlueRed(unsigned char *pixels, unsigned int height, unsigned int pitch, unsigned int elements = 4, unsigned int offset=0);
 
 private:
   // no copy constructor
@@ -111,7 +112,7 @@ protected:
   bool LoadFromFileInMem(unsigned char* buffer, size_t size, const std::string& mimeType,
                          unsigned int maxWidth, unsigned int maxHeight);
   bool LoadFromFileInternal(const CStdString& texturePath, unsigned int maxWidth, unsigned int maxHeight, bool autoRotate);
-  void LoadFromImage(ImageInfo &image, bool autoRotate = false);
+  bool LoadIImage(IImage* pImage, unsigned char* buffer, unsigned int bufSize, unsigned int width, unsigned int height, bool autoRotate=false);
   // helpers for computation of texture parameters for compressed textures
   unsigned int GetPitch(unsigned int width) const;
   unsigned int GetRows(unsigned int height) const;
@@ -131,7 +132,10 @@ protected:
   bool m_hasAlpha;
 };
 
-#if defined(HAS_GL) || defined(HAS_GLES)
+#if defined(HAS_OMXPLAYER)
+#include "TexturePi.h"
+#define CTexture CPiTexture
+#elif defined(HAS_GL) || defined(HAS_GLES)
 #include "TextureGL.h"
 #define CTexture CGLTexture
 #elif defined(HAS_DX)

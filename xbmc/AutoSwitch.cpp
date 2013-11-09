@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,11 +19,11 @@
  */
 
 #include "AutoSwitch.h"
-#include "settings/Settings.h"
-#include "settings/GUISettings.h"
-#include "guilib/GUIWindowManager.h"
 #include "FileItem.h"
-#include "guilib/Key.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/WindowIDs.h"
+#include "settings/Settings.h"
+#include "view/ViewState.h"
 
 #define METHOD_BYFOLDERS  0
 #define METHOD_BYFILES   1
@@ -44,7 +44,7 @@ int CAutoSwitch::GetView(const CFileItemList &vecItems)
   int iSortMethod = -1;
   int iPercent = 0;
   int iCurrentWindow = g_windowManager.GetActiveWindow();
-  bool bHideParentFolderItems = !g_guiSettings.GetBool("filelists.showparentdiritems");
+  bool bHideParentFolderItems = !CSettings::Get().GetBool("filelists.showparentdiritems");
 
   switch (iCurrentWindow)
   {

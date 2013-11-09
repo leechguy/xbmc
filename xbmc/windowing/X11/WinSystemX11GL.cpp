@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include "WinSystemX11GL.h"
 #include "utils/log.h"
+#include "utils/StringUtils.h"
 
 CWinSystemX11GL::CWinSystemX11GL()
 {
@@ -138,7 +139,7 @@ void CWinSystemX11GL::SetVSyncImpl(bool enable)
     return;
 
   bool vendor_nvidia = strVendor.find("nvidia") != std::string::npos;
-  bool vendor_ati    = strVendor.compare(0, 3, "ati") == 0;
+  bool vendor_ati    = StringUtils::StartsWith(strVendor, "ati");
 
   if (m_glXSwapIntervalMESA && !m_iVSyncMode && vendor_ati)
   {

@@ -1,4 +1,22 @@
-
+/*
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
+ *
+ *  This Program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2, or (at your option)
+ *  any later version.
+ *
+ *  This Program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
+ *
+ */
 #ifndef SAVE_FILE_STATE_H__
 #define SAVE_FILE_STATE_H__
 
@@ -6,6 +24,8 @@
 #include "FileItem.h"
 #include "pvr/PVRManager.h"
 #include "pvr/recordings/PVRRecordings.h"
+#include "settings/MediaSettings.h"
+#include "network/upnp/UPnP.h"
 
 class CSaveFileStateJob : public CJob
 {
@@ -29,17 +49,30 @@ public:
 bool CSaveFileStateJob::DoWork()
 {
   CStdString progressTrackingFile = m_item.GetPath();
+
   if (m_item.HasVideoInfoTag() && m_item.GetVideoInfoTag()->m_strFileNameAndPath.Find("removable://") == 0)
     progressTrackingFile = m_item.GetVideoInfoTag()->m_strFileNameAndPath; // this variable contains removable:// suffixed by disc label+uniqueid or is empty if label not uniquely identified
-  else if (m_item.HasProperty("original_listitem_url") && 
-      URIUtils::IsPlugin(m_item.GetProperty("original_listitem_url").asString()))
-    progressTrackingFile = m_item.GetProperty("original_listitem_url").asString();
+  else if (m_item.HasProperty("original_listitem_url"))
+  {
+    // only use original_listitem_url for Python, UPnP and Bluray sources
+    CStdString original = m_item.GetProperty("original_listitem_url").asString();
+    if (URIUtils::IsPlugin(original) || URIUtils::IsUPnP(original) || URIUtils::IsBluray(m_item.GetPath()))
+      progressTrackingFile = original;
+  }
 
   if (progressTrackingFile != "")
   {
+#ifdef HAS_UPNP
+    // checks if UPnP server of this file is available and supports updating
+    if (URIUtils::IsUPnP(progressTrackingFile)
+          && UPNP::CUPnP::SaveFileState(m_item, m_bookmark, m_updatePlayCount)) {
+        return true;
+    }
+#endif
     if (m_item.IsVideo())
     {
-      CLog::Log(LOGDEBUG, "%s - Saving file state for video item %s", __FUNCTION__, progressTrackingFile.c_str());
+      std::string redactPath = CURL::GetRedacted(progressTrackingFile);
+      CLog::Log(LOGDEBUG, "%s - Saving file state for video item %s", __FUNCTION__, redactPath.c_str());
 
       CVideoDatabase videodatabase;
       if (!videodatabase.Open())
@@ -54,7 +87,7 @@ bool CSaveFileStateJob::DoWork()
         {
           if (m_updatePlayCount)
           {
-            CLog::Log(LOGDEBUG, "%s - Marking video item %s as watched", __FUNCTION__, progressTrackingFile.c_str());
+            CLog::Log(LOGDEBUG, "%s - Marking video item %s as watched", __FUNCTION__, redactPath.c_str());
 
             // consider this item as played
             videodatabase.IncrementPlayCount(m_item);
@@ -87,23 +120,37 @@ bool CSaveFileStateJob::DoWork()
               recording->m_resumePoint = m_bookmark;
             }
 
+            // UPnP announce resume point changes to clients
+            // however not if playcount is modified as that already announces
+            if (m_item.IsVideoDb() && !m_updatePlayCount)
+            {
+              CVariant data;
+              data["id"] = m_item.GetVideoInfoTag()->m_iDbId;
+              data["type"] = m_item.GetVideoInfoTag()->m_type;
+              ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnUpdate", data);
+            }
+
             updateListing = true;
           }
         }
 
-        if (g_settings.m_currentVideoSettings != g_settings.m_defaultVideoSettings)
+        if (CMediaSettings::Get().GetCurrentVideoSettings() != CMediaSettings::Get().GetDefaultVideoSettings())
         {
-          videodatabase.SetVideoSettings(progressTrackingFile, g_settings.m_currentVideoSettings);
+          videodatabase.SetVideoSettings(progressTrackingFile, CMediaSettings::Get().GetCurrentVideoSettings());
         }
 
-        if ((m_item.IsDVDImage() ||
-             m_item.IsDVDFile()    ) &&
-             m_item.HasVideoInfoTag() &&
-             m_item.GetVideoInfoTag()->HasStreamDetails())
+        if (m_item.HasVideoInfoTag() && m_item.GetVideoInfoTag()->HasStreamDetails())
         {
-          videodatabase.SetStreamDetailsForFile(m_item.GetVideoInfoTag()->m_streamDetails,progressTrackingFile);
-          updateListing = true;
+          CFileItem dbItem(m_item);
+
+          // Check whether the item's db streamdetails need updating
+          if (!videodatabase.GetStreamDetails(dbItem) || dbItem.GetVideoInfoTag()->m_streamDetails != m_item.GetVideoInfoTag()->m_streamDetails)
+          {
+            videodatabase.SetStreamDetailsForFile(m_item.GetVideoInfoTag()->m_streamDetails, progressTrackingFile);
+            updateListing = true;
+          }
         }
+
         // in order to properly update the the list, we need to update the stack item which is held in g_application.m_stackFileItemToUpdate
         if (m_item.HasProperty("stackFileItemToUpdate"))
         {
@@ -126,7 +173,8 @@ bool CSaveFileStateJob::DoWork()
 
     if (m_item.IsAudio())
     {
-      CLog::Log(LOGDEBUG, "%s - Saving file state for audio item %s", __FUNCTION__, m_item.GetPath().c_str());
+      std::string redactPath = CURL::GetRedacted(progressTrackingFile);
+      CLog::Log(LOGDEBUG, "%s - Saving file state for audio item %s", __FUNCTION__, redactPath.c_str());
 
       if (m_updatePlayCount)
       {
@@ -144,7 +192,7 @@ bool CSaveFileStateJob::DoWork()
           else
           {
             // consider this item as played
-            CLog::Log(LOGDEBUG, "%s - Marking audio item %s as listened", __FUNCTION__, m_item.GetPath().c_str());
+            CLog::Log(LOGDEBUG, "%s - Marking audio item %s as listened", __FUNCTION__, redactPath.c_str());
 
             musicdatabase.IncrementPlayCount(m_item);
             musicdatabase.Close();

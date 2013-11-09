@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -64,7 +64,7 @@ bool CPlayListPLS::Load(const CStdString &strFile)
   Clear();
 
   bool bShoutCast = false;
-  if( strFileName.Left(8).Equals("shout://") )
+  if( StringUtils::StartsWithNoCase(strFileName, "shout://") )
   {
     strFileName.Delete(0, 8);
     strFileName.Insert(0, "http://");

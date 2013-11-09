@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,11 +24,11 @@
 #include "XTimeUtils.h"
 #include "filesystem/SpecialProtocol.h"
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include "XHandle.h"
 #include <sys/types.h>
 #include <sys/stat.h>
-#if !defined(TARGET_DARWIN) && !defined(__FreeBSD__) && !defined(__ANDROID__)
+#if !defined(TARGET_DARWIN) && !defined(TARGET_FREEBSD) && !defined(TARGET_ANDROID)
 #include <sys/vfs.h>
 #else
 #include <sys/param.h>
@@ -37,7 +37,7 @@
 #include <dirent.h>
 #include <errno.h>
 
-#if defined(__ANDROID__)
+#if defined(TARGET_ANDROID)
 #include <sys/file.h>
 #include <sys/statfs.h>
 
@@ -67,7 +67,7 @@ HANDLE FindFirstFile(LPCSTR szPath,LPWIN32_FIND_DATA lpFindData)
   strPath.Replace("\\","/");
 
   // if the file name is a directory then we add a * to look for all files in this directory
-#if defined(TARGET_DARWIN) || defined(__FreeBSD__) || defined(__ANDROID__)
+#if defined(TARGET_DARWIN) || defined(TARGET_FREEBSD) || defined(TARGET_ANDROID)
   DIR *testDir = opendir(strPath.c_str());
 #else
   DIR *testDir = opendir(szPath);
@@ -100,11 +100,11 @@ HANDLE FindFirstFile(LPCSTR szPath,LPWIN32_FIND_DATA lpFindData)
   strFiles.MakeLower();  // Do we really want this case insensitive?
   CRegExp re(true);
 
-  if (re.RegComp(strFiles.c_str()) == NULL)
+  if (!re.RegComp(strFiles.c_str()))
     return(INVALID_HANDLE_VALUE);
 
   struct dirent **namelist = NULL;
-#if defined(__ANDROID__)
+#if defined(TARGET_ANDROID)
   // android is more strict with the sort function. Let's hope it is implemented correctly.
   typedef int (*sortFunc)(const struct dirent ** a, const struct dirent **b);
   int n = scandir(strDir, &namelist, 0, (sortFunc)alphasort);
@@ -275,8 +275,8 @@ HANDLE CreateFile(LPCTSTR lpFileName, DWORD dwDesiredAccess,
 
   if (fd == -1)
   {
-if (errno == 20)
-    CLog::Log(LOGWARNING,"%s, error %d opening file <%s>, flags:%x, mode:%x. ", __FUNCTION__, errno, lpFileName, flags, mode);
+    if (errno == 20)
+      CLog::Log(LOGWARNING,"%s, error %d opening file <%s>, flags:%x, mode:%x. ", __FUNCTION__, errno, lpFileName, flags, mode);
     return INVALID_HANDLE_VALUE;
   }
 
@@ -574,7 +574,7 @@ DWORD  SetFilePointer(HANDLE hFile, int32_t lDistanceToMove,
     nMode = SEEK_END;
 
   off64_t currOff;
-#if defined(TARGET_DARWIN) || defined(__FreeBSD__)
+#if defined(TARGET_DARWIN) || defined(TARGET_FREEBSD)
   currOff = lseek(hFile->fd, offset, nMode);
 #else
   currOff = lseek64(hFile->fd, offset, nMode);
@@ -597,9 +597,9 @@ BOOL GetDiskFreeSpaceEx(
   )
 
 {
-#if defined(__ANDROID__)
+#if defined(TARGET_ANDROID) || defined(TARGET_DARWIN)
   struct statfs fsInfo;
-  // is 64-bit on android
+  // is 64-bit on android and darwin (10.6SDK + any iOS)
   if (statfs(CSpecialProtocol::TranslatePath(lpDirectoryName), &fsInfo) != 0)
     return false;
 #else
@@ -644,7 +644,7 @@ BOOL SetEndOfFile(HANDLE hFile)
     return false;
 
   // get the current offset
-#if defined(TARGET_DARWIN) || defined(__FreeBSD__)
+#if defined(TARGET_DARWIN) || defined(TARGET_FREEBSD)
   off64_t currOff = lseek(hFile->fd, 0, SEEK_CUR);
 #else
   off64_t currOff = lseek64(hFile->fd, 0, SEEK_CUR);
@@ -675,7 +675,7 @@ BOOL SetFilePointerEx(  HANDLE hFile,
 
   off64_t toMove = liDistanceToMove.QuadPart;
 
-#if defined(TARGET_DARWIN) || defined(__FreeBSD__)
+#if defined(TARGET_DARWIN) || defined(TARGET_FREEBSD)
   off64_t currOff = lseek(hFile->fd, toMove, nMode);
 #else
   off64_t currOff = lseek64(hFile->fd, toMove, nMode);

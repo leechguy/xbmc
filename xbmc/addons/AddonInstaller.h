@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2011-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2011-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -122,6 +122,16 @@ private:
    */
   bool DoInstall(const ADDON::AddonPtr &addon, const CStdString &hash = "", bool update = false, const CStdString &referer = "", bool background = true);
 
+  /*! \brief Check whether dependencies of an addon exist or are installable.
+   Iterates through the addon's dependencies, checking they're installed or installable.
+   Each dependency must also satisfies CheckDependencies in turn.
+   \param addon the addon to check
+   \param preDeps previous dependencies encountered during recursion. aids in avoiding infinite recursion
+   \return true if dependencies are available, false otherwise.
+   */
+  bool CheckDependencies(const ADDON::AddonPtr &addon,
+                         std::vector<std::string>& preDeps);
+
   void PrunePackageCache();
   int64_t EnumeratePackageFolder(std::map<CStdString,CFileItemList*>& result);
 
@@ -148,10 +158,16 @@ public:
    \param addonFolder - the folder to delete
    */
   static bool DeleteAddon(const CStdString &addonFolder);
+
+  /*! \brief Find which repository hosts an add-on
+   *  \param addon The add-on to find the repository for
+   *  \return The hosting repository
+   */
+  static ADDON::AddonPtr GetRepoForAddon(const ADDON::AddonPtr& addon);
 private:
   bool OnPreInstall();
   void OnPostInstall(bool reloadAddon);
-  bool Install(const CStdString &installFrom);
+  bool Install(const CStdString &installFrom, const ADDON::AddonPtr& repo=ADDON::AddonPtr());
   bool DownloadPackage(const CStdString &path, const CStdString &dest);
 
   /*! \brief Queue a notification for addon installation/update failure

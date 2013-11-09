@@ -1,5 +1,3 @@
-INCLUDES=-I../../.. -I. -I../../ -I../../linux -I../../../guilib -I.
-
 ifeq (@USE_DOXYGEN@,1)
 DOXYGEN=@DOXYGEN_EXE@
 endif
@@ -13,8 +11,8 @@ all: $(LIB)
 
 include ../../../codegenerator.mk
 
-SRCS=	CallbackHandler.cpp LanguageHook.cpp \
-	XBPyThread.cpp XBPython.cpp swig.cpp PyContext.cpp \
+SRCS=	AddonPythonInvoker.cpp CallbackHandler.cpp LanguageHook.cpp \
+	PythonInvoker.cpp XBPython.cpp swig.cpp PyContext.cpp \
 	$(GENERATED)
 
 INCLUDES += @PYTHON_CPPFLAGS@

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,8 +23,8 @@
 #include <math.h>
 
 #include "utils/CharsetConverter.h"
+#include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
-#include "settings/GUISettings.h"
 #include "guilib/GUITextLayout.h"
 #include "guilib/GUIFont.h"
 #include "karaokelyricstext.h"
@@ -68,7 +68,7 @@ CKaraokeLyricsText::CKaraokeLyricsText()
   m_preambleLayout = 0;
   m_karaokeFont = 0;
 
-  int coloridx = g_guiSettings.GetInt("karaoke.fontcolors");
+  int coloridx = CSettings::Get().GetInt("karaoke.fontcolors");
   if ( coloridx < KARAOKE_COLOR_START || coloridx >= KARAOKE_COLOR_END )
     coloridx = 0;
 
@@ -139,11 +139,13 @@ bool CKaraokeLyricsText::InitGraphics()
   if ( m_lyrics.empty() )
     return false;
 
-  CStdString fontPath = "special://xbmc/media/Fonts/" + g_guiSettings.GetString("karaoke.font");
+  CStdString fontPath = URIUtils::AddFileToFolder("special://home/media/Fonts/", CSettings::Get().GetString("karaoke.font"));
+  if (!XFILE::CFile::Exists(fontPath))
+      fontPath = URIUtils::AddFileToFolder("special://xbmc/media/Fonts/", CSettings::Get().GetString("karaoke.font"));
   m_karaokeFont = g_fontManager.LoadTTF("__karaoke__", fontPath,
-                  m_colorLyrics, 0, g_guiSettings.GetInt("karaoke.fontheight"), FONT_STYLE_BOLD );
+                  m_colorLyrics, 0, CSettings::Get().GetInt("karaoke.fontheight"), FONT_STYLE_BOLD );
   CGUIFont *karaokeBorder = g_fontManager.LoadTTF("__karaokeborder__", fontPath,
-                            m_colorLyrics, 0, g_guiSettings.GetInt("karaoke.fontheight"), FONT_STYLE_BOLD, true );
+                            m_colorLyrics, 0, CSettings::Get().GetInt("karaoke.fontheight"), FONT_STYLE_BOLD, true );
 
   if ( !m_karaokeFont )
   {
@@ -313,9 +315,9 @@ void CKaraokeLyricsText::Render()
   }
 
   // Calculate drawing parameters
-  RESOLUTION resolution = g_graphicsContext.GetVideoResolution();
-  g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetResInfo(), false);
-  float maxWidth = (float) g_settings.m_ResInfo[resolution].Overscan.right - g_settings.m_ResInfo[resolution].Overscan.left;
+  const RESOLUTION_INFO info = g_graphicsContext.GetResInfo();
+  g_graphicsContext.SetRenderingResolution(info, false);
+  float maxWidth = (float) info.Overscan.right - info.Overscan.left;
 
   // We must only fall through for STATE_DRAW_SYLLABLE or STATE_PREAMBLE
   if ( updateText )
@@ -375,9 +377,9 @@ void CKaraokeLyricsText::Render()
     m_preambleLayout->Update( m_currentPreamble, maxWidth * 0.9f );
   }
 
-  float x = maxWidth * 0.5f + g_settings.m_ResInfo[resolution].Overscan.left;
-  float y = (float)g_settings.m_ResInfo[resolution].Overscan.top +
-      (g_settings.m_ResInfo[resolution].Overscan.bottom - g_settings.m_ResInfo[resolution].Overscan.top) / 8;
+  float x = maxWidth * 0.5f + info.Overscan.left;
+  float y = (float)info.Overscan.top +
+      (info.Overscan.bottom - info.Overscan.top) / 8;
 
   float textWidth, textHeight;
   m_karaokeLayout->GetTextExtent(textWidth, textHeight);
@@ -460,8 +462,8 @@ void CKaraokeLyricsText::rescanLyrics()
 
   // Second, add spaces if less than 5%, and rescan to gather more data.
   bool add_spaces = (syllables && (spaces * 100 / syllables < 5)) ? true : false;
-  RESOLUTION res = g_graphicsContext.GetVideoResolution();
-  float maxWidth = (float) g_settings.m_ResInfo[res].Overscan.right - g_settings.m_ResInfo[res].Overscan.left;
+  const RESOLUTION_INFO info = g_graphicsContext.GetResInfo();
+  float maxWidth = (float) info.Overscan.right - info.Overscan.left;
 
   CStdString line_text;
   int prev_line_idx = -1;

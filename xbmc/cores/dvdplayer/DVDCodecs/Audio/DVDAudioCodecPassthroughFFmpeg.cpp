@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,9 +21,11 @@
 #include "DVDAudioCodecPassthroughFFmpeg.h"
 #include "DVDCodecs/DVDCodecs.h"
 #include "DVDStreamInfo.h"
-#include "settings/GUISettings.h"
+#include "cores/AudioEngine/Utils/AEUtil.h"
+#include "settings/MediaSettings.h"
 #include "settings/Settings.h"
 #include "utils/log.h"
+#include "cores/AudioEngine/AEFactory.h"
 
 //These values are forced to allow spdif out
 #define OUT_SAMPLESIZE 16
@@ -59,6 +61,11 @@ CDVDAudioCodecPassthroughFFmpeg::CDVDAudioCodecPassthroughFFmpeg(void)
   /* make enough room for at-least two audio frames */
   m_DecodeSize   = 0;
   m_DecodeBuffer = NULL;
+  m_bSupportsAC3Out = false;
+  m_bSupportsDTSOut = false;
+  m_bSupportsAACOut = false;
+  m_LostSync = false;
+  
 }
 
 CDVDAudioCodecPassthroughFFmpeg::~CDVDAudioCodecPassthroughFFmpeg(void)
@@ -120,7 +127,7 @@ bool CDVDAudioCodecPassthroughFFmpeg::SetupMuxer(CDVDStreamInfo &hints, CStdStri
   /* request output of wanted endianness */
   if (!fOut->priv_class || m_dllAvUtil.av_opt_set(muxer.m_pFormat->priv_data, "spdif_flags", spdifFlags, 0) != 0)
   {
-#if defined(WORDS_BIGENDIAN) && !defined(__APPLE__)
+#if defined(WORDS_BIGENDIAN) && !defined(TARGET_DARWIN)
     CLog::Log(LOGERROR, "CDVDAudioCodecPassthroughFFmpeg::SetupMuxer - Unable to set big-endian stream mode (FFmpeg too old?), disabling passthrough");
     Dispose();
     return false;
@@ -139,7 +146,7 @@ bool CDVDAudioCodecPassthroughFFmpeg::SetupMuxer(CDVDStreamInfo &hints, CStdStri
 
   /* set the stream's parameters */
   m_SampleRate = hints.samplerate;
-  if(!m_SampleRate && hints.codec == CODEC_ID_AC3)
+  if(!m_SampleRate && hints.codec == AV_CODEC_ID_AC3)
     m_SampleRate = 48000;
 
   AVCodecContext *codec = muxer.m_pStream->codec;
@@ -277,9 +284,9 @@ bool CDVDAudioCodecPassthroughFFmpeg::SupportsFormat(CDVDStreamInfo &hints)
 {
   m_pSyncFrame = NULL;
 
-       if (m_bSupportsAC3Out && hints.codec == CODEC_ID_AC3) m_pSyncFrame = &CDVDAudioCodecPassthroughFFmpeg::SyncAC3;
-  else if (m_bSupportsDTSOut && hints.codec == CODEC_ID_DTS) m_pSyncFrame = &CDVDAudioCodecPassthroughFFmpeg::SyncDTS;
-  else if (m_bSupportsAACOut && hints.codec == CODEC_ID_AAC) m_pSyncFrame = &CDVDAudioCodecPassthroughFFmpeg::SyncAAC;
+       if (m_bSupportsAC3Out && hints.codec == AV_CODEC_ID_AC3) m_pSyncFrame = &CDVDAudioCodecPassthroughFFmpeg::SyncAC3;
+  else if (m_bSupportsDTSOut && hints.codec == AV_CODEC_ID_DTS) m_pSyncFrame = &CDVDAudioCodecPassthroughFFmpeg::SyncDTS;
+  else if (m_bSupportsAACOut && hints.codec == AV_CODEC_ID_AAC) m_pSyncFrame = &CDVDAudioCodecPassthroughFFmpeg::SyncAAC;
   else return false;
 
   return true;
@@ -287,20 +294,20 @@ bool CDVDAudioCodecPassthroughFFmpeg::SupportsFormat(CDVDStreamInfo &hints)
 
 bool CDVDAudioCodecPassthroughFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
 {
-  int audioMode = g_guiSettings.GetInt("audiooutput.mode");
-
   // TODO - move this stuff somewhere else
-  if (AUDIO_IS_BITSTREAM(audioMode))
+  bool m_bSupportsAC3Out    = CAEFactory::SupportsRaw(AE_FMT_AC3);
+  bool m_bSupportsEAC3Out   = CAEFactory::SupportsRaw(AE_FMT_EAC3);
+  bool m_bSupportsDTSOut    = CAEFactory::SupportsRaw(AE_FMT_DTS);
+
+  if ((hints.codec == AV_CODEC_ID_AC3 && !m_bSupportsAC3Out) ||
+      (hints.codec == AV_CODEC_ID_EAC3 && !m_bSupportsEAC3Out) ||
+      (hints.codec == AV_CODEC_ID_DTS && !m_bSupportsDTSOut))
   {
-    m_bSupportsAC3Out = g_guiSettings.GetBool("audiooutput.ac3passthrough");
-    m_bSupportsDTSOut = g_guiSettings.GetBool("audiooutput.dtspassthrough");
-    m_bSupportsAACOut = g_guiSettings.GetBool("audiooutput.passthroughaac");
-  }
-  else
     return false;
+  }
 
   // TODO - this is only valid for video files, and should be moved somewhere else
-  if( hints.channels == 2 && g_settings.m_currentVideoSettings.m_OutputToAllSpeakers )
+  if( hints.channels == 2 && CMediaSettings::Get().GetCurrentVideoSettings().m_OutputToAllSpeakers )
   {
     CLog::Log(LOGINFO, "CDVDAudioCodecPassthroughFFmpeg::Open - disabled passthrough due to video OTAS");
     return false;
@@ -328,7 +335,7 @@ bool CDVDAudioCodecPassthroughFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptio
   else
   {
     /* aac needs to be wrapped into ADTS frames */
-    if (hints.codec == CODEC_ID_AAC)
+    if (hints.codec == AV_CODEC_ID_AAC)
       if (!SetupMuxer(hints, "adts", m_ADTS))
       {
         CLog::Log(LOGERROR, "CDVDAudioCodecPassthroughFFmpeg::Open - Unable to setup ADTS muxer");
@@ -369,7 +376,7 @@ void CDVDAudioCodecPassthroughFFmpeg::Dispose()
   m_Codec   = NULL;
 }
 
-int CDVDAudioCodecPassthroughFFmpeg::Decode(BYTE* pData, int iSize)
+int CDVDAudioCodecPassthroughFFmpeg::Decode(uint8_t* pData, int iSize)
 {
   unsigned int used, fSize;
   fSize = iSize;
@@ -444,7 +451,7 @@ int CDVDAudioCodecPassthroughFFmpeg::Decode(BYTE* pData, int iSize)
     return used;
 }
 
-int CDVDAudioCodecPassthroughFFmpeg::GetData(BYTE** dst)
+int CDVDAudioCodecPassthroughFFmpeg::GetData(uint8_t** dst)
 {
   return GetMuxerData(m_SPDIF, dst);
 }
@@ -481,8 +488,8 @@ enum AEDataFormat CDVDAudioCodecPassthroughFFmpeg::GetDataFormat()
 {
   switch(m_codec)
   {
-    case CODEC_ID_AC3:      return AE_FMT_AC3;
-    case CODEC_ID_DTS:      return AE_FMT_DTS;
+    case AV_CODEC_ID_AC3:      return AE_FMT_AC3;
+    case AV_CODEC_ID_DTS:      return AE_FMT_DTS;
     default:
       return AE_FMT_INVALID; //Unknown stream type
   }
@@ -503,7 +510,7 @@ int CDVDAudioCodecPassthroughFFmpeg::GetBufferSize()
 }
 
 /* ========================== SYNC FUNCTIONS ========================== */
-unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncAC3(BYTE* pData, unsigned int iSize, unsigned int *fSize)
+unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncAC3(uint8_t* pData, unsigned int iSize, unsigned int *fSize)
 {
   unsigned int skip = 0;
   for(skip = 0; iSize - skip > 6; ++skip, ++pData)
@@ -560,7 +567,7 @@ unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncAC3(BYTE* pData, unsigned int 
   return iSize;
 }
 
-unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncDTS(BYTE* pData, unsigned int iSize, unsigned int *fSize)
+unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncDTS(uint8_t* pData, unsigned int iSize, unsigned int *fSize)
 {
   unsigned int skip;
   unsigned int srCode;
@@ -608,7 +615,7 @@ unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncDTS(BYTE* pData, unsigned int 
   return iSize;
 }
 
-unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncAAC(BYTE* pData, unsigned int iSize, unsigned int *fSize)
+unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncAAC(uint8_t* pData, unsigned int iSize, unsigned int *fSize)
 {
   unsigned int skip;
   for(skip = 0; iSize - skip > 5; ++skip, ++pData)

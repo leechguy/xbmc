@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,7 +24,10 @@
 
 #include <SDL/SDL_syswm.h>
 #include "WinSystemX11.h"
+#include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
+#include "settings/Setting.h"
+#include "guilib/GraphicContext.h"
 #include "guilib/Texture.h"
 #include "guilib/DispResource.h"
 #include "utils/log.h"
@@ -113,7 +116,7 @@ bool CWinSystemX11::DestroyWindowSystem()
 
 bool CWinSystemX11::CreateNewWindow(const CStdString& name, bool fullScreen, RESOLUTION_INFO& res, PHANDLE_EVENT_FUNC userFunction)
 {
-  RESOLUTION_INFO& desktop = g_settings.m_ResInfo[RES_DESKTOP];
+  RESOLUTION_INFO& desktop = CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP);
 
   if (fullScreen &&
       (res.iWidth != desktop.iWidth || res.iHeight != desktop.iHeight ||
@@ -172,6 +175,7 @@ bool CWinSystemX11::ResizeWindow(int newWidth, int newHeight, int newLeft, int n
 
   if ((m_SDLSurface = SDL_SetVideoMode(m_nWidth, m_nHeight, 0, options)))
   {
+    SetGrabMode();
     RefreshGlxContext();
     return true;
   }
@@ -214,6 +218,7 @@ bool CWinSystemX11::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
     if ((m_SDLSurface->flags & SDL_OPENGL) != SDL_OPENGL)
       CLog::Log(LOGERROR, "CWinSystemX11::SetFullScreen SDL_OPENGL not set, SDL_GetError:%s", SDL_GetError());
 
+    SetGrabMode();
     RefreshGlxContext();
 
     return true;
@@ -232,9 +237,9 @@ void CWinSystemX11::UpdateResolutions()
   {
     XOutput out  = g_xrandr.GetCurrentOutput();
     XMode   mode = g_xrandr.GetCurrentMode(out.name);
-    UpdateDesktopResolution(g_settings.m_ResInfo[RES_DESKTOP], 0, mode.w, mode.h, mode.hz);
-    g_settings.m_ResInfo[RES_DESKTOP].strId     = mode.id;
-    g_settings.m_ResInfo[RES_DESKTOP].strOutput = out.name;
+    UpdateDesktopResolution(CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP), 0, mode.w, mode.h, mode.hz);
+    CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP).strId     = mode.id;
+    CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP).strOutput = out.name;
   }
   else
 #endif
@@ -242,7 +247,7 @@ void CWinSystemX11::UpdateResolutions()
     int x11screen = DefaultScreen(m_dpy);
     int w = DisplayWidth(m_dpy, x11screen);
     int h = DisplayHeight(m_dpy, x11screen);
-    UpdateDesktopResolution(g_settings.m_ResInfo[RES_DESKTOP], 0, w, h, 0.0);
+    UpdateDesktopResolution(CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP), 0, w, h, 0.0);
   }
 
 
@@ -291,7 +296,7 @@ void CWinSystemX11::UpdateResolutions()
         res.dwFlags = 0;
 
       g_graphicsContext.ResetOverscan(res);
-      g_settings.m_ResInfo.push_back(res);
+      CDisplaySettings::Get().AddResolutionInfo(res);
     }
   }
 #endif
@@ -556,6 +561,39 @@ int CWinSystemX11::XErrorHandler(Display* dpy, XErrorEvent* error)
 bool CWinSystemX11::EnableFrameLimiter()
 {
   return m_minimized;
+}
+
+void CWinSystemX11::SetGrabMode(const CSetting *setting /*= NULL*/)
+{
+  bool enabled;
+  if (setting)
+    enabled = ((CSettingBool*)setting)->GetValue();
+  else
+    enabled = CSettings::Get().GetBool("input.enablesystemkeys");
+    
+  if (m_SDLSurface && m_SDLSurface->flags & SDL_FULLSCREEN)
+  {
+    if (enabled)
+    {
+      //SDL will always call XGrabPointer and XGrabKeyboard when in fullscreen
+      //so temporarily zero the SDL_FULLSCREEN flag, then turn off SDL grab mode
+      //this will make SDL call XUnGrabPointer and XUnGrabKeyboard
+      m_SDLSurface->flags &= ~SDL_FULLSCREEN;
+      SDL_WM_GrabInput(SDL_GRAB_OFF);
+      m_SDLSurface->flags |= SDL_FULLSCREEN;
+    }
+    else
+    {
+      //turn off key grabbing, which will actually make SDL turn it on when in fullscreen
+      SDL_WM_GrabInput(SDL_GRAB_OFF);
+    }
+  }
+}
+
+void CWinSystemX11::OnSettingChanged(const CSetting *setting)
+{
+  if (setting->GetId() == "input.enablesystemkeys")
+    SetGrabMode(setting);
 }
 
 #endif

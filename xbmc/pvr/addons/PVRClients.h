@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -427,6 +427,13 @@ namespace PVR
     int GetRecordingLastPlayedPosition(const CPVRRecording &recording);
 
     /*!
+    * @brief Retrieve the edit decision list (EDL) from the backend.
+    * @param recording The recording.
+    * @return The edit decision list (empty on error).
+    */
+    std::vector<PVR_EDL_ENTRY> GetRecordingEdl(const CPVRRecording &recording);
+
+    /*!
      * @brief Check whether there is an active recording on the current channel.
      * @return True if there is, false otherwise.
      */
@@ -512,8 +519,9 @@ namespace PVR
     /*!
      * @brief Open selection and progress PVR actions.
      * @param iClientId The ID of the client to process the menu entries for. Process the menu entries for the active channel if iClientId < 0.
+     * @param item The selected file item for which the hook was called.
      */
-    void ProcessMenuHooks(int iClientID, PVR_MENUHOOK_CAT cat);
+    void ProcessMenuHooks(int iClientID, PVR_MENUHOOK_CAT cat, const CFileItem *item);
 
     //@}
 
@@ -546,6 +554,7 @@ namespace PVR
     bool SupportsRadio(int iClientId) const;
     bool SupportsRecordingFolders(int iClientId) const;
     bool SupportsRecordingPlayCount(int iClientId) const;
+    bool SupportsRecordingEdl(int iClientId) const;
     bool SupportsTimers(int iClientId) const;
     bool SupportsTV(int iClientId) const;
     bool HandlesDemuxing(int iClientId) const;

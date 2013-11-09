@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2012 Team XBMC
+ *      Copyright (C) 2012-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -36,8 +36,9 @@
 #include "video/VideoInfoTag.h"
 #include "music/MusicDatabase.h"
 #include "music/tags/MusicInfoTag.h"
-#include "TextureCache.h"
+#include "TextureDatabase.h"
 #include "ThumbLoader.h"
+#include "utils/URIUtils.h"
 
 using namespace MUSIC_INFO;
 using namespace XFILE;
@@ -222,7 +223,7 @@ PopulateObjectFromTag(CMusicInfoTag&         tag,
         object.m_Creator = StringUtils::Join(tag.GetAlbumArtist(), g_advancedSettings.m_musicItemSeparator);
     object.m_MiscInfo.original_track_number = tag.GetTrackNumber();
     if(tag.GetDatabaseId() >= 0) {
-      object.m_ReferenceID = NPT_String::Format("musicdb://4/%i%s", tag.GetDatabaseId(), URIUtils::GetExtension(tag.GetURL()).c_str());
+      object.m_ReferenceID = NPT_String::Format("musicdb://songs/%i%s", tag.GetDatabaseId(), URIUtils::GetExtension(tag.GetURL()).c_str());
     }
     if (object.m_ReferenceID == object.m_ObjectID)
         object.m_ReferenceID = "";
@@ -256,12 +257,12 @@ PopulateObjectFromTag(CVideoInfoTag&         tag,
           object.m_ObjectClass.type = "object.item.videoItem.musicVideoClip";
           object.m_Creator = StringUtils::Join(tag.m_artist, g_advancedSettings.m_videoItemSeparator);
           object.m_Title = tag.m_strTitle;
-          object.m_ReferenceID = NPT_String::Format("videodb://3/2/%i", tag.m_iDbId);
+          object.m_ReferenceID = NPT_String::Format("videodb://musicvideos/titles/%i", tag.m_iDbId);
         } else if (tag.m_type == "movie") {
           object.m_ObjectClass.type = "object.item.videoItem.movie";
           object.m_Title = tag.m_strTitle;
           object.m_Date = NPT_String::FromInteger(tag.m_iYear) + "-01-01";
-          object.m_ReferenceID = NPT_String::Format("videodb://1/2/%i", tag.m_iDbId);
+          object.m_ReferenceID = NPT_String::Format("videodb://movies/titles/%i", tag.m_iDbId);
         } else {
           object.m_ObjectClass.type = "object.item.videoItem.videoBroadcast";
           object.m_Recorded.program_title  = "S" + ("0" + NPT_String::FromInteger(tag.m_iSeason)).Right(2);
@@ -273,7 +274,7 @@ PopulateObjectFromTag(CVideoInfoTag&         tag,
           object.m_Title = object.m_Recorded.series_title + " - " + object.m_Recorded.program_title;
           object.m_Date = tag.m_firstAired.GetAsDBDate();
           if(tag.m_iSeason != -1)
-              object.m_ReferenceID = NPT_String::Format("videodb://2/0/%i", tag.m_iDbId);
+              object.m_ReferenceID = NPT_String::Format("videodb://tvshows/0/%i", tag.m_iDbId);
         }
     }
 
@@ -517,7 +518,7 @@ BuildObject(CFileItem&                    item,
                   container->m_ObjectClass.type += ".storageFolder";
                   break;
             }
-        } else if (item.IsPlayList()) {
+        } else if (item.IsPlayList() || item.IsSmartPlayList()) {
             container->m_ObjectClass.type += ".playlistContainer";
         }
 
@@ -558,11 +559,10 @@ BuildObject(CFileItem&                    item,
         art.uri = upnp_server->BuildSafeResourceUri(
             rooturi,
             (*ips.GetFirstItem()).ToString(),
-            CTextureCache::GetWrappedImageURL(thumb).c_str());
+            CTextureUtils::GetWrappedImageURL(thumb).c_str());
 
         // Set DLNA profileID by extension, defaulting to JPEG.
-        NPT_String ext = URIUtils::GetExtension(thumb).c_str();
-        if (strcmp(ext, ".png") == 0) {
+        if (URIUtils::HasExtension(thumb, ".png")) {
             art.dlna_profile = "PNG_TN";
         } else {
             art.dlna_profile = "JPEG_TN";
@@ -572,7 +572,7 @@ BuildObject(CFileItem&                    item,
 
     fanart = item.GetArt("fanart");
     if (upnp_server && !fanart.empty())
-        upnp_server->AddSafeResourceUri(object, rooturi, ips, CTextureCache::GetWrappedImageURL(fanart), "xbmc.org:*:fanart:*");
+        upnp_server->AddSafeResourceUri(object, rooturi, ips, CTextureUtils::GetWrappedImageURL(fanart), "xbmc.org:*:fanart:*");
 
     return object;
 
@@ -810,38 +810,67 @@ CFileItemPtr BuildObject(PLT_MediaObject* entry)
   return pItem;
 }
 
+struct ResourcePrioritySort
+{
+  ResourcePrioritySort(const PLT_MediaObject* entry)
+  {
+    if (entry->m_ObjectClass.type.StartsWith("object.item.audioItem"))
+        m_content = "audio";
+    else if (entry->m_ObjectClass.type.StartsWith("object.item.imageItem"))
+        m_content = "image";
+    else if (entry->m_ObjectClass.type.StartsWith("object.item.videoItem"))
+        m_content = "video";
+  }
+
+  int  GetPriority(const PLT_MediaItemResource& res) const
+  {
+    int prio = 0;
+
+    if (m_content != "" && res.m_ProtocolInfo.GetContentType().StartsWith(m_content))
+        prio += 400;
+
+    NPT_Url url(res.m_Uri);
+    if (URIUtils::IsHostOnLAN((const char*)url.GetHost(), false))
+        prio += 300;
+
+    if (res.m_ProtocolInfo.GetProtocol() == "xbmc-get")
+        prio += 200;
+    else if (res.m_ProtocolInfo.GetProtocol() == "http-get")
+        prio += 100;
+
+    return prio;
+  }
+
+  int operator()(const PLT_MediaItemResource& lh, const PLT_MediaItemResource& rh) const
+  {
+    if(GetPriority(lh) < GetPriority(rh))
+        return 1;
+    else
+        return 0;
+  }
+
+  NPT_String m_content;
+};
+
 bool GetResource(const PLT_MediaObject* entry, CFileItem& item)
 {
   PLT_MediaItemResource resource;
 
   // store original path so we remember it
   item.SetProperty("original_listitem_url",  item.GetPath());
-  item.SetProperty("original_listitem_mime", item.GetMimeType(false));
+  item.SetProperty("original_listitem_mime", item.GetMimeType());
 
-  // look for a resource with "xbmc-get" protocol
-  // if we can't find one, try to find a valid resource
-  if(NPT_FAILED(NPT_ContainerFind(entry->m_Resources,
-                                  CResourceFinder("xbmc-get"), resource))) {
-    const char* content = NULL;
-    if (entry->m_ObjectClass.type.StartsWith("object.item.audioItem"))
-      content = "audio";
-    else if (entry->m_ObjectClass.type.StartsWith("object.item.imageItem"))
-      content = "image";
-    else if (entry->m_ObjectClass.type.StartsWith("object.item.videoItem"))
-      content = "video";
-
-    if(NPT_FAILED(NPT_ContainerFind(entry->m_Resources,
-                                    CResourceFinder("http-get", content), resource))) {
-      if(entry->m_Resources.GetItemCount()) {
-        // last attempt to find something suitable
-        resource = entry->m_Resources[0];
-      }
-      else {
-        CLog::Log(LOGERROR, "CUPnPDirectory::GetResource - no resources available for object %s", (const char*)entry->m_ObjectID);
-        return false;
-      }
-    }
+  // get a sorted list based on our preference
+  NPT_List<PLT_MediaItemResource> sorted;
+  for (NPT_Cardinal i = 0; i < entry->m_Resources.GetItemCount(); ++i) {
+      sorted.Add(entry->m_Resources[i]);
   }
+  sorted.Sort(ResourcePrioritySort(entry));
+
+  if(sorted.GetItemCount() == 0)
+    return false;
+
+  resource = *sorted.GetFirstItem();
 
   // if it's an item, path is the first url to the item
   // we hope the server made the first one reachable for us

@@ -2,8 +2,8 @@
 #define LINUX_TIMEZONE_
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,14 +21,20 @@
  *
  */
 
+#include "settings/ISettingCallback.h"
 #include "utils/StdString.h"
 #include <vector>
 #include <map>
 
-class CLinuxTimezone
+class CSetting;
+
+class CLinuxTimezone : public ISettingCallback
 {
 public:
    CLinuxTimezone();
+
+   virtual void OnSettingChanged(const CSetting *setting);
+
    CStdString GetOSConfiguredTimezone();
 
    std::vector<CStdString> GetCounties();
@@ -37,6 +43,10 @@ public:
 
    void SetTimezone(CStdString timezone);
    int m_IsDST;
+
+   static void SettingOptionsTimezoneCountriesFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current);
+   static void SettingOptionsTimezonesFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current);
+
 private:
    std::vector<CStdString> m_counties;
    std::map<CStdString, CStdString> m_countryByCode;

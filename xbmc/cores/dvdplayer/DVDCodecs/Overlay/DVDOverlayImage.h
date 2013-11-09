@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
  *
  */
 
+#include "PlatformDefs.h"
 #include "DVDOverlay.h"
 #include <string.h>
 #include <stdlib.h>
@@ -44,11 +45,16 @@ public:
   CDVDOverlayImage(const CDVDOverlayImage& src)
     : CDVDOverlay(src)
   {
-    data    = (BYTE*)malloc(src.linesize * src.height);
+    data    = (uint8_t*)malloc(src.linesize * src.height);
     memcpy(data, src.data, src.linesize * src.height);
 
-    palette = (uint32_t*)malloc(src.palette_colors * 4);
-    memcpy(palette, src.palette, src.palette_colors * 4);
+    if(src.palette)
+    {
+      palette = (uint32_t*)malloc(src.palette_colors * 4);
+      memcpy(palette, src.palette, src.palette_colors * 4);
+    }
+    else
+      palette = NULL;
 
     palette_colors = src.palette_colors;
     linesize       = src.linesize;
@@ -64,8 +70,18 @@ public:
   CDVDOverlayImage(const CDVDOverlayImage& src, int sub_x, int sub_y, int sub_w, int sub_h)
   : CDVDOverlay(src)
   {
-    palette = (uint32_t*)malloc(src.palette_colors * 4);
-    memcpy(palette, src.palette, src.palette_colors * 4);
+    int bpp;
+    if(src.palette)
+    {
+      bpp = 1;
+      palette = (uint32_t*)malloc(src.palette_colors * 4);
+      memcpy(palette, src.palette, src.palette_colors * 4);
+    }
+    else
+    {
+      bpp = 4;
+      palette = NULL;
+    }
 
     palette_colors = src.palette_colors;
     linesize       = sub_w;
@@ -76,14 +92,14 @@ public:
     source_width   = src.source_width;
     source_height  = src.source_height;
 
-    data = (BYTE*)malloc(height*linesize);
+    data = (uint8_t*)malloc(height*linesize);
 
-    BYTE* s = src.data_at(sub_x, sub_y);
-    BYTE* t = data;
+    uint8_t* s = src.data_at(sub_x, sub_y);
+    uint8_t* t = data;
 
     for(int row = 0;row < sub_h; ++row)
     {
-      memcpy(t, s, width);
+      memcpy(t, s, width*bpp);
       s += src.linesize;
       t += linesize;
     }
@@ -102,13 +118,23 @@ public:
     if(palette) free(palette);
   }
 
-  BYTE* data_at(int sub_x, int sub_y) const
+  virtual CDVDOverlayImage* Clone()
   {
-    return &data[(sub_y - y)*linesize +
-                 (sub_x - x)];
+    return new CDVDOverlayImage(*this);
   }
 
-  BYTE*  data;
+  uint8_t* data_at(int sub_x, int sub_y) const
+  {
+    int bpp;
+    if(palette)
+      bpp = 1;
+    else
+      bpp = 4;
+    return &data[(sub_y - y)*linesize +
+                 (sub_x - x)*bpp];
+  }
+
+  uint8_t*  data;
   int    linesize;
 
   uint32_t* palette;

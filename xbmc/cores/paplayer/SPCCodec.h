@@ -2,8 +2,8 @@
 #define SPC_CODEC_H_
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -37,7 +37,7 @@ public:
   virtual int ReadPCM(BYTE *pBuffer, int size, int *actualsize);
   virtual bool CanInit();
 private:
-#ifdef _LINUX
+#ifdef TARGET_POSIX
   typedef void  (__cdecl *LoadMethod) ( const void* p1);
   typedef void* (__cdecl *EmuMethod) ( void *p1, u32 p2, u32 p3);
   typedef void  (__cdecl *SeekMethod) ( u32 p1, b8 p2 );
@@ -53,7 +53,7 @@ private:
     LoadMethod LoadSPCFile;
     EmuMethod EmuAPU;
     SeekMethod SeekAPU;
-#ifdef _LINUX
+#ifdef TARGET_POSIX
     InitMethod InitAPU;
     DeInitMethod ResetAPU;
 #endif

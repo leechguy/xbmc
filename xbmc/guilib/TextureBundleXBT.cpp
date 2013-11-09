@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,14 +25,15 @@
 #include "GraphicContext.h"
 #include "utils/log.h"
 #include "addons/Skin.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "filesystem/SpecialProtocol.h"
 #include "utils/EndianSwap.h"
 #include "utils/URIUtils.h"
 #include "XBTF.h"
 #include <lzo/lzo1x.h>
+#include "utils/StringUtils.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #pragma comment(lib,"liblzo2.lib")
 #endif
 
@@ -58,7 +59,7 @@ bool CTextureBundleXBT::OpenBundle()
   {
     // if we are the theme bundle, we only load if the user has chosen
     // a valid theme (or the skin has a default one)
-    CStdString theme = g_guiSettings.GetString("lookandfeel.skintheme");
+    CStdString theme = CSettings::Get().GetString("lookandfeel.skintheme");
     if (!theme.IsEmpty() && theme.CompareNoCase("SKINDEFAULT"))
     {
       CStdString themeXBT(URIUtils::ReplaceExtension(theme, ".xbt"));
@@ -121,13 +122,12 @@ void CTextureBundleXBT::GetTexturesFromPath(const CStdString &path, std::vector<
 
   CStdString testPath = Normalize(path);
   URIUtils::AddSlashAtEnd(testPath);
-  int testLength = testPath.GetLength();
 
   std::vector<CXBTFFile>& files = m_XBTFReader.GetFiles();
   for (size_t i = 0; i < files.size(); i++)
   {
     CStdString path = files[i].GetPath();
-    if (path.Left(testLength).Equals(testPath))
+    if (StringUtils::StartsWithNoCase(path, testPath))
       textures.push_back(path);
   }
 }

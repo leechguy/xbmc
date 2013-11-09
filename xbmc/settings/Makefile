@@ -1,18 +1,22 @@
 SRCS=AdvancedSettings.cpp \
-     AppParamParser.cpp \
-     GUIDialogContentSettings.cpp \
-     GUIDialogLockSettings.cpp \
-     GUIDialogProfileSettings.cpp \
-     GUIDialogSettings.cpp \
-     GUISettings.cpp \
-     GUIWindowSettings.cpp \
-     GUIWindowSettingsCategory.cpp \
-     GUIWindowSettingsProfile.cpp \
-     GUIWindowSettingsScreenCalibration.cpp \
-     GUIWindowTestPattern.cpp \
-     Profile.cpp \
-     SettingsControls.cpp \
+     DisplaySettings.cpp \
+     ISetting.cpp \
+     ISettingControl.cpp \
+     MediaSettings.cpp \
+     MediaSourceSettings.cpp \
+     Setting.cpp \
+     SettingAddon.cpp \
+     SettingCategoryAccess.cpp \
+     SettingConditions.cpp \
+     SettingControl.cpp \
+     SettingDependency.cpp \
+     SettingPath.cpp \
+     SettingSection.cpp \
      Settings.cpp \
+     SettingsManager.cpp \
+     SettingRequirement.cpp \
+     SettingUpdate.cpp \
+     SkinSettings.cpp \
      VideoSettings.cpp \
 
 LIB=settings.a

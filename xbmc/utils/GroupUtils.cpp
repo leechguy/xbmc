@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -57,7 +57,7 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
       groupedItems.Add(item);
   }
 
-  if ((groupBy & GroupBySet) && setMap.size() > 0)
+  if ((groupBy & GroupBySet) && !setMap.empty())
   {
     CVideoDbUrl itemsUrl;
     if (!itemsUrl.FromString(baseDir))
@@ -76,7 +76,7 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
       pItem->GetVideoInfoTag()->m_iDbId = set->first;
       pItem->GetVideoInfoTag()->m_type = "set";
 
-      std::string basePath = StringUtils::Format("videodb://1/7/%ld/", set->first);
+      std::string basePath = StringUtils::Format("videodb://movies/sets/%ld/", set->first);
       CVideoDbUrl videoUrl;
       if (!videoUrl.FromString(basePath))
         pItem->SetPath(basePath);

@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
+ *      Copyright (C) 2005-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -27,8 +27,8 @@
 using namespace PERIPHERALS;
 using namespace std;
 
-CPeripheralNyxboard::CPeripheralNyxboard(const PeripheralType type, const PeripheralBusType busType, const CStdString &strLocation, const CStdString &strDeviceName, int iVendorId, int iProductId) :
-  CPeripheralHID(type, busType, strLocation, strDeviceName, iVendorId, iProductId)
+CPeripheralNyxboard::CPeripheralNyxboard(const PeripheralScanResult& scanResult) :
+  CPeripheralHID(scanResult)
 {
   m_features.push_back(FEATURE_NYXBOARD);
 }

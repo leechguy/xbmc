@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -75,13 +75,11 @@ enum CONTEXT_BUTTON { CONTEXT_BUTTON_CANCELLED = 0,
                       CONTEXT_BUTTON_INFO,
                       CONTEXT_BUTTON_INFO_ALL,
                       CONTEXT_BUTTON_CDDB,
-                      CONTEXT_BUTTON_UPDATE_LIBRARY,
-                      CONTEXT_BUTTON_UPDATE_TVSHOW,
+                      CONTEXT_BUTTON_REFRESH,
                       CONTEXT_BUTTON_SCAN,
                       CONTEXT_BUTTON_STOP_SCANNING,
                       CONTEXT_BUTTON_SET_ARTIST_THUMB,
                       CONTEXT_BUTTON_SET_SEASON_ART,
-                      CONTEXT_BUTTON_NOW_PLAYING,
                       CONTEXT_BUTTON_CANCEL_PARTYMODE,
                       CONTEXT_BUTTON_MARK_WATCHED,
                       CONTEXT_BUTTON_MARK_UNWATCHED,
@@ -126,6 +124,10 @@ enum CONTEXT_BUTTON { CONTEXT_BUTTON_CANCELLED = 0,
                       CONTEXT_BUTTON_RECORD_ITEM,
                       CONTEXT_BUTTON_TAGS_ADD_ITEMS,
                       CONTEXT_BUTTON_TAGS_REMOVE_ITEMS,
+                      CONTEXT_BUTTON_SET_MOVIESET,
+                      CONTEXT_BUTTON_MOVIESET_ADD_REMOVE_ITEMS,
+                      CONTEXT_BUTTON_BROWSE_INTO,
+                      CONTEXT_BUTTON_EDIT_SORTTITLE,
                       CONTEXT_BUTTON_USER1,
                       CONTEXT_BUTTON_USER2,
                       CONTEXT_BUTTON_USER3,

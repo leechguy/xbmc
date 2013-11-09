@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,8 +27,8 @@
 #include "filesystem/SpecialProtocol.h"
 #include "filesystem/StackDirectory.h"
 #include "network/DNSNameCache.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/MediaSettings.h"
 #include "URL.h"
 #include "StringUtils.h"
 
@@ -38,14 +38,6 @@
 using namespace std;
 using namespace XFILE;
 
-CStdString URIUtils::GetParentFolderURI(const CStdString& uri, bool preserveFileNameInPath)
-{
-  if (preserveFileNameInPath)
-    return AddFileToFolder(GetParentPath(uri), GetFileName(uri));
-  else
-    return GetParentPath(uri);
-}
-
 bool URIUtils::IsInPath(const CStdString &uri, const CStdString &baseURI)
 {
   CStdString uriPath = CSpecialProtocol::TranslatePath(uri);
@@ -54,28 +46,64 @@ bool URIUtils::IsInPath(const CStdString &uri, const CStdString &baseURI)
 }
 
 /* returns filename extension including period of filename */
-const CStdString URIUtils::GetExtension(const CStdString& strFileName)
+CStdString URIUtils::GetExtension(const CStdString& strFileName)
 {
-  if(IsURL(strFileName))
+  if (IsURL(strFileName))
   {
     CURL url(strFileName);
     return GetExtension(url.GetFileName());
   }
 
-  int period = strFileName.find_last_of('.');
-  if(period >= 0)
-  {
-    if( strFileName.find_first_of('/', period+1) != string::npos ) return "";
-    if( strFileName.find_first_of('\\', period+1) != string::npos ) return "";
-    return strFileName.substr(period);
-  }
-  else
-    return "";
+  size_t period = strFileName.find_last_of("./\\");
+  if (period == string::npos || strFileName[period] != '.')
+    return CStdString();
+
+  return strFileName.substr(period);
 }
 
-void URIUtils::GetExtension(const CStdString& strFile, CStdString& strExtension)
+bool URIUtils::HasExtension(const CStdString& strFileName)
 {
-  strExtension = GetExtension(strFile);
+  if (IsURL(strFileName))
+  {
+    CURL url(strFileName);
+    return HasExtension(url.GetFileName());
+  }
+
+  size_t iPeriod = strFileName.find_last_of("./\\");
+  return iPeriod != string::npos && strFileName[iPeriod] == '.';
+}
+
+bool URIUtils::HasExtension(const CStdString& strFileName, const CStdString& strExtensions)
+{
+  if (IsURL(strFileName))
+  {
+    CURL url(strFileName);
+    return HasExtension(url.GetFileName(), strExtensions);
+  }
+
+  // Search backwards so that '.' can be used as a search terminator.
+  CStdString::const_reverse_iterator itExtensions = strExtensions.rbegin();
+  while (itExtensions != strExtensions.rend())
+  {
+    // Iterate backwards over strFileName untill we hit a '.' or a mismatch
+    for (CStdString::const_reverse_iterator itFileName = strFileName.rbegin();
+         itFileName != strFileName.rend() && itExtensions != strExtensions.rend() &&
+         tolower(*itFileName) == *itExtensions;
+         ++itFileName, ++itExtensions)
+    {
+      if (*itExtensions == '.')
+        return true; // Match
+    }
+
+    // No match. Look for more extensions to try.
+    while (itExtensions != strExtensions.rend() && *itExtensions != '|')
+      ++itExtensions;
+
+    while (itExtensions != strExtensions.rend() && *itExtensions == '|')
+      ++itExtensions;
+  }
+
+  return false;
 }
 
 void URIUtils::RemoveExtension(CStdString& strFileName)
@@ -94,15 +122,15 @@ void URIUtils::RemoveExtension(CStdString& strFileName)
   // Extension found
   if (iPos > 0)
   {
-    CStdString strExtension;
-    GetExtension(strFileName, strExtension);
+    CStdString strExtension = GetExtension(strFileName);
     strExtension.ToLower();
     strExtension += "|";
 
     CStdString strFileMask;
-    strFileMask = g_settings.m_pictureExtensions;
-    strFileMask += "|" + g_settings.m_musicExtensions;
-    strFileMask += "|" + g_settings.m_videoExtensions;
+    strFileMask = g_advancedSettings.m_pictureExtensions;
+    strFileMask += "|" + g_advancedSettings.m_musicExtensions;
+    strFileMask += "|" + g_advancedSettings.m_videoExtensions;
+    strFileMask += "|" + g_advancedSettings.m_subtitlesExtensions;
 #if defined(TARGET_DARWIN)
     strFileMask += "|.py|.xml|.milk|.xpr|.xbt|.cdg|.app|.applescript|.workflow";
 #else
@@ -126,8 +154,7 @@ CStdString URIUtils::ReplaceExtension(const CStdString& strFile,
   }
 
   CStdString strChangedFile;
-  CStdString strExtension;
-  GetExtension(strFile, strExtension);
+  CStdString strExtension = GetExtension(strFile);
   if ( strExtension.size() )
   {
     strChangedFile = strFile.substr(0, strFile.size() - strExtension.size()) ;
@@ -168,6 +195,15 @@ const CStdString URIUtils::GetFileName(const CStdString& strFileNameAndPath)
 void URIUtils::Split(const CStdString& strFileNameAndPath,
                      CStdString& strPath, CStdString& strFileName)
 {
+  std::string strPathT, strFileNameT;
+  Split(strFileNameAndPath, strPathT, strFileNameT);
+  strPath = strPathT;
+  strFileName = strFileNameT;
+}
+
+void URIUtils::Split(const std::string& strFileNameAndPath,
+                     std::string& strPath, std::string& strFileName)
+{
   //Splits a full filename in path and file.
   //ex. smb://computer/share/directory/filename.ext -> strPath:smb://computer/share/directory/ and strFileName:filename.ext
   //Trailing slash will be preserved
@@ -184,8 +220,10 @@ void URIUtils::Split(const CStdString& strFileNameAndPath,
   if (i == 0)
     i--;
 
-  strPath = strFileNameAndPath.Left(i + 1);
-  strFileName = strFileNameAndPath.Right(strFileNameAndPath.size() - i - 1);
+  // take left including the directory separator
+  strPath = strFileNameAndPath.substr(0, i+1);
+  // everything to the right of the directory separator
+  strFileName = strFileNameAndPath.substr(i+1);
 }
 
 CStdStringArray URIUtils::SplitPath(const CStdString& strPath)
@@ -222,8 +260,7 @@ void URIUtils::GetCommonPath(CStdString& strParent, const CStdString& strPath)
   // they should at least share a / at the end, though for things such as path/cd1 and path/cd2 there won't be
   if (!HasSlashAtEnd(strParent))
   {
-    // currently GetDirectory() removes trailing slashes
-    GetDirectory(strParent.Mid(0), strParent);
+    strParent = GetDirectory(strParent);
     AddSlashAtEnd(strParent);
   }
 }
@@ -232,6 +269,7 @@ bool URIUtils::ProtocolHasParentInHostname(const CStdString& prot)
 {
   return prot.Equals("zip")
       || prot.Equals("rar")
+      || prot.Equals("apk")
       || prot.Equals("bluray")
       || prot.Equals("udf");
 }
@@ -275,15 +313,15 @@ bool URIUtils::GetParentPath(const CStdString& strPath, CStdString& strParent)
     CStackDirectory dir;
     CFileItemList items;
     dir.GetDirectory(strPath,items);
-    GetDirectory(items[0]->GetPath(),items[0]->m_strDVDLabel);
-    if (items[0]->m_strDVDLabel.Mid(0,6).Equals("rar://") || items[0]->m_strDVDLabel.Mid(0,6).Equals("zip://"))
+    items[0]->m_strDVDLabel = GetDirectory(items[0]->GetPath());
+    if (StringUtils::StartsWithNoCase(items[0]->m_strDVDLabel, "rar://") || StringUtils::StartsWithNoCase(items[0]->m_strDVDLabel, "zip://"))
       GetParentPath(items[0]->m_strDVDLabel, strParent);
     else
       strParent = items[0]->m_strDVDLabel;
     for( int i=1;i<items.Size();++i)
     {
-      GetDirectory(items[i]->GetPath(),items[i]->m_strDVDLabel);
-      if (items[0]->m_strDVDLabel.Mid(0,6).Equals("rar://") || items[0]->m_strDVDLabel.Mid(0,6).Equals("zip://"))
+      items[i]->m_strDVDLabel = GetDirectory(items[i]->GetPath());
+      if (StringUtils::StartsWithNoCase(items[0]->m_strDVDLabel, "rar://") || StringUtils::StartsWithNoCase(items[0]->m_strDVDLabel, "zip://"))
         items[i]->SetPath(GetParentPath(items[i]->m_strDVDLabel));
       else
         items[i]->SetPath(items[i]->m_strDVDLabel);
@@ -345,7 +383,7 @@ bool URIUtils::GetParentPath(const CStdString& strPath, CStdString& strParent)
   }
 
   int iPos = strFile.ReverseFind('/');
-#ifndef _LINUX
+#ifndef TARGET_POSIX
   if (iPos < 0)
   {
     iPos = strFile.ReverseFind('\\');
@@ -367,17 +405,30 @@ bool URIUtils::GetParentPath(const CStdString& strPath, CStdString& strParent)
   return true;
 }
 
-CStdString URIUtils::SubstitutePath(const CStdString& strPath)
+CStdString URIUtils::SubstitutePath(const CStdString& strPath, bool reverse /* = false */)
 {
   for (CAdvancedSettings::StringMapping::iterator i = g_advancedSettings.m_pathSubstitutions.begin();
       i != g_advancedSettings.m_pathSubstitutions.end(); i++)
   {
-    if (strncmp(strPath.c_str(), i->first.c_str(), HasSlashAtEnd(i->first.c_str()) ? i->first.size()-1 : i->first.size()) == 0)
+    if (!reverse)
     {
-      if (strPath.size() > i->first.size())
-        return URIUtils::AddFileToFolder(i->second, strPath.Mid(i->first.size()));
-      else
-        return i->second;
+      if (strncmp(strPath.c_str(), i->first.c_str(), HasSlashAtEnd(i->first.c_str()) ? i->first.size()-1 : i->first.size()) == 0)
+      {
+        if (strPath.size() > i->first.size())
+          return URIUtils::AddFileToFolder(i->second, strPath.Mid(i->first.size()));
+        else
+          return i->second;
+      }
+    }
+    else
+    {
+      if (strncmp(strPath.c_str(), i->second.c_str(), HasSlashAtEnd(i->second.c_str()) ? i->second.size()-1 : i->second.size()) == 0)
+      {
+        if (strPath.size() > i->second.size())
+          return URIUtils::AddFileToFolder(i->first, strPath.Mid(i->second.size()));
+        else
+          return i->first;
+      }
     }
   }
   return strPath;
@@ -406,7 +457,7 @@ bool URIUtils::IsRemote(const CStdString& strFile)
   }
 
   CURL url(strFile);
-  if(IsInArchive(strFile))
+  if(ProtocolHasParentInHostname(url.GetProtocol()))
     return IsRemote(url.GetHostName());
 
   if (!url.IsLocal())
@@ -417,9 +468,9 @@ bool URIUtils::IsRemote(const CStdString& strFile)
 
 bool URIUtils::IsOnDVD(const CStdString& strFile)
 {
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
   if (strFile.Mid(1,1) == ":")
-    return (GetDriveType(strFile.Left(2)) == DRIVE_CDROM);
+    return (GetDriveType(strFile.Left(3)) == DRIVE_CDROM);
 #endif
 
   if (strFile.Left(4).CompareNoCase("dvd:") == 0)
@@ -461,13 +512,26 @@ bool URIUtils::IsOnLAN(const CStdString& strPath)
     return true;
 
   CURL url(strPath);
-  if (url.GetProtocol() == "rar" || url.GetProtocol() == "zip")
+  if (ProtocolHasParentInHostname(url.GetProtocol()))
     return IsOnLAN(url.GetHostName());
 
   if(!IsRemote(strPath))
     return false;
 
   CStdString host = url.GetHostName();
+
+  return IsHostOnLAN(host);
+}
+
+static bool addr_match(uint32_t addr, const char* target, const char* submask)
+{
+  uint32_t addr2 = ntohl(inet_addr(target));
+  uint32_t mask = ntohl(inet_addr(submask));
+  return (addr & mask) == (addr2 & mask);
+}
+
+bool URIUtils::IsHostOnLAN(const CStdString& host, bool offLineCheck)
+{
   if(host.length() == 0)
     return false;
 
@@ -476,7 +540,7 @@ bool URIUtils::IsOnLAN(const CStdString& strPath)
   if(host.find('.') == string::npos)
     return true;
 
-  unsigned long address = ntohl(inet_addr(host.c_str()));
+  uint32_t address = ntohl(inet_addr(host.c_str()));
   if(address == INADDR_NONE)
   {
     CStdString ip;
@@ -486,6 +550,15 @@ bool URIUtils::IsOnLAN(const CStdString& strPath)
 
   if(address != INADDR_NONE)
   {
+    if (offLineCheck) // check if in private range, ref https://en.wikipedia.org/wiki/Private_network
+    {
+      if (
+        addr_match(address, "192.168.0.0", "255.255.0.0") ||
+        addr_match(address, "10.0.0.0", "255.0.0.0") ||
+        addr_match(address, "172.16.0.0", "255.240.0.0")
+        )
+        return true;
+    }
     // check if we are on the local subnet
     if (!g_application.getNetwork().GetFirstConnectedInterface())
       return false;
@@ -499,7 +572,7 @@ bool URIUtils::IsOnLAN(const CStdString& strPath)
 
 bool URIUtils::IsMultiPath(const CStdString& strPath)
 {
-  return strPath.Left(10).Equals("multipath:");
+  return StringUtils::StartsWithNoCase(strPath, "multipath:");
 }
 
 bool URIUtils::IsHD(const CStdString& strFileName)
@@ -512,7 +585,7 @@ bool URIUtils::IsHD(const CStdString& strFileName)
   if(IsStack(strFileName))
     return IsHD(CStackDirectory::GetFirstStackedFile(strFileName));
 
-  if (IsInArchive(strFileName))
+  if (ProtocolHasParentInHostname(url.GetProtocol()))
     return IsHD(url.GetHostName());
 
   return url.GetProtocol().IsEmpty() || url.GetProtocol() == "file";
@@ -525,8 +598,8 @@ bool URIUtils::IsDVD(const CStdString& strFile)
   if (strFileLow.Find("video_ts.ifo") != -1 && IsOnDVD(strFile))
     return true;
 
-#if defined(_WIN32)
-  if (strFile.Left(6).Equals("dvd://"))
+#if defined(TARGET_WINDOWS)
+  if (StringUtils::StartsWithNoCase(strFile, "dvd://"))
     return true;
 
   if(strFile.Mid(1) != ":\\"
@@ -545,13 +618,12 @@ bool URIUtils::IsDVD(const CStdString& strFile)
 
 bool URIUtils::IsStack(const CStdString& strFile)
 {
-  return strFile.Left(6).Equals("stack:");
+  return StringUtils::StartsWithNoCase(strFile, "stack:");
 }
 
 bool URIUtils::IsRAR(const CStdString& strFile)
 {
-  CStdString strExtension;
-  GetExtension(strFile,strExtension);
+  CStdString strExtension = GetExtension(strFile);
 
   if (strExtension.Equals(".001") && strFile.Mid(strFile.length()-7,7).CompareNoCase(".ts.001"))
     return true;
@@ -593,39 +665,17 @@ bool URIUtils::IsInRAR(const CStdString& strFile)
 
 bool URIUtils::IsAPK(const CStdString& strFile)
 {
-  CStdString strExtension;
-  GetExtension(strFile,strExtension);
-
-  if (strExtension.CompareNoCase(".apk") == 0)
-    return true;
-
-  return false;
+  return HasExtension(strFile, ".apk");
 }
 
 bool URIUtils::IsZIP(const CStdString& strFile) // also checks for comic books!
 {
-  CStdString strExtension;
-  GetExtension(strFile,strExtension);
-
-  if (strExtension.CompareNoCase(".zip") == 0)
-    return true;
-
-  if (strExtension.CompareNoCase(".cbz") == 0)
-    return true;
-
-  return false;
+  return HasExtension(strFile, ".zip|.cbz");
 }
 
 bool URIUtils::IsArchive(const CStdString& strFile)
 {
-  CStdString extension;
-  GetExtension(strFile, extension);
-
-  return (extension.CompareNoCase(".zip") == 0 ||
-          extension.CompareNoCase(".rar") == 0 ||
-          extension.CompareNoCase(".apk") == 0 ||
-          extension.CompareNoCase(".cbz") == 0 ||
-          extension.CompareNoCase(".cbr") == 0);
+  return HasExtension(strFile, ".zip|.rar|.apk|.cbz|.cbr");
 }
 
 bool URIUtils::IsSpecial(const CStdString& strFile)
@@ -635,7 +685,7 @@ bool URIUtils::IsSpecial(const CStdString& strFile)
   if (IsStack(strFile))
     strFile2 = CStackDirectory::GetFirstStackedFile(strFile);
 
-  return strFile2.Left(8).Equals("special:");
+  return StringUtils::StartsWithNoCase(strFile2, "special:");
 }
 
 bool URIUtils::IsPlugin(const CStdString& strFile)
@@ -664,12 +714,12 @@ bool URIUtils::IsSourcesPath(const CStdString& strPath)
 
 bool URIUtils::IsCDDA(const CStdString& strFile)
 {
-  return strFile.Left(5).Equals("cdda:");
+  return StringUtils::StartsWithNoCase(strFile, "cdda:");
 }
 
 bool URIUtils::IsISO9660(const CStdString& strFile)
 {
-  return strFile.Left(8).Equals("iso9660:");
+  return StringUtils::StartsWithNoCase(strFile, "iso9660:");
 }
 
 bool URIUtils::IsSmb(const CStdString& strFile)
@@ -679,7 +729,7 @@ bool URIUtils::IsSmb(const CStdString& strFile)
   if (IsStack(strFile))
     strFile2 = CStackDirectory::GetFirstStackedFile(strFile);
 
-  return strFile2.Left(4).Equals("smb:");
+  return StringUtils::StartsWithNoCase(strFile2, "smb:");
 }
 
 bool URIUtils::IsURL(const CStdString& strFile)
@@ -694,8 +744,19 @@ bool URIUtils::IsFTP(const CStdString& strFile)
   if (IsStack(strFile))
     strFile2 = CStackDirectory::GetFirstStackedFile(strFile);
 
-  return strFile2.Left(4).Equals("ftp:")  ||
-         strFile2.Left(5).Equals("ftps:");
+  return StringUtils::StartsWithNoCase(strFile2, "ftp:")  ||
+         StringUtils::StartsWithNoCase(strFile2, "ftps:");
+}
+
+bool URIUtils::IsDAV(const CStdString& strFile)
+{
+  CStdString strFile2(strFile);
+
+  if (IsStack(strFile))
+    strFile2 = CStackDirectory::GetFirstStackedFile(strFile);
+
+  return StringUtils::StartsWithNoCase(strFile2, "dav:")  ||
+         StringUtils::StartsWithNoCase(strFile2, "davs:");
 }
 
 bool URIUtils::IsInternetStream(const CURL& url, bool bStrictCheck /* = false */)
@@ -731,42 +792,42 @@ bool URIUtils::IsInternetStream(const CURL& url, bool bStrictCheck /* = false */
 
 bool URIUtils::IsDAAP(const CStdString& strFile)
 {
-  return strFile.Left(5).Equals("daap:");
+  return StringUtils::StartsWithNoCase(strFile, "daap:");
 }
 
 bool URIUtils::IsUPnP(const CStdString& strFile)
 {
-  return strFile.Left(5).Equals("upnp:");
+  return StringUtils::StartsWithNoCase(strFile, "upnp:");
 }
 
 bool URIUtils::IsTuxBox(const CStdString& strFile)
 {
-  return strFile.Left(7).Equals("tuxbox:");
+  return StringUtils::StartsWithNoCase(strFile, "tuxbox:");
 }
 
 bool URIUtils::IsMythTV(const CStdString& strFile)
 {
-  return strFile.Left(5).Equals("myth:");
+  return StringUtils::StartsWithNoCase(strFile, "myth:");
 }
 
 bool URIUtils::IsHDHomeRun(const CStdString& strFile)
 {
-  return strFile.Left(10).Equals("hdhomerun:");
+  return StringUtils::StartsWithNoCase(strFile, "hdhomerun:");
 }
 
 bool URIUtils::IsSlingbox(const CStdString& strFile)
 {
-  return strFile.Left(6).Equals("sling:");
+  return StringUtils::StartsWithNoCase(strFile, "sling:");
 }
 
 bool URIUtils::IsVTP(const CStdString& strFile)
 {
-  return strFile.Left(4).Equals("vtp:");
+  return StringUtils::StartsWithNoCase(strFile, "vtp:");
 }
 
 bool URIUtils::IsHTSP(const CStdString& strFile)
 {
-  return strFile.Left(5).Equals("htsp:");
+  return StringUtils::StartsWithNoCase(strFile, "htsp:");
 }
 
 bool URIUtils::IsLiveTV(const CStdString& strFile)
@@ -779,8 +840,8 @@ bool URIUtils::IsLiveTV(const CStdString& strFile)
   || IsHDHomeRun(strFile)
   || IsSlingbox(strFile)
   || IsHTSP(strFile)
-  || strFile.Left(4).Equals("sap:")
-  ||(strFileWithoutSlash.Right(4).Equals(".pvr") && !strFileWithoutSlash.Left(16).Equals("pvr://recordings")))
+  || StringUtils::StartsWithNoCase(strFile, "sap:")
+  ||(StringUtils::EndsWithNoCase(strFileWithoutSlash, ".pvr") && !StringUtils::StartsWithNoCase(strFileWithoutSlash, "pvr://recordings")))
     return true;
 
   if (IsMythTV(strFile) && CMythDirectory::IsLiveTV(strFile))
@@ -794,13 +855,13 @@ bool URIUtils::IsPVRRecording(const CStdString& strFile)
   CStdString strFileWithoutSlash(strFile);
   RemoveSlashAtEnd(strFileWithoutSlash);
 
-  return strFileWithoutSlash.Right(4).Equals(".pvr") &&
-         strFile.Left(16).Equals("pvr://recordings");
+  return StringUtils::EndsWithNoCase(strFileWithoutSlash, ".pvr") &&
+         StringUtils::StartsWithNoCase(strFile, "pvr://recordings");
 }
 
 bool URIUtils::IsMusicDb(const CStdString& strFile)
 {
-  return strFile.Left(8).Equals("musicdb:");
+  return StringUtils::StartsWithNoCase(strFile, "musicdb:");
 }
 
 bool URIUtils::IsNfs(const CStdString& strFile)
@@ -810,7 +871,7 @@ bool URIUtils::IsNfs(const CStdString& strFile)
   if (IsStack(strFile))
     strFile2 = CStackDirectory::GetFirstStackedFile(strFile);
   
-  return strFile2.Left(4).Equals("nfs:");
+  return StringUtils::StartsWithNoCase(strFile2, "nfs:");
 }
 
 bool URIUtils::IsAfp(const CStdString& strFile)
@@ -820,28 +881,29 @@ bool URIUtils::IsAfp(const CStdString& strFile)
   if (IsStack(strFile))
     strFile2 = CStackDirectory::GetFirstStackedFile(strFile);
   
-  return strFile2.Left(4).Equals("afp:");
+  return StringUtils::StartsWithNoCase(strFile2, "afp:");
 }
 
 
 bool URIUtils::IsVideoDb(const CStdString& strFile)
 {
-  return strFile.Left(8).Equals("videodb:");
-}
-
-bool URIUtils::IsLastFM(const CStdString& strFile)
-{
-  return strFile.Left(7).Equals("lastfm:");
+  return StringUtils::StartsWithNoCase(strFile, "videodb:");
 }
 
 bool URIUtils::IsBluray(const CStdString& strFile)
 {
-  return strFile.Left(7).Equals("bluray:");
+  return StringUtils::StartsWithNoCase(strFile, "bluray:");
 }
 
 bool URIUtils::IsAndroidApp(const CStdString &path)
 {
-  return path.Left(11).Equals("androidapp:");
+  return StringUtils::StartsWithNoCase(path, "androidapp:");
+}
+
+bool URIUtils::IsLibraryFolder(const CStdString& strFile)
+{
+  CURL url(strFile);
+  return url.GetProtocol().Equals("library");
 }
 
 bool URIUtils::IsDOSPath(const CStdString &path)
@@ -856,13 +918,13 @@ bool URIUtils::IsDOSPath(const CStdString &path)
   return false;
 }
 
-void URIUtils::AddSlashAtEnd(CStdString& strFolder)
+void URIUtils::AddSlashAtEnd(std::string& strFolder)
 {
   if (IsURL(strFolder))
   {
     CURL url(strFolder);
-    CStdString file = url.GetFileName();
-    if(!file.IsEmpty() && file != strFolder)
+    std::string file = url.GetFileName();
+    if(!file.empty() && file != strFolder)
     {
       AddSlashAtEnd(file);
       url.SetFileName(file);
@@ -880,9 +942,15 @@ void URIUtils::AddSlashAtEnd(CStdString& strFolder)
   }
 }
 
-bool URIUtils::HasSlashAtEnd(const CStdString& strFile)
+bool URIUtils::HasSlashAtEnd(const std::string& strFile, bool checkURL /* = false */)
 {
-  if (strFile.size() == 0) return false;
+  if (strFile.empty()) return false;
+  if (checkURL && IsURL(strFile))
+  {
+    CURL url(strFile);
+    CStdString file = url.GetFileName();
+    return file.IsEmpty() || HasSlashAtEnd(file, false);
+  }
   char kar = strFile.c_str()[strFile.size() - 1];
 
   if (kar == '/' || kar == '\\')
@@ -891,13 +959,13 @@ bool URIUtils::HasSlashAtEnd(const CStdString& strFile)
   return false;
 }
 
-void URIUtils::RemoveSlashAtEnd(CStdString& strFolder)
+void URIUtils::RemoveSlashAtEnd(std::string& strFolder)
 {
   if (IsURL(strFolder))
   {
     CURL url(strFolder);
-    CStdString file = url.GetFileName();
-    if (!file.IsEmpty() && file != strFolder)
+    std::string file = url.GetFileName();
+    if (!file.empty() && file != strFolder)
     {
       RemoveSlashAtEnd(file);
       url.SetFileName(file);
@@ -909,7 +977,7 @@ void URIUtils::RemoveSlashAtEnd(CStdString& strFolder)
   }
 
   while (HasSlashAtEnd(strFolder))
-    strFolder.Delete(strFolder.size() - 1);
+    strFolder.erase(strFolder.size()-1, 1);
 }
 
 bool URIUtils::CompareWithoutSlashAtEnd(const CStdString& strPath1, const CStdString& strPath2)
@@ -920,24 +988,52 @@ bool URIUtils::CompareWithoutSlashAtEnd(const CStdString& strPath1, const CStdSt
   return strc1.Equals(strc2);
 }
 
-void URIUtils::AddFileToFolder(const CStdString& strFolder, 
-                                const CStdString& strFile,
-                                CStdString& strResult)
+
+std::string URIUtils::FixSlashesAndDups(const std::string& path, const char slashCharacter /* = '/' */, const size_t startFrom /*= 0*/)
+{
+  const size_t len = path.length();
+  if (startFrom >= len)
+    return path;
+
+  std::string result(path, 0, startFrom);
+  result.reserve(len);
+
+  const char* const str = path.c_str();
+  size_t pos = startFrom;
+  do
+  {
+    if (str[pos] == '\\' || str[pos] == '/')
+    {
+      result.push_back(slashCharacter);  // append one slash
+      pos++;
+      // skip any following slashes
+      while (str[pos] == '\\' || str[pos] == '/') // str is null-terminated, no need to check for buffer overrun
+        pos++;
+    }
+    else
+      result.push_back(str[pos++]);   // append current char and advance pos to next char
+
+  } while (pos < len);
+
+  return result;
+}
+
+
+CStdString URIUtils::AddFileToFolder(const CStdString& strFolder, 
+                                const CStdString& strFile)
 {
   if (IsURL(strFolder))
   {
     CURL url(strFolder);
     if (url.GetFileName() != strFolder)
     {
-      AddFileToFolder(url.GetFileName(), strFile, strResult);
-      url.SetFileName(strResult);
-      strResult = url.Get();
-      return;
+      url.SetFileName(AddFileToFolder(url.GetFileName(), strFile));
+      return url.Get();
     }
   }
 
-  strResult = strFolder;
-  if(!strResult.IsEmpty())
+  CStdString strResult = strFolder;
+  if (!strResult.IsEmpty())
     AddSlashAtEnd(strResult);
 
   // Remove any slash at the start of the file
@@ -951,41 +1047,24 @@ void URIUtils::AddFileToFolder(const CStdString& strFolder,
     strResult.Replace('\\', '/');
   else
     strResult.Replace('/', '\\');
+
+  return strResult;
 }
 
-CStdString URIUtils::GetDirectory(const CStdString &filePath)
-{
-  CStdString directory;
-  GetDirectory(filePath, directory);
-  return directory;
-}
-
-void URIUtils::GetDirectory(const CStdString& strFilePath,
-                            CStdString& strDirectoryPath)
+CStdString URIUtils::GetDirectory(const CStdString &strFilePath)
 {
   // Will from a full filename return the directory the file resides in.
-  // Keeps the final slash at end
+  // Keeps the final slash at end and possible |option=foo options.
 
-  int iPos1 = strFilePath.ReverseFind('/');
-  int iPos2 = strFilePath.ReverseFind('\\');
+  size_t iPosSlash = strFilePath.find_last_of("/\\");
+  if (iPosSlash == string::npos)
+    return ""; // No slash, so no path (ignore any options)
 
-  if (iPos2 > iPos1)
-  {
-    iPos1 = iPos2;
-  }
+  size_t iPosBar = strFilePath.rfind('|');
+  if (iPosBar == string::npos)
+    return strFilePath.Left(iPosSlash + 1); // Only path
 
-  if (iPos1 > 0)
-  {
-    strDirectoryPath = strFilePath.Left(iPos1 + 1); // include the slash
-
-    // Keep possible |option=foo options for certain paths
-    iPos2 = strFilePath.ReverseFind('|');
-    if (iPos2 > 0)
-    {
-      strDirectoryPath += strFilePath.Mid(iPos2);
-    }
-
-  }
+  return strFilePath.Left(iPosSlash + 1) + strFilePath.Mid(iPosBar); // Path + options
 }
 
 void URIUtils::CreateArchivePath(CStdString& strUrlPath,

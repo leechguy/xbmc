@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,9 +24,11 @@
 #include "utils/URIUtils.h"
 #include "utils/JobManager.h"
 #include "FileItem.h"
-#include "settings/Settings.h"
+#include "settings/AdvancedSettings.h"
 #include "Key.h"
 #include "TextureCache.h"
+#include "WindowIDs.h"
+#include "utils/StringUtils.h"
 
 using namespace std;
 using namespace XFILE;
@@ -48,9 +50,8 @@ CGUIMultiImage::CGUIMultiImage(int parentID, int controlID, float posX, float po
 }
 
 CGUIMultiImage::CGUIMultiImage(const CGUIMultiImage &from)
-: CGUIControl(from), m_image(from.m_image)
+  : CGUIControl(from), m_texturePath(), m_imageTimer(), m_files(), m_image(from.m_image)
 {
-  m_texturePath = from.m_texturePath;
   m_timePerImage = from.m_timePerImage;
   m_timeToPauseAtEnd = from.m_timeToPauseAtEnd;
   m_randomized = from.m_randomized;
@@ -297,7 +298,8 @@ bool CGUIMultiImage::CMultiImageJob::DoWork()
 {
   // check to see if we have a single image or a folder of images
   CFileItem item(m_path, false);
-  if (item.IsPicture() || item.GetMimeType().Left(6).Equals("image/"))
+  item.FillInMimeType();
+  if (item.IsPicture() || StringUtils::StartsWithNoCase(item.GetMimeType(), "image/"))
   {
     m_files.push_back(m_path);
   }
@@ -311,11 +313,11 @@ bool CGUIMultiImage::CMultiImageJob::DoWork()
 
     URIUtils::AddSlashAtEnd(realPath);
     CFileItemList items;
-    CDirectory::GetDirectory(realPath, items, g_settings.m_pictureExtensions + "|.tbn|.dds", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_NO_FILE_INFO);
+    CDirectory::GetDirectory(realPath, items, g_advancedSettings.m_pictureExtensions + "|.tbn|.dds", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_NO_FILE_INFO);
     for (int i=0; i < items.Size(); i++)
     {
       CFileItem* pItem = items[i].get();
-      if (pItem && (pItem->IsPicture() || pItem->GetMimeType().Left(6).Equals("image/")))
+      if (pItem && (pItem->IsPicture() || StringUtils::StartsWithNoCase(pItem->GetMimeType(), "image/")))
         m_files.push_back(pItem->GetPath());
     }
   }

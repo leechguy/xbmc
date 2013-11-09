@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -37,9 +37,14 @@ CGUIImage::CGUIImage(int parentID, int controlID, float posX, float posY, float 
 }
 
 CGUIImage::CGUIImage(const CGUIImage &left)
-    : CGUIControl(left), m_texture(left.m_texture)
+  : CGUIControl(left), 
+  m_image(left.m_image),
+  m_info(left.m_info),
+  m_texture(left.m_texture),
+  m_fadingTextures(),
+  m_currentTexture(),
+  m_currentFallback()
 {
-  m_info = left.m_info;
   m_crossFadeTime = left.m_crossFadeTime;
   // defaults
   m_currentFadeTime = 0;
@@ -68,7 +73,7 @@ void CGUIImage::UpdateInfo(const CGUIListItem *item)
     return; // nothing to do
 
   // don't allow image to change while animating out
-  if (HasRendered() && IsAnimating(ANIM_TYPE_HIDDEN) && !IsVisibleFromSkin())
+  if (HasProcessed() && IsAnimating(ANIM_TYPE_HIDDEN) && !IsVisibleFromSkin())
     return;
 
   if (item)
@@ -122,7 +127,7 @@ void CGUIImage::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions
         if (!ProcessFading(*i, frameTime, currentTime))
           i = m_fadingTextures.erase(i);
         else
-          i++;
+          ++i;
       }
 
       if (m_texture.ReadyToRender() || m_texture.GetFileName().IsEmpty())
@@ -169,7 +174,7 @@ void CGUIImage::Render()
 {
   if (!IsVisible()) return;
 
-  for (vector<CFadingTexture *>::iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); itr++)
+  for (vector<CFadingTexture *>::iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); ++itr)
     (*itr)->m_texture->Render();
 
   m_texture.Render();
@@ -253,7 +258,7 @@ void CGUIImage::FreeResourcesButNotAnims()
 {
   FreeTextures();
   m_bAllocated=false;
-  m_hasRendered = false;
+  m_hasProcessed = false;
 }
 
 void CGUIImage::DynamicResourceAlloc(bool bOnOff)
@@ -282,7 +287,7 @@ CRect CGUIImage::CalcRenderRegion() const
 {
   CRect region = m_texture.GetRenderRect();
 
-  for (vector<CFadingTexture *>::const_iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); itr++)
+  for (vector<CFadingTexture *>::const_iterator itr = m_fadingTextures.begin(); itr != m_fadingTextures.end(); ++itr)
     region.Union( (*itr)->m_texture->GetRenderRect() );
 
   return CGUIControl::CalcRenderRegion().Intersect(region);
@@ -305,10 +310,13 @@ void CGUIImage::SetCrossFade(unsigned int time)
     m_crossFadeTime = 1;
 }
 
-void CGUIImage::SetFileName(const CStdString& strFileName, bool setConstant)
+void CGUIImage::SetFileName(const CStdString& strFileName, bool setConstant, const bool useCache)
 {
   if (setConstant)
     m_info.SetLabel(strFileName, "", GetParentID());
+
+  // Set whether or not to use cache
+  m_texture.SetUseCache(useCache);
 
   if (m_crossFadeTime)
   {

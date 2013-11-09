@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,31 +22,33 @@
 #include "ApplicationMessenger.h"
 #include "Application.h"
 
+#include "LangInfo.h"
 #include "PlayListPlayer.h"
 #include "Util.h"
-#ifdef HAS_PYTHON
-#include "interfaces/python/XBPython.h"
-#endif
 #include "pictures/GUIWindowSlideShow.h"
 #include "interfaces/Builtins.h"
+#include "interfaces/generic/ScriptInvocationManager.h"
 #include "network/Network.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "guilib/GUIWindowManager.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
-#include "settings/GUISettings.h"
 #include "FileItem.h"
 #include "guilib/GUIDialog.h"
+#include "guilib/Key.h"
 #include "GUIInfoManager.h"
 #include "utils/Splash.h"
+#include "cores/IPlayer.h"
 #include "cores/VideoRenderers/RenderManager.h"
 #include "cores/AudioEngine/AEFactory.h"
 #include "music/tags/MusicInfoTag.h"
 
+#include "peripherals/Peripherals.h"
 #include "powermanagement/PowerManager.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "WIN32Util.h"
 #define CHalManager CWIN32Util
 #elif defined(TARGET_DARWIN)
@@ -59,18 +61,21 @@
 #include "threads/SingleLock.h"
 
 #include "playlists/PlayList.h"
-#include "FileItem.h"
 
 #include "pvr/PVRManager.h"
 #include "windows/GUIWindowLoginScreen.h"
 
 #include "utils/GlobalsHandling.h"
+#if defined(TARGET_ANDROID)
+  #include "xbmc/android/activity/XBMCApp.h"
+#endif
 
 using namespace PVR;
 using namespace std;
 using namespace MUSIC_INFO;
+using namespace PERIPHERALS;
 
-CDelayedMessage::CDelayedMessage(ThreadMessage& msg, unsigned int delay) : CThread("CDelayedMessage")
+CDelayedMessage::CDelayedMessage(ThreadMessage& msg, unsigned int delay) : CThread("DelayedMessage")
 {
   m_msg.dwMessage  = msg.dwMessage;
   m_msg.dwParam1   = msg.dwParam1;
@@ -222,7 +227,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
   {
     case TMSG_SHUTDOWN:
       {
-        switch (g_guiSettings.GetInt("powermanagement.shutdownstate"))
+        switch (CSettings::Get().GetInt("powermanagement.shutdownstate"))
         {
           case POWERSTATE_SHUTDOWN:
             Powerdown();
@@ -297,6 +302,12 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
     case TMSG_INHIBITIDLESHUTDOWN:
       {
         g_application.InhibitIdleShutdown(pMsg->dwParam1 != 0);
+      }
+      break;
+
+    case TMSG_ACTIVATESCREENSAVER:
+      {
+        g_application.ActivateScreenSaver();
       }
       break;
 
@@ -379,7 +390,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
         if (!pSlideShow) return ;
 
         // stop playing file
-        if (g_application.IsPlayingVideo()) g_application.StopPlaying();
+        if (g_application.m_pPlayer->IsPlayingVideo()) g_application.StopPlaying();
 
         if (g_windowManager.GetActiveWindow() == WINDOW_FULLSCREEN_VIDEO)
           g_windowManager.PreviousWindow();
@@ -400,7 +411,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
           else
             URIUtils::CreateArchivePath(strPath, "rar", pMsg->strParam.c_str(), "");
 
-          CUtil::GetRecursiveListing(strPath, items, g_settings.m_pictureExtensions);
+          CUtil::GetRecursiveListing(strPath, items, g_advancedSettings.m_pictureExtensions);
           if (items.Size() > 0)
           {
             pSlideShow->Reset();
@@ -427,7 +438,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
         CGUIWindowSlideShow *pSlideShow = (CGUIWindowSlideShow *)g_windowManager.GetWindow(WINDOW_SLIDESHOW);
         if (!pSlideShow) return ;
 
-        if (g_application.IsPlayingVideo())
+        if (g_application.m_pPlayer->IsPlayingVideo())
           g_application.StopPlaying();
 
         g_graphicsContext.Lock();
@@ -435,7 +446,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
 
         CFileItemList items;
         CStdString strPath = pMsg->strParam;
-        CStdString extensions = g_settings.m_pictureExtensions;
+        CStdString extensions = g_advancedSettings.m_pictureExtensions;
         if (pMsg->dwParam1)
           extensions += "|.tbn";
         CUtil::GetRecursiveListing(strPath, items, extensions);
@@ -451,7 +462,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
         {
           if(items.Size() == 0)
           {
-            g_guiSettings.SetString("screensaver.mode", "screensaver.xbmc.builtin.dim");
+            CSettings::Get().SetString("screensaver.mode", "screensaver.xbmc.builtin.dim");
             g_application.ActivateScreenSaver();
           }
           else
@@ -463,7 +474,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       break;
 
     case TMSG_SETLANGUAGE:
-      g_guiSettings.SetLanguage(pMsg->strParam);
+      g_application.SetLanguage(pMsg->strParam);
       break;
     case TMSG_MEDIA_STOP:
       {
@@ -487,12 +498,12 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
         g_application.WakeUpScreenSaverAndDPMS();
 
         // stop playing file
-        if (g_application.IsPlaying()) g_application.StopPlaying();
+        if (g_application.m_pPlayer->IsPlaying()) g_application.StopPlaying();
       }
       break;
 
     case TMSG_MEDIA_PAUSE:
-      if (g_application.m_pPlayer)
+      if (g_application.m_pPlayer->HasPlayer())
       {
         g_application.ResetScreenSaver();
         g_application.WakeUpScreenSaverAndDPMS();
@@ -501,7 +512,16 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       break;
 
     case TMSG_MEDIA_UNPAUSE:
-      if (g_application.IsPaused())
+      if (g_application.m_pPlayer->IsPausedPlayback())
+      {
+        g_application.ResetScreenSaver();
+        g_application.WakeUpScreenSaverAndDPMS();
+        g_application.m_pPlayer->Pause();
+      }
+      break;
+
+    case TMSG_MEDIA_PAUSE_IF_PLAYING:
+      if (g_application.m_pPlayer->IsPlaying() && !g_application.m_pPlayer->IsPaused())
       {
         g_application.ResetScreenSaver();
         g_application.WakeUpScreenSaverAndDPMS();
@@ -531,9 +551,9 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       {
         CLog::Log(LOGNOTICE, "%s: Failed to suspend AudioEngine before launching external program",__FUNCTION__);
       }
-#if defined( _LINUX) && !defined(TARGET_DARWIN)
+#if defined( TARGET_POSIX) && !defined(TARGET_DARWIN)
       CUtil::RunCommandLine(pMsg->strParam.c_str(), (pMsg->dwParam1 == 1));
-#elif defined(_WIN32)
+#elif defined(TARGET_WINDOWS)
       CWIN32Util::XBMCShellExecute(pMsg->strParam.c_str(), (pMsg->dwParam1 == 1));
 #endif
       /* Resume AE processing of XBMC native audio */
@@ -544,9 +564,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       break;
 
     case TMSG_EXECUTE_SCRIPT:
-#ifdef HAS_PYTHON
-      g_pythonParser.evalFile(pMsg->strParam.c_str(),ADDON::AddonPtr());
-#endif
+      CScriptInvocationManager::Get().Execute(pMsg->strParam);
       break;
 
     case TMSG_EXECUTE_BUILT_IN:
@@ -554,14 +572,14 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       break;
 
     case TMSG_PLAYLISTPLAYER_PLAY:
-      if (pMsg->dwParam1 != (DWORD) -1)
+      if (pMsg->dwParam1 != (unsigned int) -1)
         g_playlistPlayer.Play(pMsg->dwParam1);
       else
         g_playlistPlayer.Play();
       break;
 
     case TMSG_PLAYLISTPLAYER_PLAY_SONG_ID:
-      if (pMsg->dwParam1 != (DWORD) -1)
+      if (pMsg->dwParam1 != (unsigned int) -1)
       {
         bool *result = (bool*)pMsg->lpVoid;
         *result = g_playlistPlayer.PlaySongId(pMsg->dwParam1);
@@ -598,7 +616,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       break;
 
     case TMSG_PLAYLISTPLAYER_REMOVE:
-      if (pMsg->dwParam1 != (DWORD) -1)
+      if (pMsg->dwParam1 != (unsigned int) -1)
         g_playlistPlayer.Remove(pMsg->dwParam1,pMsg->dwParam2);
       break;
 
@@ -689,6 +707,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
       }
       break;
 
+#ifdef HAS_PYTHON
     case TMSG_GUI_PYTHON_DIALOG:
       {
         // This hack is not much better but at least I don't need to make ApplicationMessenger
@@ -697,6 +716,7 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
         ((CGUIWindow*)pMsg->lpVoid)->OnAction(caction);
       }
       break;
+#endif
 
     case TMSG_GUI_ACTION:
       {
@@ -803,6 +823,34 @@ void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
     case TMSG_LOADPROFILE:
     {
       CGUIWindowLoginScreen::LoadProfile(pMsg->dwParam1);
+      break;
+    }
+    case TMSG_CECTOGGLESTATE:
+    {
+      *((bool*)pMsg->lpVoid) = g_peripherals.ToggleDeviceState(STATE_SWITCH_TOGGLE);
+      break;
+    }
+    case TMSG_CECACTIVATESOURCE:
+    {
+      *((bool*)pMsg->lpVoid) = g_peripherals.ToggleDeviceState(STATE_ACTIVATE_SOURCE);
+      break;
+    }
+    case TMSG_CECSTANDBY:
+    {
+      *((bool*)pMsg->lpVoid) = g_peripherals.ToggleDeviceState(STATE_STANDBY);
+      break;
+    }
+    case TMSG_START_ANDROID_ACTIVITY:
+    {
+#if defined(TARGET_ANDROID)
+      if (pMsg->params.size())
+      {
+        CXBMCApp::StartActivity(pMsg->params[0],
+                                pMsg->params.size() > 1 ? pMsg->params[1] : "",
+                                pMsg->params.size() > 2 ? pMsg->params[2] : "",
+                                pMsg->params.size() > 3 ? pMsg->params[3] : "");
+      }
+#endif
       break;
     }
   }
@@ -913,6 +961,18 @@ void CApplicationMessenger::MediaPause()
   SendMessage(tMsg, true);
 }
 
+void CApplicationMessenger::MediaUnPause()
+{
+  ThreadMessage tMsg = {TMSG_MEDIA_UNPAUSE};
+  SendMessage(tMsg, true);
+}
+
+void CApplicationMessenger::MediaPauseIfPlaying()
+{
+  ThreadMessage tMsg = {TMSG_MEDIA_PAUSE_IF_PLAYING};
+  SendMessage(tMsg, true);
+}
+
 void CApplicationMessenger::MediaRestart(bool bWait)
 {
   ThreadMessage tMsg = {TMSG_MEDIA_RESTART};
@@ -921,20 +981,20 @@ void CApplicationMessenger::MediaRestart(bool bWait)
 
 void CApplicationMessenger::PlayListPlayerPlay()
 {
-  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_PLAY, (DWORD) -1};
+  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_PLAY, (unsigned int) -1};
   SendMessage(tMsg, true);
 }
 
 void CApplicationMessenger::PlayListPlayerPlay(int iSong)
 {
-  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_PLAY, (DWORD)iSong};
+  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_PLAY, (unsigned int)iSong};
   SendMessage(tMsg, true);
 }
 
 bool CApplicationMessenger::PlayListPlayerPlaySongId(int songId)
 {
   bool returnState;
-  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_PLAY_SONG_ID, (DWORD)songId};
+  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_PLAY_SONG_ID, (unsigned int)songId};
   tMsg.lpVoid = (void *)&returnState;
   SendMessage(tMsg, true);
   return returnState;
@@ -990,7 +1050,7 @@ void CApplicationMessenger::PlayListPlayerInsert(int playlist, const CFileItemLi
 
 void CApplicationMessenger::PlayListPlayerRemove(int playlist, int position)
 {
-  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_REMOVE, (DWORD)playlist, (DWORD)position};
+  ThreadMessage tMsg = {TMSG_PLAYLISTPLAYER_REMOVE, (unsigned int)playlist, (unsigned int)position};
   SendMessage(tMsg, true);
 }
 
@@ -1045,7 +1105,7 @@ void CApplicationMessenger::PictureShow(string filename)
 
 void CApplicationMessenger::PictureSlideShow(string pathname, bool addTBN /* = false */)
 {
-  DWORD dwMessage = TMSG_PICTURE_SLIDESHOW;
+  unsigned int dwMessage = TMSG_PICTURE_SLIDESHOW;
   ThreadMessage tMsg = {dwMessage};
   tMsg.strParam = pathname;
   tMsg.dwParam1 = addTBN ? 1 : 0;
@@ -1109,11 +1169,17 @@ void CApplicationMessenger::RestartApp()
 
 void CApplicationMessenger::InhibitIdleShutdown(bool inhibit)
 {
-  ThreadMessage tMsg = {TMSG_INHIBITIDLESHUTDOWN, (DWORD)inhibit};
+  ThreadMessage tMsg = {TMSG_INHIBITIDLESHUTDOWN, (unsigned int)inhibit};
   SendMessage(tMsg);
 }
 
-void CApplicationMessenger::NetworkMessage(DWORD dwMessage, DWORD dwParam)
+void CApplicationMessenger::ActivateScreensaver()
+{
+  ThreadMessage tMsg = {TMSG_ACTIVATESCREENSAVER};
+  SendMessage(tMsg);
+}
+
+void CApplicationMessenger::NetworkMessage(unsigned int dwMessage, unsigned int dwParam)
 {
   ThreadMessage tMsg = {TMSG_NETWORKMESSAGE, dwMessage, dwParam};
   SendMessage(tMsg);
@@ -1138,7 +1204,7 @@ void CApplicationMessenger::DoModal(CGUIDialog *pDialog, int iWindowID, const CS
 {
   ThreadMessage tMsg = {TMSG_GUI_DO_MODAL};
   tMsg.lpVoid = pDialog;
-  tMsg.dwParam1 = (DWORD)iWindowID;
+  tMsg.dwParam1 = (unsigned int)iWindowID;
   tMsg.strParam = param;
   SendMessage(tMsg, true);
 }
@@ -1147,13 +1213,13 @@ void CApplicationMessenger::ExecOS(const CStdString command, bool waitExit)
 {
   ThreadMessage tMsg = {TMSG_EXECUTE_OS};
   tMsg.strParam = command;
-  tMsg.dwParam1 = (DWORD)waitExit;
+  tMsg.dwParam1 = (unsigned int)waitExit;
   SendMessage(tMsg, false);
 }
 
 void CApplicationMessenger::UserEvent(int code)
 {
-  ThreadMessage tMsg = {(DWORD)code};
+  ThreadMessage tMsg = {(unsigned int)code};
   SendMessage(tMsg, false);
 }
 
@@ -1166,15 +1232,15 @@ void CApplicationMessenger::Show(CGUIDialog *pDialog)
 
 void CApplicationMessenger::Close(CGUIWindow *window, bool forceClose, bool waitResult /*= true*/, int nextWindowID /*= 0*/, bool enableSound /*= true*/)
 {
-  ThreadMessage tMsg = {TMSG_GUI_WINDOW_CLOSE, (DWORD)nextWindowID};
-  tMsg.dwParam2 = (DWORD)((forceClose ? 0x01 : 0) | (enableSound ? 0x02 : 0));
+  ThreadMessage tMsg = {TMSG_GUI_WINDOW_CLOSE, (unsigned int)nextWindowID};
+  tMsg.dwParam2 = (unsigned int)((forceClose ? 0x01 : 0) | (enableSound ? 0x02 : 0));
   tMsg.lpVoid = window;
   SendMessage(tMsg, waitResult);
 }
 
 void CApplicationMessenger::ActivateWindow(int windowID, const vector<CStdString> &params, bool swappingWindows)
 {
-  ThreadMessage tMsg = {TMSG_GUI_ACTIVATE_WINDOW, (DWORD)windowID, swappingWindows ? 1u : 0u};
+  ThreadMessage tMsg = {TMSG_GUI_ACTIVATE_WINDOW, (unsigned int)windowID, swappingWindows ? 1u : 0u};
   tMsg.params = params;
   SendMessage(tMsg, true);
 }
@@ -1289,4 +1355,44 @@ void CApplicationMessenger::LoadProfile(unsigned int idx)
   ThreadMessage tMsg = {TMSG_LOADPROFILE};
   tMsg.dwParam1 = idx;
   SendMessage(tMsg, false);
+}
+
+void CApplicationMessenger::StartAndroidActivity(const vector<CStdString> &params)
+{
+  ThreadMessage tMsg = {TMSG_START_ANDROID_ACTIVITY};
+  tMsg.params = params;
+  SendMessage(tMsg, false);
+}
+
+bool CApplicationMessenger::CECToggleState()
+{
+  bool result;
+
+  ThreadMessage tMsg = {TMSG_CECTOGGLESTATE};
+  tMsg.lpVoid = (void*)&result;
+  SendMessage(tMsg, false);
+
+  return result;
+}
+
+bool CApplicationMessenger::CECActivateSource()
+{
+  bool result;
+
+  ThreadMessage tMsg = {TMSG_CECACTIVATESOURCE};
+  tMsg.lpVoid = (void*)&result;
+  SendMessage(tMsg, false);
+
+  return result;
+}
+
+bool CApplicationMessenger::CECStandby()
+{
+  bool result;
+
+  ThreadMessage tMsg = {TMSG_CECSTANDBY};
+  tMsg.lpVoid = (void*)&result;
+  SendMessage(tMsg, false);
+
+  return result;
 }

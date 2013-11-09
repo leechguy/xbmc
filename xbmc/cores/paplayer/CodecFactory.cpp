@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@
 #include "system.h"
 #include "CodecFactory.h"
 #include "MP3codec.h"
-#include "CDDAcodec.h"
 #include "OGGcodec.h"
 #include "FLACcodec.h"
 #include "WAVcodec.h"
@@ -41,6 +40,7 @@
 #include "URL.h"
 #include "DVDPlayerCodec.h"
 #include "PCMCodec.h"
+#include "utils/StringUtils.h"
 
 ICodec* CodecFactory::CreateCodec(const CStdString& strFileType)
 {
@@ -51,7 +51,7 @@ ICodec* CodecFactory::CreateCodec(const CStdString& strFileType)
   else if (strFileType.Equals("ape") || strFileType.Equals("mac"))
     return new DVDPlayerCodec();
   else if (strFileType.Equals("cdda"))
-    return new CDDACodec();
+    return new DVDPlayerCodec();
   else if (strFileType.Equals("mpc") || strFileType.Equals("mp+") || strFileType.Equals("mpp"))
     return new DVDPlayerCodec();
   else if (strFileType.Equals("shn"))
@@ -117,9 +117,10 @@ ICodec* CodecFactory::CreateCodecDemux(const CStdString& strFile, const CStdStri
 {
   CURL urlFile(strFile);
   if( strContent.Equals("audio/mpeg")
+  ||  strContent.Equals("audio/mpeg3")
   ||  strContent.Equals("audio/mp3") )
     return new MP3Codec();
-  else if (strContent.Left(9).Equals("audio/l16"))
+  else if (StringUtils::StartsWithNoCase(strContent, "audio/l16"))
   {
     PCMCodec * pcm_codec = new PCMCodec();
     pcm_codec->SetMimeParams(strContent);
@@ -150,7 +151,7 @@ ICodec* CodecFactory::CreateCodecDemux(const CStdString& strFile, const CStdStri
   else if (strContent.Equals("audio/flac") || strContent.Equals("audio/x-flac") || strContent.Equals("application/x-flac"))
     return new FLACCodec();
 
-  if (urlFile.GetProtocol() == "lastfm" || urlFile.GetProtocol() == "shout")
+  if (urlFile.GetProtocol() == "shout")
   {
     return new MP3Codec(); // if we got this far with internet radio - content-type was wrong. gamble on mp3.
   }
@@ -182,20 +183,6 @@ ICodec* CodecFactory::CreateCodecDemux(const CStdString& strFile, const CStdStri
       return codec;
     }
     delete codec;
-  }
-  if (urlFile.GetFileType().Equals("cdda"))
-  {
-    //lets see what it contains...
-    //this kinda sucks 'cause if it's plain cdda the file
-    //will be opened, sniffed and closed before it is opened *again* for cdda
-    //would be better if the papcodecs could work with bitstreams instead of filenames.
-    DVDPlayerCodec *dvdcodec = new DVDPlayerCodec();
-    dvdcodec->SetContentType("audio/x-spdif-compressed");
-    if (dvdcodec->Init(strFile, filecache))
-    {
-      return dvdcodec;
-    }
-    delete dvdcodec;
   }
   else if (urlFile.GetFileType().Equals("ogg") || urlFile.GetFileType().Equals("oggstream") || urlFile.GetFileType().Equals("oga"))
     return CreateOGGCodec(strFile,filecache);

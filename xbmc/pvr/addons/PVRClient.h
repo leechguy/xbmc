@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -156,8 +156,9 @@ namespace PVR
     /*!
      * @brief Call one of the menu hooks of this client.
      * @param hook The hook to call.
+     * @param item The selected file item for which the hook was called.
      */
-    void CallMenuHook(const PVR_MENUHOOK &hook);
+    void CallMenuHook(const PVR_MENUHOOK &hook, const CFileItem *item);
 
     //@}
     /** @name PVR EPG methods */
@@ -266,6 +267,13 @@ namespace PVR
     * @return The last watched position in seconds or -1 on error
     */
     int GetRecordingLastPlayedPosition(const CPVRRecording &recording);
+
+    /*!
+    * @brief Retrieve the edit decision list (EDL) from the backend.
+    * @param recording The recording.
+    * @return The edit decision list (empty on error).
+    */
+    std::vector<PVR_EDL_ENTRY> GetRecordingEdl(const CPVRRecording &recording);
 
     //@}
     /** @name PVR timer methods */
@@ -460,6 +468,7 @@ namespace PVR
     bool SupportsRecordings(void) const;
     bool SupportsRecordingFolders(void) const;
     bool SupportsRecordingPlayCount(void) const;
+    bool SupportsRecordingEdl(void) const;
     bool SupportsTimers(void) const;
     bool SupportsTV(void) const;
     bool HandlesDemuxing(void) const;
@@ -510,6 +519,14 @@ namespace PVR
      * @return True when compatible, false otherwise
      */
     static bool IsCompatibleAPIVersion(const ADDON::AddonVersion &minVersion, const ADDON::AddonVersion &version);
+
+    /*!
+     * @brief Checks whether the provided GUI API version is compatible with XBMC
+     * @param minVersion The add-on's XBMC_GUI_MIN_API_VERSION version
+     * @param version The add-on's XBMC_GUI_API_VERSION version
+     * @return True when compatible, false otherwise
+     */
+    static bool IsCompatibleGUIAPIVersion(const ADDON::AddonVersion &minVersion, const ADDON::AddonVersion &version);
 
     /*!
      * @brief Request the API version from the add-on, and check if it's compatible
@@ -596,7 +613,5 @@ namespace PVR
     bool           m_bIsPlayingRecording;
     CPVRRecording  m_playingRecording;
     ADDON::AddonVersion m_apiVersion;
-    bool           m_bCanPauseStream;
-    bool           m_bCanSeekStream;
   };
 }

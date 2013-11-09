@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -88,7 +88,7 @@ bool CDVDInputStreamStack::Open(const char* path, const std::string& content)
     m_files.push_back(segment);
   }
 
-  if(m_files.size() == 0)
+  if(m_files.empty())
     return false;
 
   m_file = m_files[0].file;
@@ -106,7 +106,7 @@ void CDVDInputStreamStack::Close()
   m_eof = true;
 }
 
-int CDVDInputStreamStack::Read(BYTE* buf, int buf_size)
+int CDVDInputStreamStack::Read(uint8_t* buf, int buf_size)
 {
   if(m_file == NULL || m_eof)
     return 0;
@@ -147,7 +147,7 @@ int64_t CDVDInputStreamStack::Seek(int64_t offset, int whence)
     return -1;
 
   len = 0;
-  for(TSegVec::iterator it = m_files.begin(); it != m_files.end(); it++)
+  for(TSegVec::iterator it = m_files.begin(); it != m_files.end(); ++it)
   {
     if(len + it->length > pos)
     {

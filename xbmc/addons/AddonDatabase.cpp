@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -392,14 +392,14 @@ int CAddonDatabase::AddRepository(const CStdString& id, const VECADDONS& addons,
   return -1;
 }
 
-int CAddonDatabase::GetRepoChecksum(const CStdString& id, CStdString& checksum)
+int CAddonDatabase::GetRepoChecksum(const std::string& id, std::string& checksum)
 {
   try
   {
     if (NULL == m_pDB.get()) return -1;
     if (NULL == m_pDS.get()) return -1;
 
-    CStdString strSQL = PrepareSQL("select * from repo where addonID='%s'",id.c_str());
+    std::string strSQL = PrepareSQL("select * from repo where addonID='%s'",id.c_str());
     m_pDS->query(strSQL.c_str());
     if (!m_pDS->eof())
     {
@@ -411,7 +411,7 @@ int CAddonDatabase::GetRepoChecksum(const CStdString& id, CStdString& checksum)
   {
     CLog::Log(LOGERROR, "%s failed on repo '%s'", __FUNCTION__, id.c_str());
   }
-  checksum.Empty();
+  checksum.clear();
   return -1;
 }
 

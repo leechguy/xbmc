@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,8 +21,9 @@
 #include "RSSDirectory.h"
 #include "FileItem.h"
 #include "CurlFile.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/MediaSettings.h"
+#include "settings/Settings.h"
 #include "utils/URIUtils.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/HTMLUtil.h"
@@ -31,7 +32,6 @@
 #include "music/tags/MusicInfoTag.h"
 #include "utils/log.h"
 #include "URL.h"
-#include "settings/GUISettings.h"
 #include "climits"
 #include "threads/SingleLock.h"
 
@@ -88,42 +88,18 @@ bool CRSSDirectory::ContainsFiles(const CStdString& strPath)
 
 static bool IsPathToMedia(const CStdString& strPath )
 {
-  CStdString extension;
-  URIUtils::GetExtension(strPath, extension);
-
-  if (extension.IsEmpty())
-    return false;
-
-  extension.ToLower();
-
-  if (g_settings.m_videoExtensions.Find(extension) != -1)
-    return true;
-
-  if (g_settings.m_musicExtensions.Find(extension) != -1)
-    return true;
-
-  if (g_settings.m_pictureExtensions.Find(extension) != -1)
-    return true;
-
-  return false;
+  return URIUtils::HasExtension(strPath,
+                              g_advancedSettings.m_videoExtensions + '|' +
+                              g_advancedSettings.m_musicExtensions + '|' +
+                              g_advancedSettings.m_pictureExtensions);
 }
 
 static bool IsPathToThumbnail(const CStdString& strPath )
 {
   // Currently just check if this is an image, maybe we will add some
   // other checks later
-  CStdString extension;
-  URIUtils::GetExtension(strPath, extension);
-
-  if (extension.IsEmpty())
-    return false;
-
-  extension.ToLower();
-
-  if (g_settings.m_pictureExtensions.Find(extension) != -1)
-    return true;
-
-  return false;
+  return URIUtils::HasExtension(strPath,
+                                    g_advancedSettings.m_pictureExtensions);
 }
 
 static time_t ParseDate(const CStdString & strDate)
@@ -492,7 +468,7 @@ static void ParseItem(CFileItem* item, TiXmlElement* root, const CStdString& pat
   else if(FindMime(resources, "image/"))
     mime = "image/";
 
-  int maxrate = g_guiSettings.GetInt("network.bandwidth");
+  int maxrate = CSettings::Get().GetInt("network.bandwidth");
   if(maxrate == 0)
     maxrate = INT_MAX;
 
@@ -545,10 +521,10 @@ static void ParseItem(CFileItem* item, TiXmlElement* root, const CStdString& pat
       item->SetProperty("duration", StringUtils::SecondsToTimeString(best->duration));    
 
     /* handling of mimetypes fo directories are sub optimal at best */
-    if(best->mime == "application/rss+xml" && item->GetPath().Left(7).Equals("http://"))
+    if(best->mime == "application/rss+xml" && StringUtils::StartsWithNoCase(item->GetPath(), "http://"))
       item->SetPath("rss://" + item->GetPath().Mid(7));
 
-    if(item->GetPath().Left(6).Equals("rss://"))
+    if(StringUtils::StartsWithNoCase(item->GetPath(), "rss://"))
       item->m_bIsFolder = true;
     else
       item->m_bIsFolder = false;
@@ -637,10 +613,10 @@ bool CRSSDirectory::GetDirectory(const CStdString& path, CFileItemList &items)
       items.Add(item);
   }
 
-  items.AddSortMethod(SORT_METHOD_UNSORTED , 231, LABEL_MASKS("%L", "%D", "%L", ""));    // FileName, Duration | Foldername, empty
-  items.AddSortMethod(SORT_METHOD_LABEL    , 551, LABEL_MASKS("%L", "%D", "%L", ""));    // FileName, Duration | Foldername, empty
-  items.AddSortMethod(SORT_METHOD_SIZE     , 553, LABEL_MASKS("%L", "%I", "%L", "%I"));  // FileName, Size | Foldername, Size
-  items.AddSortMethod(SORT_METHOD_DATE     , 552, LABEL_MASKS("%L", "%J", "%L", "%J"));  // FileName, Date | Foldername, Date
+  items.AddSortMethod(SortByNone   , 231, LABEL_MASKS("%L", "%D", "%L", ""));    // FileName, Duration | Foldername, empty
+  items.AddSortMethod(SortByLabel  , 551, LABEL_MASKS("%L", "%D", "%L", ""));    // FileName, Duration | Foldername, empty
+  items.AddSortMethod(SortBySize   , 553, LABEL_MASKS("%L", "%I", "%L", "%I"));  // FileName, Size | Foldername, Size
+  items.AddSortMethod(SortByDate   , 552, LABEL_MASKS("%L", "%J", "%L", "%J"));  // FileName, Date | Foldername, Date
 
   CDateTime time = CDateTime::GetCurrentDateTime();
   int mins = 60;

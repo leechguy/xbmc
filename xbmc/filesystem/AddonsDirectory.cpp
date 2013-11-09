@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -203,8 +203,6 @@ void CAddonsDirectory::GenerateListing(CURL &path, VECADDONS& addons, CFileItemL
 {
   CStdString xbmcPath = CSpecialProtocol::TranslatePath("special://xbmc/addons");
   items.ClearItems();
-  CAddonDatabase db;
-  db.Open();
   for (unsigned i=0; i < addons.size(); i++)
   {
     AddonPtr addon = addons[i];
@@ -216,7 +214,7 @@ void CAddonsDirectory::GenerateListing(CURL &path, VECADDONS& addons, CFileItemL
     AddonPtr addon2;
     if (CAddonMgr::Get().GetAddon(addon->ID(),addon2))
       pItem->SetProperty("Addon.Status",g_localizeStrings.Get(305));
-    else if (db.IsOpen() && db.IsAddonDisabled(addon->ID()))
+    else if (CAddonMgr::Get().IsAddonDisabled(addon->ID()))
       pItem->SetProperty("Addon.Status",g_localizeStrings.Get(24023));
 
     if (!addon->Props().broken.IsEmpty())
@@ -229,7 +227,6 @@ void CAddonsDirectory::GenerateListing(CURL &path, VECADDONS& addons, CFileItemL
     CAddonDatabase::SetPropertiesFromAddon(addon,pItem);
     items.Add(pItem);
   }
-  db.Close();
 }
 
 CFileItemPtr CAddonsDirectory::FileItemFromAddon(AddonPtr &addon, const CStdString &basePath, bool folder)
@@ -257,12 +254,8 @@ CFileItemPtr CAddonsDirectory::FileItemFromAddon(AddonPtr &addon, const CStdStri
   item->SetArt("thumb", addon->Icon());
   item->SetLabelPreformated(true);
   item->SetIconImage("DefaultAddon.png");
-  if (!addon->FanArt().IsEmpty() && 
-      (URIUtils::IsInternetStream(addon->FanArt()) || 
-       CFile::Exists(addon->FanArt())))
-  {
+  if (URIUtils::IsInternetStream(addon->FanArt()) || CFile::Exists(addon->FanArt()))
     item->SetArt("fanart", addon->FanArt());
-  }
   CAddonDatabase::SetPropertiesFromAddon(addon, item);
   return item;
 }

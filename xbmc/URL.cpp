@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,7 +27,8 @@
 #include "FileItem.h"
 #include "filesystem/StackDirectory.h"
 #include "addons/Addon.h"
-#ifndef _LINUX
+#include "utils/StringUtils.h"
+#ifndef TARGET_POSIX
 #include <sys\types.h>
 #include <sys\stat.h>
 #endif
@@ -66,6 +67,10 @@ void CURL::Reset()
   m_strFileName.clear();
   m_strProtocol.clear();
   m_strFileType.clear();
+  m_strOptions.clear();
+  m_strProtocolOptions.clear();
+  m_options.Clear();
+  m_protocolOptions.Clear();
   m_iPort = 0;
 }
 
@@ -116,7 +121,7 @@ void CURL::Parse(const CStdString& strURL1)
       struct __stat64 s;
       if (XFILE::CFile::Stat(archiveName, &s) == 0)
       {
-#ifdef _LINUX
+#ifdef TARGET_POSIX
         if (!S_ISDIR(s.st_mode))
 #else
         if (!(s.st_mode & S_IFDIR))
@@ -191,7 +196,7 @@ void CURL::Parse(const CStdString& strURL1)
     sep = "?;#|";
   else if(strProtocol2.Equals("ftp")
        || strProtocol2.Equals("ftps"))
-    sep = "?;";
+    sep = "?;|";
 
   if(sep)
   {
@@ -202,13 +207,12 @@ void CURL::Parse(const CStdString& strURL1)
       int iProto = strURL.find_first_of("|",iOptions);
       if (iProto >= 0)
       {
-        m_strProtocolOptions = strURL.substr(iProto+1);
-        m_strOptions = strURL.substr(iOptions,iProto-iOptions);
+        SetProtocolOptions(strURL.substr(iProto+1));
+        SetOptions(strURL.substr(iOptions,iProto-iOptions));
       }
       else
-        m_strOptions = strURL.substr(iOptions);
+        SetOptions(strURL.substr(iOptions));
       iEnd = iOptions;
-      m_options.AddOptions(m_strOptions);
     }
   }
 
@@ -309,7 +313,6 @@ void CURL::Parse(const CStdString& strURL1)
     || m_strProtocol.CompareNoCase("musicdb") == 0
     || m_strProtocol.CompareNoCase("videodb") == 0
     || m_strProtocol.CompareNoCase("sources") == 0
-    || m_strProtocol.CompareNoCase("lastfm") == 0
     || m_strProtocol.CompareNoCase("pvr") == 0
     || m_strProtocol.Left(3).CompareNoCase("mem") == 0)
   {
@@ -399,7 +402,16 @@ void CURL::SetOptions(const CStdString& strOptions)
 
 void CURL::SetProtocolOptions(const CStdString& strOptions)
 {
-  m_strProtocolOptions = strOptions;
+  m_strProtocolOptions.Empty();
+  m_protocolOptions.Clear();
+  if (strOptions.length() > 0)
+  {
+    if (strOptions[0] == '|')
+      m_strProtocolOptions = strOptions.Mid(1);
+    else
+      m_strProtocolOptions = strOptions;
+    m_protocolOptions.AddOptions(m_strProtocolOptions);
+  }
 }
 
 void CURL::SetPort(int port)
@@ -490,7 +502,7 @@ const CStdString CURL::GetFileNameWithoutPath() const
 
 char CURL::GetDirectorySeparator() const
 {
-#ifndef _LINUX
+#ifndef TARGET_POSIX
   if ( IsLocal() )
     return '\\';
   else
@@ -519,33 +531,33 @@ CStdString CURL::Get() const
   strURL = GetWithoutFilename();
   strURL += m_strFileName;
 
-  if( m_strOptions.length() > 0 )
+  if( !m_strOptions.empty() )
     strURL += m_strOptions;
-  if (m_strProtocolOptions.length() > 0)
+  if (!m_strProtocolOptions.empty())
     strURL += "|"+m_strProtocolOptions;
 
   return strURL;
 }
 
-CStdString CURL::GetWithoutUserDetails() const
+std::string CURL::GetWithoutUserDetails(bool redact) const
 {
-  CStdString strURL;
+  std::string strURL;
 
   if (m_strProtocol.Equals("stack"))
   {
     CFileItemList items;
-    CStdString strURL2;
+    std::string strURL2;
     strURL2 = Get();
     XFILE::CStackDirectory dir;
     dir.GetDirectory(strURL2,items);
-    vector<CStdString> newItems;
+    vector<std::string> newItems;
     for (int i=0;i<items.Size();++i)
     {
       CURL url(items[i]->GetPath());
-      items[i]->SetPath(url.GetWithoutUserDetails());
+      items[i]->SetPath(url.GetWithoutUserDetails(redact));
       newItems.push_back(items[i]->GetPath());
     }
-    dir.ConstructStackPath(newItems,strURL);
+    dir.ConstructStackPath(newItems, strURL);
     return strURL;
   }
 
@@ -557,6 +569,9 @@ CStdString CURL::GetWithoutUserDetails() const
                         + m_strProtocolOptions.length()
                         + 10;
 
+  if (redact)
+    sizeneed += sizeof("USERNAME:PASSWORD@");
+
   strURL.reserve(sizeneed);
 
   if (m_strProtocol == "")
@@ -565,19 +580,33 @@ CStdString CURL::GetWithoutUserDetails() const
   strURL = m_strProtocol;
   strURL += "://";
 
-  if (m_strHostName != "")
+  if (redact && !m_strUserName.empty())
   {
+    strURL += "USERNAME";
+    if (!m_strPassword.empty())
+    {
+      strURL += ":PASSWORD";
+    }
+    strURL += "@";
+  }
+
+  if (!m_strHostName.empty())
+  {
+    std::string strHostName;
+
     if (URIUtils::ProtocolHasParentInHostname(m_strProtocol))
-      strURL += CURL(m_strHostName).GetWithoutUserDetails();
+      strHostName = CURL(m_strHostName).GetWithoutUserDetails();
     else
-      strURL += m_strHostName;
+      strHostName = m_strHostName;
+
+    if (URIUtils::ProtocolHasEncodedHostname(m_strProtocol))
+      strURL += URLEncodeInline(strHostName);
+    else
+      strURL += strHostName;
 
     if ( HasPort() )
     {
-      CStdString strPort;
-      strPort.Format("%i", m_iPort);
-      strURL += ":";
-      strURL += strPort;
+      strURL += StringUtils::Format(":%i", m_iPort);
     }
     strURL += "/";
   }
@@ -646,6 +675,16 @@ CStdString CURL::GetWithoutFilename() const
   return strURL;
 }
 
+std::string CURL::GetRedacted() const
+{
+  return GetWithoutUserDetails(true);
+}
+
+std::string CURL::GetRedacted(const std::string& path)
+{
+  return CURL(path).GetRedacted();
+}
+
 bool CURL::IsLocal() const
 {
   return (IsLocalHost() || m_strProtocol.IsEmpty());
@@ -666,7 +705,7 @@ bool CURL::IsFullPath(const CStdString &url)
   if (url.size() && url[0] == '/') return true;     //   /foo/bar.ext
   if (url.Find("://") >= 0) return true;                 //   foo://bar.ext
   if (url.size() > 1 && url[1] == ':') return true; //   c:\\foo\\bar\\bar.ext
-  if (url.compare(0,2,"\\\\") == 0) return true;    //   \\UNC\path\to\file
+  if (StringUtils::StartsWith(url, "\\\\")) return true;    //   \\UNC\path\to\file
   return false;
 }
 
@@ -752,7 +791,6 @@ CStdString CURL::TranslateProtocol(const CStdString& prot)
    || prot == "daap"
    || prot == "dav"
    || prot == "tuxbox"
-   || prot == "lastfm"
    || prot == "rss")
    return "http";
 
@@ -803,4 +841,47 @@ void CURL::RemoveOption(const CStdString &key)
 {
   m_options.RemoveOption(key);
   SetOptions(m_options.GetOptionsString(true));
+}
+
+void CURL::GetProtocolOptions(std::map<CStdString, CStdString> &options) const
+{
+  CUrlOptions::UrlOptions optionsMap = m_protocolOptions.GetOptions();
+  for (CUrlOptions::UrlOptions::const_iterator option = optionsMap.begin(); option != optionsMap.end(); option++)
+    options[option->first] = option->second.asString();
+}
+
+bool CURL::HasProtocolOption(const CStdString &key) const
+{
+  return m_protocolOptions.HasOption(key);
+}
+
+bool CURL::GetProtocolOption(const CStdString &key, CStdString &value) const
+{
+  CVariant valueObj;
+  if (!m_protocolOptions.GetOption(key, valueObj))
+    return false;
+  
+  value = valueObj.asString();
+  return true;
+}
+
+CStdString CURL::GetProtocolOption(const CStdString &key) const
+{
+  CStdString value;
+  if (!GetProtocolOption(key, value))
+    return "";
+  
+  return value;
+}
+
+void CURL::SetProtocolOption(const CStdString &key, const CStdString &value)
+{
+  m_protocolOptions.AddOption(key, value);
+  m_strProtocolOptions = m_protocolOptions.GetOptionsString(false);
+}
+
+void CURL::RemoveProtocolOption(const CStdString &key)
+{
+  m_protocolOptions.RemoveOption(key);
+  m_strProtocolOptions = m_protocolOptions.GetOptionsString(false);
 }

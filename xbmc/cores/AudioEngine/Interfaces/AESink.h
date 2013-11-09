@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 
 #include "threads/Thread.h"
 #include "AE.h"
-#include "AEAudioFormat.h"
+#include "Utils/AEAudioFormat.h"
 #include "utils/StdString.h"
 #include <stdint.h>
 
@@ -49,7 +49,7 @@ public:
   /*
     Return true if the supplied format and device are compatible with the current open sink
   */
-  virtual bool IsCompatible(const AEAudioFormat format, const std::string device) = 0;
+  virtual bool IsCompatible(const AEAudioFormat &format, const std::string &device) = 0;
 
   /*
     This method returns the time in seconds that it will take
@@ -71,7 +71,7 @@ public:
   /*
     Adds packets to be sent out, this routine MUST block or sleep.
   */
-  virtual unsigned int AddPackets(uint8_t *data, unsigned int frames, bool hasAudio) = 0;
+  virtual unsigned int AddPackets(uint8_t *data, unsigned int frames, bool hasAudio, bool blocking = false) = 0;
 
   /*
     Drain the sink
@@ -87,17 +87,5 @@ public:
     This method sets the volume control, volume ranges from 0.0 to 1.0.
   */
   virtual void  SetVolume(float volume) {};
-
-  /*
-    Requests sink to prepare itself for a suspend state
-    @return false if sink cannot be suspended
-  */
-  virtual bool SoftSuspend() {return false;};
-
-  /*
-    Notify sink to prepare to resume processing after suspend state
-    @return false if sink must be reinitialized
-  */
-  virtual bool SoftResume() {return false;};
 };
 

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,9 +24,11 @@
 #include "Util.h"
 #include "FileItem.h"
 #include "File.h"
-#include "settings/Settings.h"
+#include "profiles/ProfilesManager.h"
+#include "settings/MediaSourceSettings.h"
 #include "guilib/TextureManager.h"
 #include "storage/MediaManager.h"
+#include "utils/StringUtils.h"
 
 using namespace XFILE;
 
@@ -47,7 +49,7 @@ bool CSourcesDirectory::GetDirectory(const CStdString& strPath, CFileItemList &i
   URIUtils::RemoveSlashAtEnd(type);
 
   VECSOURCES sources;
-  VECSOURCES *sourcesFromType = g_settings.GetSourcesFromType(type);
+  VECSOURCES *sourcesFromType = CMediaSourceSettings::Get().GetSources(type);
   if (sourcesFromType)
     sources = *sourcesFromType;
   g_mediaManager.GetRemovableDrives(sources);
@@ -64,7 +66,7 @@ bool CSourcesDirectory::GetDirectory(const VECSOURCES &sources, CFileItemList &i
   {
     const CMediaSource& share = sources[i];
     CFileItemPtr pItem(new CFileItem(share));
-    if (pItem->IsLastFM() || (pItem->GetPath().Left(14).Equals("musicsearch://")))
+    if (StringUtils::StartsWithNoCase(pItem->GetPath(), "musicsearch://"))
       pItem->SetCanQueue(false);
     
     CStdString strIcon;
@@ -79,8 +81,7 @@ bool CSourcesDirectory::GetDirectory(const VECSOURCES &sources, CFileItemList &i
     }
     else if (pItem->GetPath().Left(9) == "addons://")
       strIcon = "DefaultHardDisk.png";
-    else if (pItem->IsLastFM()
-             || pItem->IsVideoDb()
+    else if (   pItem->IsVideoDb()
              || pItem->IsMusicDb()
              || pItem->IsPlugin()
              || pItem->GetPath() == "special://musicplaylists/"
@@ -101,7 +102,7 @@ bool CSourcesDirectory::GetDirectory(const VECSOURCES &sources, CFileItemList &i
       strIcon = "DefaultHardDisk.png";
     
     pItem->SetIconImage(strIcon);
-    if (share.m_iHasLock == 2 && g_settings.GetMasterProfile().getLockMode() != LOCK_MODE_EVERYONE)
+    if (share.m_iHasLock == 2 && CProfilesManager::Get().GetMasterProfile().getLockMode() != LOCK_MODE_EVERYONE)
       pItem->SetOverlayImage(CGUIListItem::ICON_OVERLAY_LOCKED);
     else
       pItem->SetOverlayImage(CGUIListItem::ICON_OVERLAY_NONE);

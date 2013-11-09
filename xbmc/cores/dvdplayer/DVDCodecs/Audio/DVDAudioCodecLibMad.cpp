@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,6 +36,8 @@ CDVDAudioCodecLibMad::CDVDAudioCodecLibMad() : CDVDAudioCodec()
   m_iSourceBitrate = 0;
   
   m_iInputBufferSize = 0;
+  memset(&m_decodedData, 0, MAD_DECODED_SIZE);
+  memset(&m_inputBuffer, 0, MAD_INPUT_SIZE);
 }
 
 CDVDAudioCodecLibMad::~CDVDAudioCodecLibMad()
@@ -82,11 +84,10 @@ void CDVDAudioCodecLibMad::Dispose()
   }
 }
 
-int CDVDAudioCodecLibMad::Decode(BYTE* pData, int iSize)
+int CDVDAudioCodecLibMad::Decode(uint8_t* pData, int iSize)
 {
-  BYTE* pBuffer = m_inputBuffer;
+  uint8_t* pBuffer = m_inputBuffer;
   //int iBufferSize = iSize;
-  bool bFullOutputBuffer = false;
 
   m_iDecodedDataSize = 0;
 
@@ -100,6 +101,7 @@ int CDVDAudioCodecLibMad::Decode(BYTE* pData, int iSize)
 
   if (m_bInitialized)
   {
+    bool bFullOutputBuffer = false;
     m_dll.mad_stream_buffer(&m_stream, pBuffer, m_iInputBufferSize);
 
     while (true)
@@ -127,7 +129,7 @@ int CDVDAudioCodecLibMad::Decode(BYTE* pData, int iSize)
         if (m_stream.next_frame)
         {
           m_iInputBufferSize = m_stream.bufend - m_stream.next_frame;
-          pBuffer = (BYTE*)m_stream.next_frame;
+          pBuffer = (uint8_t*)m_stream.next_frame;
         }
 
         if (m_iInputBufferSize <= 0)
@@ -185,7 +187,7 @@ int CDVDAudioCodecLibMad::Decode(BYTE* pData, int iSize)
   return 0;
 }
 
-int CDVDAudioCodecLibMad::GetData(BYTE** dst)
+int CDVDAudioCodecLibMad::GetData(uint8_t** dst)
 {
   *dst = m_decodedData;
   return m_iDecodedDataSize;

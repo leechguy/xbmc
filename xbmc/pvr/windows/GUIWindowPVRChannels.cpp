@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,7 +27,9 @@
 #include "dialogs/GUIDialogYesNo.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "GUIInfoManager.h"
+#include "profiles/ProfilesManager.h"
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
 #include "pvr/dialogs/GUIDialogPVRGroupManager.h"
@@ -35,7 +37,6 @@
 #include "pvr/addons/PVRClients.h"
 #include "pvr/timers/PVRTimers.h"
 #include "epg/EpgContainer.h"
-#include "settings/GUISettings.h"
 #include "settings/Settings.h"
 #include "storage/MediaManager.h"
 #include "utils/log.h"
@@ -48,18 +49,14 @@ CGUIWindowPVRChannels::CGUIWindowPVRChannels(CGUIWindowPVR *parent, bool bRadio)
   CGUIWindowPVRCommon(parent,
                       bRadio ? PVR_WINDOW_CHANNELS_RADIO : PVR_WINDOW_CHANNELS_TV,
                       bRadio ? CONTROL_BTNCHANNELS_RADIO : CONTROL_BTNCHANNELS_TV,
-                      bRadio ? CONTROL_LIST_CHANNELS_RADIO: CONTROL_LIST_CHANNELS_TV),
-  CThread("PVR Channel Window")
+                      bRadio ? CONTROL_LIST_CHANNELS_RADIO: CONTROL_LIST_CHANNELS_TV)
 {
   m_bRadio              = bRadio;
   m_bShowHiddenChannels = false;
-  m_bThreadCreated      = false;
 }
 
 CGUIWindowPVRChannels::~CGUIWindowPVRChannels(void)
 {
-  if (m_bThreadCreated)
-    StopThread(true);
 }
 
 void CGUIWindowPVRChannels::ResetObservers(void)
@@ -265,13 +262,6 @@ void CGUIWindowPVRChannels::UpdateData(bool bUpdateSelectedFile /* = true */)
     m_parent->SetLabel(CONTROL_LABELGROUP, g_localizeStrings.Get(19022));
   else
     m_parent->SetLabel(CONTROL_LABELGROUP, currentGroup->GroupName());
-
-  if (!m_bThreadCreated)
-  {
-    m_bThreadCreated = true;
-    Create();
-    SetPriority(-1);
-  }
 }
 
 bool CGUIWindowPVRChannels::OnClickButton(CGUIMessage &message)
@@ -445,7 +435,7 @@ bool CGUIWindowPVRChannels::OnContextButtonPlay(CFileItem *item, CONTEXT_BUTTON 
   if (button == CONTEXT_BUTTON_PLAY_ITEM)
   {
     /* play channel */
-    bReturn = PlayFile(item, g_guiSettings.GetBool("pvrplayback.playminimized"));
+    bReturn = PlayFile(item, CSettings::Get().GetBool("pvrplayback.playminimized"));
   }
 
   return bReturn;
@@ -457,7 +447,7 @@ bool CGUIWindowPVRChannels::OnContextButtonSetThumb(CFileItem *item, CONTEXT_BUT
 
   if (button == CONTEXT_BUTTON_SET_THUMB)
   {
-    if (g_settings.GetCurrentProfile().canWriteSources() && !g_passwordManager.IsProfileLockUnlocked())
+    if (CProfilesManager::Get().GetCurrentProfile().canWriteSources() && !g_passwordManager.IsProfileLockUnlocked())
       return bReturn;
     else if (!g_passwordManager.IsMasterLockUnlocked(true))
       return bReturn;
@@ -491,10 +481,10 @@ bool CGUIWindowPVRChannels::OnContextButtonSetThumb(CFileItem *item, CONTEXT_BUT
 
     CStdString strThumb;
     VECSOURCES shares;
-    if (g_guiSettings.GetString("pvrmenu.iconpath") != "")
+    if (CSettings::Get().GetString("pvrmenu.iconpath") != "")
     {
       CMediaSource share1;
-      share1.strPath = g_guiSettings.GetString("pvrmenu.iconpath");
+      share1.strPath = CSettings::Get().GetString("pvrmenu.iconpath");
       share1.strName = g_localizeStrings.Get(19018);
       shares.push_back(share1);
     }
@@ -606,19 +596,4 @@ void CGUIWindowPVRChannels::ShowGroupManager(void)
   pDlgInfo->DoModal();
 
   return;
-}
-
-void CGUIWindowPVRChannels::Process(void)
-{
-  // ugly hack to refresh the progress bars and item contents every 5 seconds
-  int iCount(0);
-  while (!m_bStop)
-  {
-    if (++iCount == 100)
-    {
-      iCount = 0;
-      SetInvalid();
-    }
-    Sleep(50);
-  }
 }

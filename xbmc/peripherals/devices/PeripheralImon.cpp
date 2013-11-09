@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2012 Team XBMC
+ *      Copyright (C) 2012-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -21,8 +21,8 @@
 #include "PeripheralImon.h"
 #include "utils/log.h"
 #include "guilib/LocalizeStrings.h"
+#include "settings/Settings.h"
 #include "threads/Atomics.h"
-#include "settings/GUISettings.h"
 #if defined (TARGET_WINDOWS)
 #include "system.h" // For HAS_SDL_JOYSTICK
 #if defined (HAS_SDL_JOYSTICK)
@@ -37,8 +37,8 @@ using namespace std;
 volatile long CPeripheralImon::m_lCountOfImonsConflictWithDInput = 0;
 
 
-CPeripheralImon::CPeripheralImon(const PeripheralType type, const PeripheralBusType busType, const CStdString &strLocation, const CStdString &strDeviceName, int iVendorId, int iProductId) :
-  CPeripheralHID(type, busType, strLocation, strDeviceName.IsEmpty() ? g_localizeStrings.Get(35001) : strDeviceName, iVendorId, iProductId)
+CPeripheralImon::CPeripheralImon(const PeripheralScanResult& scanResult) :
+  CPeripheralHID(scanResult)
 {
   m_features.push_back(FEATURE_IMON);
   m_bImonConflictsWithDInput = false;
@@ -106,8 +106,8 @@ void CPeripheralImon::ActionOnImonConflict(bool deviceInserted /*= true*/)
 {
   if (deviceInserted || m_lCountOfImonsConflictWithDInput == 0)
   {
-#if defined(TARGET_WINDOWS) && defined(HAS_SDL_JOYSTICK)
-    bool enableJoystickNow = !deviceInserted && g_guiSettings.GetBool("input.enablejoystick");
+#if defined(TARGET_WINDOWS) && defined (HAS_SDL_JOYSTICK)
+    bool enableJoystickNow = !deviceInserted && CSettings::Get().GetBool("input.enablejoystick");
     CLog::Log(LOGNOTICE, "Problematic iMON hardware %s. Joystick usage: %s", (deviceInserted ? "detected" : "was removed"),
         (enableJoystickNow) ? "enabled." : "disabled." );
     g_Joystick.SetEnabled(enableJoystickNow);

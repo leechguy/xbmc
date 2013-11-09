@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,13 +19,13 @@
  */
 
 #include "Application.h"
+#include "ApplicationMessenger.h"
 #include "LocalizeStrings.h"
 #include "GUIKeyboardFactory.h"
 #include "dialogs/GUIDialogOK.h"
 #include "GUIUserMessages.h"
 #include "GUIWindowManager.h"
-#include "settings/GUISettings.h"
-#include "ApplicationMessenger.h"
+#include "settings/Settings.h"
 #include "utils/md5.h"
 
 
@@ -64,8 +64,8 @@ void CGUIKeyboardFactory::keyTypedCB(CGUIKeyboard *ref, const std::string &typed
       case FILTERING_NONE:
         break;
     }
+    ref->resetAutoCloseTimer();
   }
-  ref->resetAutoCloseTimer();
 }
 
 // Show keyboard with initial value (aTextString) and replace with result string.
@@ -112,7 +112,7 @@ bool CGUIKeyboardFactory::ShowAndGetInput(CStdString& aTextString, const CVarian
 
 bool CGUIKeyboardFactory::ShowAndGetInput(CStdString& aTextString, bool allowEmptyResult, unsigned int autoCloseMs /* = 0 */)
 {
-  return ShowAndGetInput(aTextString, "", allowEmptyResult, autoCloseMs) != 0;
+  return ShowAndGetInput(aTextString, "", allowEmptyResult, false, autoCloseMs);
 }
 
 // Shows keyboard and prompts for a password.
@@ -132,7 +132,7 @@ bool CGUIKeyboardFactory::ShowAndGetNewPassword(CStdString& newPassword, unsigne
 bool CGUIKeyboardFactory::ShowAndGetFilter(CStdString &filter, bool searching, unsigned int autoCloseMs /* = 0 */)
 {
   m_filtering = searching ? FILTERING_SEARCH : FILTERING_CURRENT;
-  bool ret = ShowAndGetInput(filter, searching ? 16017 : 16028, true, autoCloseMs);
+  bool ret = ShowAndGetInput(filter, searching ? 16017 : 16028, true, false, autoCloseMs);
   m_filtering = FILTERING_NONE;
   return ret;
 }
@@ -190,7 +190,7 @@ int CGUIKeyboardFactory::ShowAndVerifyPassword(CStdString& strPassword, const CS
   if (1 > iRetries && strHeading.size())
     strHeadingTemp = strHeading;
   else
-    strHeadingTemp.Format("%s - %i %s", g_localizeStrings.Get(12326).c_str(), g_guiSettings.GetInt("masterlock.maxretries") - iRetries, g_localizeStrings.Get(12343).c_str());
+    strHeadingTemp.Format("%s - %i %s", g_localizeStrings.Get(12326).c_str(), CSettings::Get().GetInt("masterlock.maxretries") - iRetries, g_localizeStrings.Get(12343).c_str());
 
   CStdString strUserInput = "";
   if (!ShowAndGetInput(strUserInput, strHeadingTemp, false, true, autoCloseMs))  //bool hiddenInput = false/true ? TODO: GUI Setting to enable disable this feature y/n?

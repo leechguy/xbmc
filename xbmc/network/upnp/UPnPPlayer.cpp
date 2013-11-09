@@ -1,20 +1,23 @@
 /*
-* Copyright (c) 2006 elupus (Joakim Plate)
-*
-* This program is free software; you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation; either version 2 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-*/
+ *      Copyright (c) 2006 elupus (Joakim Plate)
+ *      Copyright (C) 2006-2013 Team XBMC
+ *      http://xbmc.org
+ *
+ *  This Program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2, or (at your option)
+ *  any later version.
+ *
+ *  This Program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
+ *
+ */
 
 #include "UPnPPlayer.h"
 #include "UPnP.h"
@@ -163,7 +166,10 @@ CUPnPPlayer::CUPnPPlayer(IPlayerCallback& callback, const char* uuid)
 
   PLT_DeviceDataReference device;
   if(NPT_SUCCEEDED(m_control->FindRenderer(uuid, device)))
+  {
     m_delegate = new CUPnPPlayerController(m_control, device, callback);
+    CUPnP::RegisterUserdata(m_delegate);
+  }
   else
     CLog::Log(LOGERROR, "UPNP: CUPnPPlayer couldn't find device as %s", uuid);
 }
@@ -171,6 +177,8 @@ CUPnPPlayer::CUPnPPlayer(IPlayerCallback& callback, const char* uuid)
 CUPnPPlayer::~CUPnPPlayer()
 {
   CloseFile();
+  CUPnP::UnregisterUserdata(m_delegate);
+  delete m_delegate;
 }
 
 static NPT_Result WaitOnEvent(CEvent& event, XbmcThreads::EndTime& timeout, CGUIDialogBusy*& dialog)
@@ -386,7 +394,7 @@ void CUPnPPlayer::SeekTime(__int64 ms)
 {
   NPT_CHECK_LABEL(m_control->Seek(m_delegate->m_device
                                 , m_delegate->m_instance
-                                , "REL_TIME", PLT_Didl::FormatTimeStamp(ms / 1000)
+                                , "REL_TIME", PLT_Didl::FormatTimeStamp((NPT_UInt32)(ms / 1000))
                                 , m_delegate), failed);
 
   g_infoManager.SetDisplayAfterSeek();
@@ -411,7 +419,7 @@ void CUPnPPlayer::SeekPercentage(float percent)
     SeekTime((int64_t)(tot * percent / 100));
 }
 
-void CUPnPPlayer::Seek(bool bPlus, bool bLargeStep)
+void CUPnPPlayer::Seek(bool bPlus, bool bLargeStep, bool bChapterOverride)
 {
 }
 

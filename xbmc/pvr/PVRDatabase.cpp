@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -176,11 +176,8 @@ bool CPVRDatabase::CreateTables()
       CLog::Log(LOGERROR, "PVR - %s - failed to get add-ons from the add-on manager", __FUNCTION__);
     else
     {
-      CAddonDatabase database;
-      database.Open();
       for (IVECADDONS it = addons.begin(); it != addons.end(); it++)
-        database.DisableAddon(it->get()->ID());
-      database.Close();
+        CAddonMgr::Get().DisableAddon(it->get()->ID());
     }
   }
 
@@ -253,7 +250,7 @@ bool CPVRDatabase::UpdateOldVersion(int iVersion)
           for (IVECADDONS it = addons.begin(); it != addons.end(); it++)
           {
             if (!database.IsSystemPVRAddonEnabled(it->get()->ID()))
-              database.DisableAddon(it->get()->ID());
+              CAddonMgr::Get().DisableAddon(it->get()->ID());
           }
           database.Close();
         }

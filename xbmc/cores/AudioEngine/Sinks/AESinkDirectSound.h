@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,14 +36,16 @@ public:
 
   virtual bool Initialize  (AEAudioFormat &format, std::string &device);
   virtual void Deinitialize();
-  virtual bool IsCompatible(const AEAudioFormat format, const std::string device);
+  virtual bool IsCompatible(const AEAudioFormat &format, const std::string &device);
 
   virtual void         Stop               ();
+  virtual void         Drain              ();
   virtual double       GetDelay           ();
   virtual double       GetCacheTime       ();
   virtual double       GetCacheTotal      ();
-  virtual unsigned int AddPackets         (uint8_t *data, unsigned int frames, bool hasAudio);
-  static  void         EnumerateDevicesEx (AEDeviceInfoList &deviceInfoList);
+  virtual unsigned int AddPackets         (uint8_t *data, unsigned int frames, bool hasAudio, bool blocking = false);
+  static  std::string  GetDefaultDevice   ();
+  static  void         EnumerateDevicesEx (AEDeviceInfoList &deviceInfoList, bool force = false);
 private:
   void          AEChannelsFromSpeakerMask(DWORD speakers);
   DWORD         SpeakerMaskFromAEChannels(const CAEChannelInfo &channels);

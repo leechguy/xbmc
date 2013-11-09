@@ -34,7 +34,7 @@
 #include "system.h" // for Sleep(), OutputDebugString() and GetLastError()
 #include "utils/URIUtils.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #pragma comment(lib, "sqlite3.lib")
 #endif
 
@@ -211,8 +211,7 @@ int SqliteDatabase::connect(bool create) {
 
   //CLog::Log(LOGDEBUG, "Connecting to sqlite:%s:%s", host.c_str(), db.c_str());
 
-  CStdString db_fullpath;
-  URIUtils::AddFileToFolder(host, db, db_fullpath);
+  CStdString db_fullpath = URIUtils::AddFileToFolder(host, db);
 
   try
   {

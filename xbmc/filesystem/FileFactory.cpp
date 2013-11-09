@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,8 +18,7 @@
  *
  */
 
-
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
+#if (defined HAVE_CONFIG_H) && (!defined TARGET_WINDOWS)
   #include "config.h"
 #endif
 #include "network/Network.h"
@@ -28,11 +27,11 @@
 #include "HDFile.h"
 #include "CurlFile.h"
 #include "HTTPFile.h"
+#include "DAVFile.h"
 #include "ShoutcastFile.h"
-#include "LastFMFile.h"
 #include "FileReaderFile.h"
 #ifdef HAS_FILESYSTEM_SMB
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "windows/WINFileSmb.h"
 #else
 #include "SmbFile.h"
@@ -95,6 +94,7 @@
 #include "Application.h"
 #include "URL.h"
 #include "utils/log.h"
+#include "network/WakeOnAccess.h"
 
 using namespace XFILE;
 
@@ -114,6 +114,8 @@ IFile* CFileFactory::CreateLoader(const CStdString& strFileName)
 
 IFile* CFileFactory::CreateLoader(const CURL& url)
 {
+  CWakeOnAccess::Get().WakeUpHost(url);
+
   CStdString strProtocol = url.GetProtocol();
   strProtocol.MakeLower();
 
@@ -146,24 +148,22 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
 
   if( g_application.getNetwork().IsAvailable() )
   {
-    if (strProtocol == "dav"
-    ||  strProtocol == "davs"
-    ||  strProtocol == "ftp"
+    if (strProtocol == "ftp"
     ||  strProtocol == "ftps"
     ||  strProtocol == "rss") return new CCurlFile();
     else if (strProtocol == "http" ||  strProtocol == "https") return new CHTTPFile();
+    else if (strProtocol == "dav" || strProtocol == "davs") return new CDAVFile();
 #ifdef HAS_FILESYSTEM_SFTP
     else if (strProtocol == "sftp" || strProtocol == "ssh") return new CSFTPFile();
 #endif
     else if (strProtocol == "shout") return new CShoutcastFile();
-    else if (strProtocol == "lastfm") return new CLastFMFile();
     else if (strProtocol == "tuxbox") return new CTuxBoxFile();
     else if (strProtocol == "hdhomerun") return new CHomeRunFile();
     else if (strProtocol == "sling") return new CSlingboxFile();
     else if (strProtocol == "myth") return new CMythFile();
     else if (strProtocol == "cmyth") return new CMythFile();
 #ifdef HAS_FILESYSTEM_SMB
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
     else if (strProtocol == "smb") return new CWINFileSMB();
 #else
     else if (strProtocol == "smb") return new CSmbFile();

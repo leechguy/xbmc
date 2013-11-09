@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,10 +19,10 @@
  */
 
 #include "DllLoaderContainer.h"
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include "SoLoader.h"
 #endif
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "Win32DllLoader.h"
 #endif
 #include "DllLoader.h"
@@ -72,7 +72,7 @@ HMODULE DllLoaderContainer::GetModuleAddress(const char* sName)
 
 LibraryLoader* DllLoaderContainer::GetModule(const char* sName)
 {
-  for (int i = 0; m_dlls[i] != NULL && i < m_iNrOfDlls; i++)
+  for (int i = 0; i < m_iNrOfDlls && m_dlls[i] != NULL; i++)
   {
     if (stricmp(m_dlls[i]->GetName(), sName) == 0) return m_dlls[i];
     if (!m_dlls[i]->IsSystemDll() && stricmp(m_dlls[i]->GetFileName(), sName) == 0) return m_dlls[i];
@@ -83,7 +83,7 @@ LibraryLoader* DllLoaderContainer::GetModule(const char* sName)
 
 LibraryLoader* DllLoaderContainer::GetModule(HMODULE hModule)
 {
-  for (int i = 0; m_dlls[i] != NULL && i < m_iNrOfDlls; i++)
+  for (int i = 0; i < m_iNrOfDlls && m_dlls[i] != NULL; i++)
   {
     if (m_dlls[i]->GetHModule() == hModule) return m_dlls[i];
   }
@@ -142,7 +142,7 @@ LibraryLoader* DllLoaderContainer::FindModule(const char* sName, const char* sCu
   { //  Has a path, just try to load
     return LoadDll(sName, bLoadSymbols);
   }
-#ifdef _LINUX
+#ifdef TARGET_POSIX
   else if (strcmp(sName, "xbmc.so") == 0)
     return LoadDll(sName, bLoadSymbols);
 #endif
@@ -238,12 +238,12 @@ LibraryLoader* DllLoaderContainer::LoadDll(const char* sName, bool bLoadSymbols)
 #endif
 
   LibraryLoader* pLoader;
-#ifdef _LINUX
+#ifdef TARGET_POSIX
   if (strstr(sName, ".so") != NULL || strstr(sName, ".vis") != NULL || strstr(sName, ".xbs") != NULL
       || strstr(sName, ".mvis") != NULL || strstr(sName, ".dylib") != NULL || strstr(sName, ".framework") != NULL || strstr(sName, ".pvr") != NULL)
     pLoader = new SoLoader(sName, bLoadSymbols);
   else
-#elif defined(_WIN32)
+#elif defined(TARGET_WINDOWS)
   if (1)
     pLoader = new Win32DllLoader(sName);
   else
@@ -267,7 +267,7 @@ LibraryLoader* DllLoaderContainer::LoadDll(const char* sName, bool bLoadSymbols)
 
 bool DllLoaderContainer::IsSystemDll(const char* sName)
 {
-  for (int i = 0; m_dlls[i] != NULL && i < m_iNrOfDlls; i++)
+  for (int i = 0; i < m_iNrOfDlls && m_dlls[i] != NULL; i++)
   {
     if (m_dlls[i]->IsSystemDll() && stricmp(m_dlls[i]->GetName(), sName) == 0) return true;
   }
@@ -330,8 +330,8 @@ void DllLoaderContainer::UnRegisterDll(LibraryLoader* pDll)
 
 void DllLoaderContainer::UnloadPythonDlls()
 {
-  // unload all dlls that python24.dll could have loaded
-  for (int i = 0; m_dlls[i] != NULL && i < m_iNrOfDlls; i++)
+  // unload all dlls that python could have loaded
+  for (int i = 0; i < m_iNrOfDlls && m_dlls[i] != NULL; i++)
   {
     char* name = m_dlls[i]->GetName();
     if (strstr(name, ".pyd") != NULL)
@@ -341,33 +341,5 @@ void DllLoaderContainer::UnloadPythonDlls()
       i = 0;
     }
   }
-
-  // last dll to unload, python24.dll
-  for (int i = 0; m_dlls[i] != NULL && i < m_iNrOfDlls; i++)
-  {
-    char* name = m_dlls[i]->GetName();
-
-#ifdef HAVE_LIBPYTHON2_6
-    if (strstr(name, "python26.dll") != NULL)
-#else
-    if (strstr(name, "python24.dll") != NULL)
-#endif
-    {
-      LibraryLoader* pDll = m_dlls[i];
-      pDll->IncrRef();
-      while (pDll->DecrRef() > 1) pDll->DecrRef();
-
-      // since we freed all python extension dlls first, we have to remove any associations with them first
-      DllTrackInfo* info = tracker_get_dlltrackinfo_byobject((DllLoader*) pDll);
-      if (info != NULL)
-      {
-        info->dllList.clear();
-      }
-
-      ReleaseModule(pDll);
-      break;
-    }
-  }
-
 
 }

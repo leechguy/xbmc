@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,8 +18,9 @@
  *
  */
 
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "utils/CharsetConverter.h"
+#include "utils/StdString.h"
 
 #include "gtest/gtest.h"
 
@@ -83,19 +84,21 @@ protected:
     /* Add default settings for locale.
      * Settings here are taken from CGUISettings::Initialize()
      */
-    CSettingsCategory *loc = g_guiSettings.AddCategory(7, "locale", 14090);
-    g_guiSettings.AddString(loc, "locale.language",248,"english",
+    /* TODO
+    CSettingsCategory *loc = CSettings::Get().AddCategory(7, "locale", 14090);
+    CSettings::Get().AddString(loc, "locale.language",248,"english",
                             SPIN_CONTROL_TEXT);
-    g_guiSettings.AddString(loc, "locale.country", 20026, "USA",
+    CSettings::Get().AddString(loc, "locale.country", 20026, "USA",
                             SPIN_CONTROL_TEXT);
-    g_guiSettings.AddString(loc, "locale.charset", 14091, "DEFAULT",
+    CSettings::Get().AddString(loc, "locale.charset", 14091, "DEFAULT",
                             SPIN_CONTROL_TEXT); // charset is set by the
                                                 // language file
 
-    /* Add default settings for subtitles */
-    CSettingsCategory *sub = g_guiSettings.AddCategory(5, "subtitles", 287);
-    g_guiSettings.AddString(sub, "subtitles.charset", 735, "DEFAULT",
+    // Add default settings for subtitles
+    CSettingsCategory *sub = CSettings::Get().AddCategory(5, "subtitles", 287);
+    CSettings::Get().AddString(sub, "subtitles.charset", 735, "DEFAULT",
                             SPIN_CONTROL_TEXT);
+    */
 
     g_charsetConverter.reset();
     g_charsetConverter.clear();
@@ -103,7 +106,7 @@ protected:
 
   ~TestCharsetConverter()
   {
-    g_guiSettings.Clear();
+    CSettings::Get().Unload();
   }
 
   CStdStringA refstra1, refstra2, varstra1;
@@ -134,9 +137,12 @@ TEST_F(TestCharsetConverter, utf16LEtoW)
 
 TEST_F(TestCharsetConverter, subtitleCharsetToW)
 {
+  varstra1 = "test subtitleCharsetToW";
   refstrw1 = L"test subtitleCharsetToW";
   varstrw1.clear();
-  g_charsetConverter.subtitleCharsetToW(refstrw1, varstrw1);
+  g_charsetConverter.subtitleCharsetToW(varstra1, varstrw1);
+
+  /* Assign refstra1 to refstrw1 so that we can compare */
   EXPECT_STREQ(refstrw1.c_str(), varstrw1.c_str());
 }
 
@@ -198,14 +204,14 @@ TEST_F(TestCharsetConverter, stringCharsetToUtf8)
 {
   refstra1 = "ｔｅｓｔ＿ｓｔｒｉｎｇＣｈａｒｓｅｔＴｏＵｔｆ８";
   varstra1.clear();
-  g_charsetConverter.stringCharsetToUtf8("UTF-16LE", refutf16LE3, varstra1);
+  g_charsetConverter.ToUtf8("UTF-16LE", refutf16LE3, varstra1);
   EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
 }
 
 TEST_F(TestCharsetConverter, isValidUtf8_1)
 {
   varstra1.clear();
-  g_charsetConverter.stringCharsetToUtf8("UTF-16LE", refutf16LE3, varstra1);
+  g_charsetConverter.ToUtf8("UTF-16LE", refutf16LE3, varstra1);
   EXPECT_TRUE(g_charsetConverter.isValidUtf8(varstra1.c_str()));
 }
 
@@ -218,7 +224,7 @@ TEST_F(TestCharsetConverter, isValidUtf8_2)
 TEST_F(TestCharsetConverter, isValidUtf8_3)
 {
   varstra1.clear();
-  g_charsetConverter.stringCharsetToUtf8("UTF-16LE", refutf16LE3, varstra1);
+  g_charsetConverter.ToUtf8("UTF-16LE", refutf16LE3, varstra1);
   EXPECT_TRUE(g_charsetConverter.isValidUtf8(varstra1.c_str(),
                                              varstra1.length() + 1));
 }
@@ -315,10 +321,10 @@ TEST_F(TestCharsetConverter, getCharsetLabels)
   reflabels.push_back("Korean");
   reflabels.push_back("Hong Kong (Big5-HKSCS)");
 
-  std::vector<CStdString> varlabels = g_charsetConverter.getCharsetLabels();
+  std::vector<std::string> varlabels = g_charsetConverter.getCharsetLabels();
   ASSERT_EQ(reflabels.size(), varlabels.size());
 
-  std::vector<CStdString>::iterator it;
+  std::vector<std::string>::iterator it;
   for (it = varlabels.begin(); it < varlabels.end(); it++)
   {
     EXPECT_STREQ((reflabels.at(it - varlabels.begin())).c_str(), (*it).c_str());
@@ -343,12 +349,6 @@ TEST_F(TestCharsetConverter, getCharsetNameByLabel)
   varstr.clear();
   varstr = g_charsetConverter.getCharsetNameByLabel("Bogus");
   EXPECT_STREQ("", varstr.c_str());
-}
-
-TEST_F(TestCharsetConverter, isBidiCharset)
-{
-  EXPECT_TRUE(g_charsetConverter.isBidiCharset("ISO-8859-6"));
-  EXPECT_FALSE(g_charsetConverter.isBidiCharset("Bogus"));
 }
 
 TEST_F(TestCharsetConverter, unknownToUTF8_1)

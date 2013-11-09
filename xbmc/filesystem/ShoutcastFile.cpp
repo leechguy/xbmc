@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,9 +25,7 @@
 
 #include "threads/SystemClock.h"
 #include "system.h"
-#include "Application.h"
 #include "ShoutcastFile.h"
-#include "settings/GUISettings.h"
 #include "guilib/GUIWindowManager.h"
 #include "URL.h"
 #include "utils/RegExp.h"
@@ -43,7 +41,7 @@ using namespace XFILE;
 using namespace MUSIC_INFO;
 
 CShoutcastFile::CShoutcastFile() :
-  IFile(), CThread("Shoutcast file")
+  IFile(), CThread("ShoutcastFile")
 {
   m_discarded = 0;
   m_currint = 0;
@@ -71,11 +69,11 @@ int64_t CShoutcastFile::GetLength()
 bool CShoutcastFile::Open(const CURL& url)
 {
   CURL url2(url);
-  url2.SetProtocolOptions("noshout=true&Icy-MetaData=1");
+  url2.SetProtocolOptions(url2.GetProtocolOptions()+"&noshout=true&Icy-MetaData=1");
   url2.SetProtocol("http");
 
-  bool result=false;
-  if ((result=m_file.Open(url2.Get())))
+  bool result = m_file.Open(url2.Get());
+  if (result)
   {
     m_tag.SetTitle(m_file.GetHttpHeader().GetValue("icy-name"));
     if (m_tag.GetTitle().IsEmpty())
@@ -85,6 +83,7 @@ bool CShoutcastFile::Open(const CURL& url)
       m_tag.SetGenre(m_file.GetHttpHeader().GetValue("ice-genre")); // icecast
     m_tag.SetLoaded(true);
   }
+  m_fileCharset = m_file.GetServerReportedCharset();
   m_metaint = atoi(m_file.GetHttpHeader().GetValue("icy-metaint").c_str());
   if (!m_metaint)
     m_metaint = -1;
@@ -134,13 +133,22 @@ void CShoutcastFile::Close()
 {
   StopThread();
   delete[] m_buffer;
+  m_buffer = NULL;
   m_file.Close();
 }
 
 bool CShoutcastFile::ExtractTagInfo(const char* buf)
 {
   CStdString strBuffer = buf;
-  g_charsetConverter.unknownToUTF8(strBuffer);
+
+  if (!m_fileCharset.empty())
+  {
+    std::string converted;
+    g_charsetConverter.ToUtf8(m_fileCharset, strBuffer, converted);
+    strBuffer = converted;
+  }
+  else
+    g_charsetConverter.unknownToUTF8(strBuffer);
   
   bool result=false;
 
@@ -154,7 +162,7 @@ bool CShoutcastFile::ExtractTagInfo(const char* buf)
 
   if (reTitle.RegFind(strBuffer.c_str()) != -1)
   {
-    std::string newtitle = reTitle.GetReplaceString("\\1");
+    std::string newtitle(reTitle.GetMatch(1));
     result = (m_tag.GetTitle() != newtitle);
     m_tag.SetTitle(newtitle);
   }

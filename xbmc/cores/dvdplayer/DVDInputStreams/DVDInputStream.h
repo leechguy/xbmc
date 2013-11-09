@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #include "filesystem/IFileTypes.h"
 
 #include "FileItem.h"
+#include "URL.h"
 #include "guilib/Geometry.h"
 
 enum DVDStreamType
@@ -118,7 +119,19 @@ public:
     virtual bool OnMouseMove(const CPoint &point) = 0;
     virtual bool OnMouseClick(const CPoint &point) = 0;
     virtual bool IsInMenu() = 0;
+    virtual void SkipStill() = 0;
     virtual double GetTimeStampCorrection() = 0;
+    virtual bool GetState(std::string &xmlstate) = 0;
+    virtual bool SetState(const std::string &xmlstate) = 0;
+
+  };
+
+  class ISeekable
+  {
+    public:
+    virtual ~ISeekable() {};
+    virtual bool CanSeek()  = 0;
+    virtual bool CanPause() = 0;
   };
 
   enum ENextStream
@@ -132,12 +145,13 @@ public:
   virtual ~CDVDInputStream();
   virtual bool Open(const char* strFileName, const std::string& content);
   virtual void Close() = 0;
-  virtual int Read(BYTE* buf, int buf_size) = 0;
+  virtual int Read(uint8_t* buf, int buf_size) = 0;
   virtual int64_t Seek(int64_t offset, int whence) = 0;
   virtual bool Pause(double dTime) = 0;
   virtual int64_t GetLength() = 0;
   virtual std::string& GetContent() { return m_content; };
   virtual std::string& GetFileName() { return m_strFileName; }
+  virtual CURL &GetURL() { return m_url; }
   virtual ENextStream NextStream() { return NEXTSTREAM_NONE; }
   virtual void Abort() {}
   virtual int GetBlockSize() { return 0; }
@@ -156,7 +170,6 @@ public:
 
   bool IsStreamType(DVDStreamType type) const { return m_streamType == type; }
   virtual bool IsEOF() = 0;
-  virtual int GetCurrentGroupId() { return 0; }
   virtual BitstreamStats GetBitstreamStats() const { return m_stats; }
 
   void SetFileItem(const CFileItem& item);
@@ -164,6 +177,7 @@ public:
 protected:
   DVDStreamType m_streamType;
   std::string m_strFileName;
+  CURL m_url;
   BitstreamStats m_stats;
   std::string m_content;
   CFileItem m_item;

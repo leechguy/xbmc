@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,14 +19,18 @@
  *
  */
 
+#include <map>
+
+#include "addons/include/xbmc_pvr_types.h"
+#include "settings/ISettingCallback.h"
+#include "threads/Event.h"
 #include "threads/Thread.h"
 #include "utils/JobManager.h"
-#include "threads/Event.h"
-#include "addons/include/xbmc_pvr_types.h"
-#include <map>
 
 class CGUIDialogProgressBarHandle;
 class CStopWatch;
+class CAction;
+class CFileItemList;
 
 namespace EPG
 {
@@ -57,6 +61,20 @@ namespace PVR
     ManagerStateStarted
   };
 
+  enum PlaybackType
+  {
+    PlaybackTypeAny = 0,
+    PlaybackTypeTv,
+    PlaybackTypeRadio
+  };
+
+  enum ChannelStartLast
+  {
+    START_LAST_CHANNEL_OFF  = 0,
+    START_LAST_CHANNEL_MIN,
+    START_LAST_CHANNEL_ON
+  };
+
   #define g_PVRManager       CPVRManager::Get()
   #define g_PVRChannelGroups g_PVRManager.ChannelGroups()
   #define g_PVRTimers        g_PVRManager.Timers()
@@ -65,7 +83,7 @@ namespace PVR
 
   typedef boost::shared_ptr<PVR::CPVRChannelGroup> CPVRChannelGroupPtr;
 
-  class CPVRManager : private CThread
+  class CPVRManager : public ISettingCallback, private CThread
   {
     friend class CPVRClients;
 
@@ -86,6 +104,9 @@ namespace PVR
      * @return The PVRManager instance.
      */
     static CPVRManager &Get(void);
+
+    virtual void OnSettingChanged(const CSetting *setting);
+    virtual void OnSettingAction(const CSetting *setting);
 
     /*!
      * @brief Get the channel groups container.
@@ -229,6 +250,12 @@ namespace PVR
     bool IsStarted(void) const;
 
     /*!
+     * @brief Check whether EPG tags for channels have been created.
+     * @return True if EPG tags have been created, false otherwise.
+     */
+    bool EpgsCreated(void) const;
+
+    /*!
      * @brief Reset the playing EPG tag.
      */
     void ResetPlayingTag(void);
@@ -312,6 +339,11 @@ namespace PVR
     CPVRChannelGroupPtr GetPlayingGroup(bool bRadio = false);
 
     /*!
+     * @brief Let the background thread create epg tags for all channels.
+     */
+    void TriggerEpgsCreate(void);
+
+    /*!
      * @brief Let the background thread update the recordings list.
      */
     void TriggerRecordingsUpdate(void);
@@ -387,6 +419,13 @@ namespace PVR
      * @return True if playback was started, false otherwise.
      */
     bool StartPlayback(const CPVRChannel *channel, bool bPreview = false);
+
+    /*!
+     * @brief Start playback of the last used channel, and if it fails use first channel in the current channelgroup.
+     * @param type The type of playback to be started (any, radio, tv). See PlaybackType enum
+     * @return True if playback was started, false otherwise.
+     */
+    bool StartPlayback(PlaybackType type = PlaybackTypeAny);
 
     /*!
      * @brief Update the current playing file in the guiinfomanager and application.
@@ -472,6 +511,21 @@ namespace PVR
      * @return True when loaded, false otherwise
      */
     bool WaitUntilInitialised(void);
+
+    /*!
+     * @brief Handle PVR specific cActions
+     * @param action The action to process
+     * @return True if action could be handled, false otherwise.
+     */
+    bool OnAction(const CAction &action);
+
+    static void SettingOptionsPvrStartLastChannelFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current);
+
+    /*!
+     * @brief Create EPG tags for all channels in internal channel groups
+     * @return True if EPG tags where created successfully, false otherwise
+     */
+    bool CreateChannelEpgs(void);
 
   protected:
     /*!
@@ -574,6 +628,7 @@ namespace PVR
     CCriticalSection                m_critSection;                 /*!< critical section for all changes to this class, except for changes to triggers */
     bool                            m_bFirstStart;                 /*!< true when the PVR manager was started first, false otherwise */
     bool                            m_bIsSwitchingChannels;        /*!< true while switching channels */
+    bool                            m_bEpgsCreated;                /*!< true if epg data for channels has been created */
     CGUIDialogProgressBarHandle *   m_progressHandle;              /*!< progress dialog that is displayed while the pvrmanager is loading */
 
     CCriticalSection                m_managerStateMutex;
@@ -581,7 +636,16 @@ namespace PVR
     CStopWatch                     *m_parentalTimer;
     bool                            m_bOpenPVRWindow;
     std::map<std::string, std::string> m_outdatedAddons;
-    CEvent                             m_initialisedEvent;         /*!< triggered when the pvr manager initialised */
+  };
+
+  class CPVREpgsCreateJob : public CJob
+  {
+  public:
+    CPVREpgsCreateJob(void) {}
+    virtual ~CPVREpgsCreateJob() {}
+    virtual const char *GetType() const { return "pvr-create-epgs"; }
+
+    virtual bool DoWork();
   };
 
   class CPVRRecordingsUpdateJob : public CJob

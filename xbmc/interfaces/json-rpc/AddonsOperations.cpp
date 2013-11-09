@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2011 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2011-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -13,9 +13,8 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -27,6 +26,7 @@
 #include "ApplicationMessenger.h"
 #include "TextureCache.h"
 #include "filesystem/File.h"
+#include "utils/StringUtils.h"
 
 using namespace std;
 using namespace JSONRPC;
@@ -72,7 +72,7 @@ JSONRPC_STATUS CAddonsOperations::GetAddons(const CStdString &method, ITransport
     addonTypes.push_back(addonType);
 
   VECADDONS addons;
-  for (vector<TYPE>::const_iterator typeIt = addonTypes.begin(); typeIt != addonTypes.end(); typeIt++)
+  for (vector<TYPE>::const_iterator typeIt = addonTypes.begin(); typeIt != addonTypes.end(); ++typeIt)
   {
     VECADDONS typeAddons;
     if (*typeIt == ADDON_UNKNOWN)
@@ -142,21 +142,17 @@ JSONRPC_STATUS CAddonsOperations::GetAddonDetails(const CStdString &method, ITra
 
 JSONRPC_STATUS CAddonsOperations::SetAddonEnabled(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
-  CAddonDatabase addondatabase;
-  if (!addondatabase.Open())
-    return InternalError;
-
   string id = parameterObject["addonid"].asString();
   bool disabled = false;
   if (parameterObject["enabled"].isBoolean())
     disabled = !parameterObject["enabled"].asBoolean();
   // we need to toggle the current disabled state of the addon
   else if (parameterObject["enabled"].isString())
-    disabled = !addondatabase.IsAddonDisabled(id);
+    disabled = !CAddonMgr::Get().IsAddonDisabled(id);
   else
     return InvalidParams;
 
-  if (!addondatabase.DisableAddon(id, disabled))
+  if (!CAddonMgr::Get().DisableAddon(id, disabled))
       return InvalidParams;
 
   return ACK;
@@ -187,7 +183,7 @@ JSONRPC_STATUS CAddonsOperations::ExecuteAddon(const CStdString &method, ITransp
     {
       if (it != params.begin_array())
         argv += ",";
-      argv += it->asString();
+      argv += StringUtils::Paramify(it->asString());
     }
   }
   
@@ -221,9 +217,7 @@ void CAddonsOperations::FillDetails(AddonPtr addon, const CVariant& fields, CVar
     // from the addon database because it can't be read from addon.xml
     if (field == "enabled")
     {
-      if (!addondb.IsOpen() && !addondb.Open())
-        return;
-      object[field] = !addondb.IsAddonDisabled(addon->ID());
+      object[field] = !CAddonMgr::Get().IsAddonDisabled(addon->ID());
     }
     else if (field == "fanart" || field == "thumbnail")
     {
@@ -233,7 +227,7 @@ void CAddonsOperations::FillDetails(AddonPtr addon, const CVariant& fields, CVar
       bool needsRecaching;
       CStdString image = CTextureCache::Get().CheckCachedImage(url, false, needsRecaching);
       if (!image.empty() || CFile::Exists(url))
-        object[field] = CTextureCache::Get().GetWrappedImageURL(url);
+        object[field] = CTextureUtils::GetWrappedImageURL(url);
       else
         object[field] = "";
     }

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,9 +27,10 @@
   BOOL _confirmed;
   CIOSKeyboard *_iosKeyboard;
   bool *_canceled;
+  BOOL _deactivated;
   UITextField *_textField;
   UILabel *_heading;
-  BOOL _keyboardIsShowing;
+  int _keyboardIsShowing; // 0: not, 1: will show, 2: showing
   CGFloat _kbHeight;
 }
 
@@ -44,4 +45,5 @@
 - (void) deactivate;
 - (void) textChanged:(NSNotification*)aNotification;
 - (void) setCancelFlag:(bool *)cancelFlag;
+- (void) doDeactivate:(NSDictionary *)dict;
 @end

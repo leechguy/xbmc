@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -34,8 +34,6 @@ public:
   virtual bool OnAction(const CAction &action);
   virtual bool OnMessage(CGUIMessage& message);
 
-  virtual void OnPrepareFileItems(CFileItemList &items);
-
   virtual void OnInfo(CFileItem* pItem, ADDON::ScraperPtr &info);
   static bool CanDelete(const CStdString& strPath);
   static bool DeleteItem(CFileItem* pItem, bool bUnavailable=false);
@@ -64,7 +62,6 @@ protected:
   virtual bool GetFilteredItems(const CStdString &filter, CFileItemList &items);
 
   virtual void OnItemLoaded(CFileItem* pItem) {};
-  void OnLinkMovieToTvShow(int itemnumber, bool bRemove);
   // override base class methods
   virtual bool GetDirectory(const CStdString &strDirectory, CFileItemList &items);
   virtual void UpdateButtons();

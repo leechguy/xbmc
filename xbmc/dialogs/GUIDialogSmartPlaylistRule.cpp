@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #include "FileItem.h"
 #include "guilib/GUIEditControl.h"
 #include "guilib/LocalizeStrings.h"
-#include "settings/Settings.h"
+#include "settings/MediaSourceSettings.h"
 #include "storage/MediaManager.h"
 #include "utils/LabelFormatter.h"
 
@@ -84,6 +84,10 @@ bool CGUIDialogSmartPlaylistRule::OnMessage(CGUIMessage& message)
       return true;
     }
     break;
+
+  case GUI_MSG_VALIDITY_CHANGED:
+    CONTROL_ENABLE_ON_CONDITION(CONTROL_OK, message.GetParam1());
+    break;
   }
   return CGUIDialog::OnMessage(message);
 }
@@ -103,23 +107,23 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   videodatabase.Open();
 
   std::string basePath;
-  if (m_type.Equals("songs") || m_type.Equals("albums") || m_type.Equals("artists") || m_type.Equals("mixed"))
+  if (CSmartPlaylist::IsMusicType(m_type))
     basePath = "musicdb://";
   else
     basePath = "videodb://";
 
   VIDEODB_CONTENT_TYPE type = VIDEODB_CONTENT_MOVIES;
   if (m_type.Equals("movies"))
-    basePath += "1/";
+    basePath += "movies/";
   else if (m_type.Equals("tvshows"))
   {
     type = VIDEODB_CONTENT_TVSHOWS;
-    basePath += "2/";
+    basePath += "tvshows/";
   }
   else if (m_type.Equals("musicvideos"))
   {
     type = VIDEODB_CONTENT_MUSICVIDEOS;
-    basePath += "3/";
+    basePath += "musicvideos/";
   }
   else if (m_type.Equals("episodes"))
   {
@@ -128,20 +132,20 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
       type = VIDEODB_CONTENT_TVSHOWS;
     else
       type = VIDEODB_CONTENT_EPISODES;
-    basePath += "2/";
+    basePath += "tvshows/";
   }
 
   int iLabel = 0;
   if (m_rule.m_field == FieldGenre)
   {
     if (m_type.Equals("tvshows") || m_type.Equals("episodes") || m_type.Equals("movies"))
-      videodatabase.GetGenresNav(basePath + "1/", items, type);
+      videodatabase.GetGenresNav(basePath + "genres/", items, type);
     else if (m_type.Equals("songs") || m_type.Equals("albums") || m_type.Equals("artists") || m_type.Equals("mixed"))
-      database.GetGenresNav("musicdb://1/",items);
+      database.GetGenresNav("musicdb://genres/",items);
     if (m_type.Equals("musicvideos") || m_type.Equals("mixed"))
     {
       CFileItemList items2;
-      videodatabase.GetGenresNav("videodb://3/1/",items2,VIDEODB_CONTENT_MUSICVIDEOS);
+      videodatabase.GetGenresNav("videodb://musicvideos/genres/",items2,VIDEODB_CONTENT_MUSICVIDEOS);
       items.Append(items2);
     }
     iLabel = 515;
@@ -153,8 +157,8 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   }
   else if (m_rule.m_field == FieldArtist || m_rule.m_field == FieldAlbumArtist)
   {
-    if (m_type.Equals("songs") || m_type.Equals("mixed") || m_type.Equals("albums") || m_type.Equals("artists"))
-      database.GetArtistsNav("musicdb://2/", items, m_rule.m_field == FieldAlbumArtist, -1);
+    if (CSmartPlaylist::IsMusicType(m_type))
+      database.GetArtistsNav("musicdb://artists/", items, m_rule.m_field == FieldAlbumArtist, -1);
     if (m_type.Equals("musicvideos") || m_type.Equals("mixed"))
     {
       CFileItemList items2;
@@ -165,8 +169,8 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   }
   else if (m_rule.m_field == FieldAlbum)
   {
-    if (m_type.Equals("songs") || m_type.Equals("mixed") || m_type.Equals("albums"))
-      database.GetAlbumsNav("musicdb://3/", items);
+    if (CSmartPlaylist::IsMusicType(m_type))
+      database.GetAlbumsNav("musicdb://albums/", items);
     if (m_type.Equals("musicvideos") || m_type.Equals("mixed"))
     {
       CFileItemList items2;
@@ -177,36 +181,29 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   }
   else if (m_rule.m_field == FieldActor)
   {
-    videodatabase.GetActorsNav(basePath + "4/",items,type);
+    videodatabase.GetActorsNav(basePath + "actors/",items,type);
     iLabel = 20337;
   }
   else if (m_rule.m_field == FieldYear)
   {
-    if (m_type.Equals("songs") || m_type.Equals("mixed") || m_type.Equals("albums"))
-      database.GetYearsNav("musicdb://9/", items);
-    if (!m_type.Equals("songs") && !m_type.Equals("albums"))
+    if (CSmartPlaylist::IsMusicType(m_type))
+      database.GetYearsNav("musicdb://years/", items);
+    if (!m_type.Equals("songs") && !m_type.Equals("albums") && !m_type.Equals("artists"))
     {
       CFileItemList items2;
-      videodatabase.GetYearsNav(basePath + "3/", items2, type);
+      videodatabase.GetYearsNav(basePath + "years/", items2, type);
       items.Append(items2);
     }
     iLabel = 562;
   }
   else if (m_rule.m_field == FieldDirector)
   {
-    videodatabase.GetDirectorsNav(basePath + "5/", items, type);
+    videodatabase.GetDirectorsNav(basePath + "directors/", items, type);
     iLabel = 20339;
   }
   else if (m_rule.m_field == FieldStudio)
   {
-    if (m_type.Equals("movies"))
-      basePath += "6/";
-    else if (m_type.Equals("musicvideos") || m_type.Equals("mixed"))
-      basePath += "7/";
-    else
-      basePath += "5/";
-
-    videodatabase.GetStudiosNav(basePath, items, type);
+    videodatabase.GetStudiosNav(basePath + "studios/", items, type);
     iLabel = 572;
   }
   else if (m_rule.m_field == FieldWriter)
@@ -217,24 +214,24 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   else if (m_rule.m_field == FieldTvShowTitle ||
           (m_type.Equals("tvshows") && m_rule.m_field == FieldTitle))
   {
-    videodatabase.GetTvShowsNav(basePath + "2/", items);
+    videodatabase.GetTvShowsNav(basePath + "titles/", items);
     iLabel = 20343;
   }
   else if (m_rule.m_field == FieldTitle)
   {
     if (m_type.Equals("songs"))
     {
-      database.GetSongsNav("musicdb://4/", items, -1, -1, -1);
+      database.GetSongsNav("musicdb://songs/", items, -1, -1, -1);
       iLabel = 134;
     }
     else if (m_type.Equals("movies"))
     {
-      videodatabase.GetMoviesNav(basePath + "2/", items);
+      videodatabase.GetMoviesNav(basePath + "titles/", items);
       iLabel = 20342;
     }
     else if (m_type.Equals("episodes"))
     {
-      videodatabase.GetEpisodesNav(basePath + "2/-1/-1/", items);
+      videodatabase.GetEpisodesNav(basePath + "titles/-1/-1/", items);
       // we need to replace the db label (<season>x<episode> <title>) with the title only
       CLabelFormatter format("%T", "");
       for (int i = 0; i < items.Size(); i++)
@@ -243,13 +240,13 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
     }
     else if (m_type.Equals("musicvideos"))
     {
-      videodatabase.GetMusicVideosNav(basePath + "2/", items);
+      videodatabase.GetMusicVideosNav(basePath + "titles/", items);
       iLabel = 20389;
     }
     else
       assert(false);
   }
-  else if (m_rule.m_field == FieldPlaylist)
+  else if (m_rule.m_field == FieldPlaylist || m_rule.m_field == FieldVirtualFolder)
   {
     // use filebrowser to grab another smart playlist
 
@@ -264,7 +261,19 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
     {
       CFileItemPtr item = items[i];
       CSmartPlaylist playlist;
-      if (playlist.OpenAndReadName(item->GetPath()))
+      // don't list unloadable smartplaylists or any referencable smartplaylists
+      // which do not match the type of the current smartplaylist
+      if (!playlist.Load(item->GetPath()) ||
+         (m_rule.m_field == FieldPlaylist &&
+         (!CSmartPlaylist::CheckTypeCompatibility(m_type, playlist.GetType()) ||
+         (!playlist.GetGroup().empty() || playlist.IsGroupMixed()))))
+      {
+        items.Remove(i);
+        i -= 1;
+        continue;
+      }
+
+      if (!playlist.GetName().empty())
         item->SetLabel(playlist.GetName());
     }
     iLabel = 559;
@@ -273,10 +282,10 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   {
     VECSOURCES sources;
     if (m_type == "songs" || m_type == "mixed")
-      sources = *g_settings.GetSourcesFromType("music");
+      sources = *CMediaSourceSettings::Get().GetSources("music");
     if (m_type != "songs")
     {
-      VECSOURCES sources2 = *g_settings.GetSourcesFromType("video");
+      VECSOURCES sources2 = *CMediaSourceSettings::Get().GetSources("video");
       sources.insert(sources.end(),sources2.begin(),sources2.end());
     }
     g_mediaManager.GetLocalDrives(sources);
@@ -293,7 +302,7 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   }
   else if (m_rule.m_field == FieldSet)
   {
-    videodatabase.GetSetsNav("videodb://1/7/", items, VIDEODB_CONTENT_MOVIES);
+    videodatabase.GetSetsNav("videodb://movies/sets/", items, VIDEODB_CONTENT_MOVIES);
     iLabel = 20434;
   }
   else if (m_rule.m_field == FieldTag)
@@ -306,7 +315,7 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
     else if (m_type != "movies")
       return;
 
-    videodatabase.GetTagsNav(basePath + "9/", items, type);
+    videodatabase.GetTagsNav(basePath + "tags/", items, type);
     iLabel = 20459;
   }
   else
@@ -315,7 +324,7 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   }
 
   // sort the items
-  items.Sort(SORT_METHOD_LABEL, SortOrderAscending);
+  items.Sort(SortByLabel, SortOrderAscending);
 
   CGUIDialogSelect* pDialog = (CGUIDialogSelect*)g_windowManager.GetWindow(WINDOW_DIALOG_SELECT);
   pDialog->Reset();
@@ -323,7 +332,7 @@ void CGUIDialogSmartPlaylistRule::OnBrowse()
   CStdString strHeading;
   strHeading.Format(g_localizeStrings.Get(13401),g_localizeStrings.Get(iLabel));
   pDialog->SetHeading(strHeading);
-  pDialog->SetMultiSelection(true);
+  pDialog->SetMultiSelection(m_rule.m_field != FieldPlaylist && m_rule.m_field != FieldVirtualFolder);
 
   if (!m_rule.m_parameter.empty())
     pDialog->SetSelected(m_rule.m_parameter);
@@ -360,7 +369,7 @@ void CGUIDialogSmartPlaylistRule::OnOperator()
 {
   CGUIMessage msg(GUI_MSG_ITEM_SELECTED, GetID(), CONTROL_OPERATOR);
   OnMessage(msg);
-  m_rule.m_operator = (CSmartPlaylistRule::SEARCH_OPERATOR)msg.GetParam1();
+  m_rule.m_operator = (CDatabaseQueryRule::SEARCH_OPERATOR)msg.GetParam1();
 
   UpdateButtons();
 }
@@ -382,50 +391,50 @@ void CGUIDialogSmartPlaylistRule::UpdateButtons()
   else
     CONTROL_DISABLE(CONTROL_BROWSE);
 
-  switch (CSmartPlaylistRule::GetFieldType(m_rule.m_field))
+  switch (m_rule.GetFieldType(m_rule.m_field))
   {
-  case CSmartPlaylistRule::TEXT_FIELD:
+  case CDatabaseQueryRule::TEXT_FIELD:
     // text fields - add the usual comparisons
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_EQUALS);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_DOES_NOT_EQUAL);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_CONTAINS);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_DOES_NOT_CONTAIN);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_STARTS_WITH);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_ENDS_WITH);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_EQUALS);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_DOES_NOT_EQUAL);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_CONTAINS);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_DOES_NOT_CONTAIN);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_STARTS_WITH);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_ENDS_WITH);
     break;
 
-  case CSmartPlaylistRule::NUMERIC_FIELD:
-  case CSmartPlaylistRule::SECONDS_FIELD:
+  case CDatabaseQueryRule::NUMERIC_FIELD:
+  case CDatabaseQueryRule::SECONDS_FIELD:
     // numerical fields - less than greater than
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_EQUALS);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_DOES_NOT_EQUAL);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_GREATER_THAN);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_LESS_THAN);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_EQUALS);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_DOES_NOT_EQUAL);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_GREATER_THAN);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_LESS_THAN);
     break;
 
-  case CSmartPlaylistRule::DATE_FIELD:
+  case CDatabaseQueryRule::DATE_FIELD:
     // date field
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_AFTER);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_BEFORE);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_IN_THE_LAST);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_NOT_IN_THE_LAST);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_AFTER);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_BEFORE);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_IN_THE_LAST);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_NOT_IN_THE_LAST);
     break;
 
-  case CSmartPlaylistRule::PLAYLIST_FIELD:
+  case CDatabaseQueryRule::PLAYLIST_FIELD:
     CONTROL_ENABLE(CONTROL_BROWSE);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_EQUALS);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_DOES_NOT_EQUAL);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_EQUALS);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_DOES_NOT_EQUAL);
     break;
 
-  case CSmartPlaylistRule::BOOLEAN_FIELD:
+  case CDatabaseQueryRule::BOOLEAN_FIELD:
     CONTROL_DISABLE(CONTROL_VALUE);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_TRUE);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_FALSE);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_TRUE);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_FALSE);
     break;
 
-  case CSmartPlaylistRule::TEXTIN_FIELD:
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_EQUALS);
-    AddOperatorLabel(CSmartPlaylistRule::OPERATOR_DOES_NOT_EQUAL);
+  case CDatabaseQueryRule::TEXTIN_FIELD:
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_EQUALS);
+    AddOperatorLabel(CDatabaseQueryRule::OPERATOR_DOES_NOT_EQUAL);
     break;
   }
 
@@ -433,38 +442,38 @@ void CGUIDialogSmartPlaylistRule::UpdateButtons()
   SendMessage(GUI_MSG_ITEM_SELECT, CONTROL_OPERATOR, m_rule.m_operator);
   CGUIMessage selected(GUI_MSG_ITEM_SELECTED, GetID(), CONTROL_OPERATOR);
   OnMessage(selected);
-  m_rule.m_operator = (CSmartPlaylistRule::SEARCH_OPERATOR)selected.GetParam1();
+  m_rule.m_operator = (CDatabaseQueryRule::SEARCH_OPERATOR)selected.GetParam1();
 
   // update the parameter edit control appropriately
   SET_CONTROL_LABEL2(CONTROL_VALUE, m_rule.GetParameter());
   CGUIEditControl::INPUT_TYPE type = CGUIEditControl::INPUT_TYPE_TEXT;
-  CSmartPlaylistRule::FIELD_TYPE fieldType = CSmartPlaylistRule::GetFieldType(m_rule.m_field);
+  CDatabaseQueryRule::FIELD_TYPE fieldType = m_rule.GetFieldType(m_rule.m_field);
   switch (fieldType)
   {
-  case CSmartPlaylistRule::TEXT_FIELD:
-  case CSmartPlaylistRule::PLAYLIST_FIELD:
-  case CSmartPlaylistRule::TEXTIN_FIELD:
-  case CSmartPlaylistRule::NUMERIC_FIELD:
+  case CDatabaseQueryRule::TEXT_FIELD:
+  case CDatabaseQueryRule::PLAYLIST_FIELD:
+  case CDatabaseQueryRule::TEXTIN_FIELD:
+  case CDatabaseQueryRule::NUMERIC_FIELD:
     type = CGUIEditControl::INPUT_TYPE_TEXT;
     break;
-  case CSmartPlaylistRule::DATE_FIELD:
-    if (m_rule.m_operator == CSmartPlaylistRule::OPERATOR_IN_THE_LAST ||
-        m_rule.m_operator == CSmartPlaylistRule::OPERATOR_NOT_IN_THE_LAST)
+  case CDatabaseQueryRule::DATE_FIELD:
+    if (m_rule.m_operator == CDatabaseQueryRule::OPERATOR_IN_THE_LAST ||
+        m_rule.m_operator == CDatabaseQueryRule::OPERATOR_NOT_IN_THE_LAST)
       type = CGUIEditControl::INPUT_TYPE_TEXT;
     else
       type = CGUIEditControl::INPUT_TYPE_DATE;
     break;
-  case CSmartPlaylistRule::SECONDS_FIELD:
+  case CDatabaseQueryRule::SECONDS_FIELD:
     type = CGUIEditControl::INPUT_TYPE_SECONDS;
     break;
-  case CSmartPlaylistRule::BOOLEAN_FIELD:
+  case CDatabaseQueryRule::BOOLEAN_FIELD:
     type = CGUIEditControl::INPUT_TYPE_NUMBER;
     break;
   }
   SendMessage(GUI_MSG_SET_TYPE, CONTROL_VALUE, type, 21420);
 }
 
-void CGUIDialogSmartPlaylistRule::AddOperatorLabel(CSmartPlaylistRule::SEARCH_OPERATOR op)
+void CGUIDialogSmartPlaylistRule::AddOperatorLabel(CDatabaseQueryRule::SEARCH_OPERATOR op)
 {
   CGUIMessage select(GUI_MSG_LABEL_ADD, GetID(), CONTROL_OPERATOR, op);
   select.SetLabel(CSmartPlaylistRule::GetLocalizedOperator(op));
@@ -491,6 +500,10 @@ void CGUIDialogSmartPlaylistRule::OnInitWindow()
     OnMessage(msg);
   }
   UpdateButtons();
+
+  CGUIEditControl *editControl = (CGUIEditControl*)GetControl(CONTROL_VALUE);
+  if (editControl != NULL)
+    editControl->SetInputValidation(CSmartPlaylistRule::Validate, &m_rule);
 }
 
 void CGUIDialogSmartPlaylistRule::OnDeinitWindow(int nextWindowID)

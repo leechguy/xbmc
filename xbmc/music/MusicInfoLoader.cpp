@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@
 #include "utils/URIUtils.h"
 #include "music/tags/MusicInfoTag.h"
 #include "filesystem/File.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "FileItem.h"
 #include "utils/log.h"
 #include "Artist.h"
@@ -41,7 +41,7 @@ using namespace XFILE;
 using namespace MUSIC_INFO;
 
 // HACK until we make this threadable - specify 1 thread only for now
-CMusicInfoLoader::CMusicInfoLoader() : CBackgroundInfoLoader(1)
+CMusicInfoLoader::CMusicInfoLoader() : CBackgroundInfoLoader()
 {
   m_mapFileItems = new CFileItemList;
 
@@ -77,7 +77,7 @@ void CMusicInfoLoader::OnLoaderStart()
   m_musicDatabase.Open();
 
   if (m_thumbLoader)
-    m_thumbLoader->Initialize();
+    m_thumbLoader->OnLoaderStart();
 }
 
 bool CMusicInfoLoader::LoadAdditionalTagInfo(CFileItem* pItem)
@@ -125,6 +125,25 @@ bool CMusicInfoLoader::LoadAdditionalTagInfo(CFileItem* pItem)
 
 bool CMusicInfoLoader::LoadItem(CFileItem* pItem)
 {
+  bool result  = LoadItemCached(pItem);
+       result |= LoadItemLookup(pItem);
+
+  return result;
+}
+
+bool CMusicInfoLoader::LoadItemCached(CFileItem* pItem)
+{
+  if (pItem->m_bIsFolder || pItem->IsPlayList() || pItem->IsNFO() || pItem->IsInternetStream())
+    return false;
+
+  // Get thumb for item
+  m_thumbLoader->LoadItem(pItem);
+
+  return true;
+}
+
+bool CMusicInfoLoader::LoadItemLookup(CFileItem* pItem)
+{
   if (m_pProgressCallback && !pItem->m_bIsFolder)
     m_pProgressCallback->SetProgressAdvance();
 
@@ -143,8 +162,7 @@ bool CMusicInfoLoader::LoadItem(CFileItem* pItem)
     }
     else
     {
-      CStdString strPath;
-      URIUtils::GetDirectory(pItem->GetPath(), strPath);
+      CStdString strPath = URIUtils::GetDirectory(pItem->GetPath());
       URIUtils::AddSlashAtEnd(strPath);
       if (strPath!=m_strPrevPath)
       {
@@ -154,27 +172,26 @@ bool CMusicInfoLoader::LoadItem(CFileItem* pItem)
         m_databaseHits++;
       }
 
-      CSong *song=NULL;
-
-      if ((song=m_songsMap.Find(pItem->GetPath()))!=NULL)
+      MAPSONGS::iterator it = m_songsMap.find(pItem->GetPath());
+      if (it != m_songsMap.end())
       {  // Have we loaded this item from database before
-        pItem->GetMusicInfoTag()->SetSong(*song);
-        if (!song->strThumb.empty())
-          pItem->SetArt("thumb", song->strThumb);
+        pItem->GetMusicInfoTag()->SetSong(it->second);
+        if (!it->second.strThumb.empty())
+          pItem->SetArt("thumb", it->second.strThumb);
       }
       else if (pItem->IsMusicDb())
       { // a music db item that doesn't have tag loaded - grab details from the database
         XFILE::MUSICDATABASEDIRECTORY::CQueryParams param;
         XFILE::MUSICDATABASEDIRECTORY::CDirectoryNode::GetDatabaseInfo(pItem->GetPath(),param);
         CSong song;
-        if (m_musicDatabase.GetSongById(param.GetSongId(), song))
+        if (m_musicDatabase.GetSong(param.GetSongId(), song))
         {
           pItem->GetMusicInfoTag()->SetSong(song);
           if (!song.strThumb.empty())
             pItem->SetArt("thumb", song.strThumb);
         }
       }
-      else if (g_guiSettings.GetBool("musicfiles.usetags") || pItem->IsCDDA())
+      else if (CSettings::Get().GetBool("musicfiles.usetags") || pItem->IsCDDA())
       { // Nothing found, load tag from file,
         // always try to load cddb info
         // get correct tag parser
@@ -189,16 +206,13 @@ bool CMusicInfoLoader::LoadItem(CFileItem* pItem)
     }
   }
 
-  // Get thumb for item
-  m_thumbLoader->LoadItem(pItem);
-
   return true;
 }
 
 void CMusicInfoLoader::OnLoaderFinish()
 {
   // cleanup last loaded songs from database
-  m_songsMap.Clear();
+  m_songsMap.clear();
 
   // cleanup cache loaded from HD
   m_mapFileItems->Clear();
@@ -212,7 +226,7 @@ void CMusicInfoLoader::OnLoaderFinish()
   m_musicDatabase.Close();
 
   if (m_thumbLoader)
-    m_thumbLoader->Deinitialize();
+    m_thumbLoader->OnLoaderFinish();
 }
 
 void CMusicInfoLoader::UseCacheOnHD(const CStdString& strFileName)

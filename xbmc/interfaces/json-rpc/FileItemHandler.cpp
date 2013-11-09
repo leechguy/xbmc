@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -35,11 +35,13 @@
 #include "video/VideoDatabase.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
-#include "TextureCache.h"
+#include "TextureDatabase.h"
 #include "video/VideoThumbLoader.h"
 #include "music/MusicThumbLoader.h"
 #include "Util.h"
 #include "pvr/channels/PVRChannel.h"
+#include "epg/Epg.h"
+#include "epg/EpgContainer.h"
 
 using namespace MUSIC_INFO;
 using namespace JSONRPC;
@@ -50,12 +52,25 @@ bool CFileItemHandler::GetField(const std::string &field, const CVariant &info, 
   if (result.isMember(field) && !result[field].empty())
     return true;
 
+  // overwrite serialized values
+  if (item)
+  {
+    if (field == "mimetype" && item->GetMimeType().empty())
+    {
+      item->FillInMimeType(false);
+      result[field] = item->GetMimeType();
+      return true;
+    }
+  }
+
+  // check for serialized values
   if (info.isMember(field) && !info[field].isNull())
   {
     result[field] = info[field];
     return true;
   }
 
+  // check if the field requires special handling
   if (item)
   {
     if (item->IsAlbum())
@@ -99,10 +114,10 @@ bool CFileItemHandler::GetField(const std::string &field, const CVariant &info, 
 
       CGUIListItem::ArtMap artMap = item->GetArt();
       CVariant artObj(CVariant::VariantTypeObject);
-      for (CGUIListItem::ArtMap::const_iterator artIt = artMap.begin(); artIt != artMap.end(); artIt++)
+      for (CGUIListItem::ArtMap::const_iterator artIt = artMap.begin(); artIt != artMap.end(); ++artIt)
       {
         if (!artIt->second.empty())
-          artObj[artIt->first] = CTextureCache::GetWrappedImageURL(artIt->second);
+          artObj[artIt->first] = CTextureUtils::GetWrappedImageURL(artIt->second);
       }
 
       result["art"] = artObj;
@@ -118,10 +133,10 @@ bool CFileItemHandler::GetField(const std::string &field, const CVariant &info, 
         fetchedArt = true;
       }
       else if (item->HasPictureInfoTag() && !item->HasArt("thumb"))
-        item->SetArt("thumb", CTextureCache::GetWrappedThumbURL(item->GetPath()));
+        item->SetArt("thumb", CTextureUtils::GetWrappedThumbURL(item->GetPath()));
       
       if (item->HasArt("thumb"))
-        result["thumbnail"] = CTextureCache::GetWrappedImageURL(item->GetArt("thumb"));
+        result["thumbnail"] = CTextureUtils::GetWrappedImageURL(item->GetArt("thumb"));
       else
         result["thumbnail"] = "";
       
@@ -138,7 +153,7 @@ bool CFileItemHandler::GetField(const std::string &field, const CVariant &info, 
       }
       
       if (item->HasArt("fanart"))
-        result["fanart"] = CTextureCache::GetWrappedImageURL(item->GetArt("fanart"));
+        result["fanart"] = CTextureUtils::GetWrappedImageURL(item->GetArt("fanart"));
       else
         result["fanart"] = "";
       
@@ -187,7 +202,7 @@ void CFileItemHandler::FillDetails(const ISerializable *info, const CFileItemPtr
 
   std::set<std::string> originalFields = fields;
 
-  for (std::set<std::string>::const_iterator fieldIt = originalFields.begin(); fieldIt != originalFields.end(); fieldIt++)
+  for (std::set<std::string>::const_iterator fieldIt = originalFields.begin(); fieldIt != originalFields.end(); ++fieldIt)
   {
     if (GetField(*fieldIt, serialization, item, result, fetchedArt, thumbLoader) && result.isMember(*fieldIt) && !result[*fieldIt].empty())
       fields.erase(*fieldIt);
@@ -221,7 +236,7 @@ void CFileItemHandler::HandleFileItemList(const char *ID, bool allowFile, const 
       thumbLoader = new CMusicThumbLoader();
 
     if (thumbLoader != NULL)
-      thumbLoader->Initialize();
+      thumbLoader->OnLoaderStart();
   }
 
   std::set<std::string> fields;
@@ -233,7 +248,6 @@ void CFileItemHandler::HandleFileItemList(const char *ID, bool allowFile, const 
 
   for (int i = start; i < end; i++)
   {
-    CVariant object;
     CFileItemPtr item = items.Get(i);
     HandleFileItem(ID, allowFile, resultname, item, parameterObject, fields, result, true, thumbLoader);
   }
@@ -266,7 +280,7 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
       if (allowFile)
       {
         if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->GetPath().IsEmpty())
-            object["file"] = item->GetVideoInfoTag()->GetPath().c_str();
+          object["file"] = item->GetVideoInfoTag()->GetPath().c_str();
         if (item->HasMusicInfoTag() && !item->GetMusicInfoTag()->GetURL().IsEmpty())
           object["file"] = item->GetMusicInfoTag()->GetURL().c_str();
 
@@ -280,6 +294,8 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
     {
       if (item->HasPVRChannelInfoTag() && item->GetPVRChannelInfoTag()->ChannelID() > 0)
          object[ID] = item->GetPVRChannelInfoTag()->ChannelID();
+      else if (item->HasEPGInfoTag() && item->GetEPGInfoTag()->UniqueBroadcastID() > 0)
+         object[ID] = item->GetEPGInfoTag()->UniqueBroadcastID();
       else if (item->HasMusicInfoTag() && item->GetMusicInfoTag()->GetDatabaseId() > 0)
         object[ID] = (int)item->GetMusicInfoTag()->GetDatabaseId();
       else if (item->HasVideoInfoTag() && item->GetVideoInfoTag()->m_iDbId > 0)
@@ -289,11 +305,13 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
       {
         if (item->HasPVRChannelInfoTag())
           object["type"] = "channel";
-        else if (item->HasMusicInfoTag() && !item->GetMusicInfoTag()->GetType().empty())
+        else if (item->HasMusicInfoTag())
         {
           std::string type = item->GetMusicInfoTag()->GetType();
-          if (type == "album" || type == "song")
+          if (type == "album" || type == "song" || type == "artist")
             object["type"] = type;
+          else
+            object["type"] = "song";
         }
         else if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->m_type.empty())
         {
@@ -306,6 +324,14 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
 
         if (!object.isMember("type"))
           object["type"] = "unknown";
+
+        if (fields.find("filetype") != fields.end())
+        {
+          if (item->m_bIsFolder)
+            object["filetype"] = "directory";
+          else 
+            object["filetype"] = "file";
+        }
       }
     }
 
@@ -320,12 +346,14 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
       if (thumbLoader != NULL)
       {
         deleteThumbloader = true;
-        thumbLoader->Initialize();
+        thumbLoader->OnLoaderStart();
       }
     }
 
     if (item->HasPVRChannelInfoTag())
       FillDetails(item->GetPVRChannelInfoTag(), item, fields, object, thumbLoader);
+    if (item->HasEPGInfoTag())
+      FillDetails(item->GetEPGInfoTag(), item, fields, object, thumbLoader);
     if (item->HasVideoInfoTag())
       FillDetails(item->GetVideoInfoTag(), item, fields, object, thumbLoader);
     if (item->HasMusicInfoTag())
@@ -380,8 +408,12 @@ bool CFileItemHandler::FillFileItemList(const CVariant &parameterObject, CFileIt
         picture.Load(item->GetPath());
         *item->GetPictureInfoTag() = picture;
       }
-      if (item->GetLabel().IsEmpty())
+      if (item->GetLabel().empty())
+      {
         item->SetLabel(CUtil::GetTitleFromPath(file, false));
+        if (item->GetLabel().empty())
+          item->SetLabel(URIUtils::GetFileName(file));
+      }
       list.Add(item);
     }
   }

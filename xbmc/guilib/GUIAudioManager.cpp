@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,8 +21,8 @@
 #include "system.h"
 #include "GUIAudioManager.h"
 #include "Key.h"
-#include "settings/GUISettings.h"
 #include "input/ButtonTranslator.h"
+#include "settings/Setting.h"
 #include "threads/SingleLock.h"
 #include "utils/URIUtils.h"
 #include "utils/XBMCTinyXML.h"
@@ -40,6 +40,19 @@ CGUIAudioManager::CGUIAudioManager()
 
 CGUIAudioManager::~CGUIAudioManager()
 {
+}
+
+void CGUIAudioManager::OnSettingChanged(const CSetting *setting)
+{
+  if (setting == NULL)
+    return;
+
+  const std::string &settingId = setting->GetId();
+  if (settingId == "lookandfeel.soundskin")
+  {
+    Enable(true);
+    Load();
+  }
 }
 
 void CGUIAudioManager::Initialize()
@@ -189,17 +202,17 @@ bool CGUIAudioManager::Load()
 
   UnLoad();
 
-  if (g_guiSettings.GetString("lookandfeel.soundskin")=="OFF")
+  if (CSettings::Get().GetString("lookandfeel.soundskin")=="OFF")
     return true;
   else
     Enable(true);
 
-  if (g_guiSettings.GetString("lookandfeel.soundskin")=="SKINDEFAULT")
+  if (CSettings::Get().GetString("lookandfeel.soundskin")=="SKINDEFAULT")
   {
     m_strMediaDir = URIUtils::AddFileToFolder(g_SkinInfo->Path(), "sounds");
   }
   else
-    m_strMediaDir = URIUtils::AddFileToFolder("special://xbmc/sounds", g_guiSettings.GetString("lookandfeel.soundskin"));
+    m_strMediaDir = URIUtils::AddFileToFolder("special://xbmc/sounds", CSettings::Get().GetString("lookandfeel.soundskin"));
 
   CStdString strSoundsXml = URIUtils::AddFileToFolder(m_strMediaDir, "sounds.xml");
 
@@ -339,7 +352,7 @@ IAESound* CGUIAudioManager::LoadWindowSound(TiXmlNode* pWindowNode, const CStdSt
 void CGUIAudioManager::Enable(bool bEnable)
 {
   // always deinit audio when we don't want gui sounds
-  if (g_guiSettings.GetString("lookandfeel.soundskin")=="OFF")
+  if (CSettings::Get().GetString("lookandfeel.soundskin")=="OFF")
     bEnable = false;
 
   CSingleLock lock(m_cs);

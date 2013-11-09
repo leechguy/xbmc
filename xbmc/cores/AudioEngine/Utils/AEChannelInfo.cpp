@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
+ *      Copyright (C) 2010-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -221,7 +221,7 @@ const enum AEChannel CAEChannelInfo::operator[](unsigned int i) const
   return m_channels[i];
 }
 
-CAEChannelInfo::operator std::string()
+CAEChannelInfo::operator std::string() const
 {
   if (m_channelCount == 0)
     return "NULL";
@@ -239,7 +239,7 @@ CAEChannelInfo::operator std::string()
 
 const char* CAEChannelInfo::GetChName(const enum AEChannel ch)
 {
-  ASSERT(ch >= 0 || ch < AE_CH_MAX);
+  ASSERT(ch >= 0 && ch < AE_CH_MAX);
 
   static const char* channels[AE_CH_MAX] =
   {

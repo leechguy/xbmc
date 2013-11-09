@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,9 +25,11 @@
 #include "Autorun.h"
 #include "guilib/GUIWindowManager.h"
 #include "FileItem.h"
-#include "settings/Settings.h"
+#include "settings/MediaSourceSettings.h"
+#include "guilib/Key.h"
 #include "guilib/LocalizeStrings.h"
 #include "utils/log.h"
+#include "utils/StringUtils.h"
 
 #define CONTROL_BTNVIEWASICONS 2
 #define CONTROL_BTNSORTBY      3
@@ -64,7 +66,7 @@ bool CGUIWindowPrograms::OnMessage(CGUIMessage& message)
 
       // is this the first time accessing this window?
       if (m_vecItems->GetPath() == "?" && message.GetStringParam().IsEmpty())
-        message.SetStringParam(g_settings.m_defaultProgramSource);
+        message.SetStringParam(CMediaSourceSettings::Get().GetDefaultSource("programs"));
 
       return CGUIMediaWindow::OnMessage(message);
     }
@@ -101,7 +103,7 @@ void CGUIWindowPrograms::GetContextButtons(int itemNumber, CContextButtons &butt
   CFileItemPtr item = m_vecItems->Get(itemNumber);
   if (item && !item->GetProperty("pluginreplacecontextitems").asBoolean())
   {
-    if ( m_vecItems->IsVirtualDirectoryRoot() )
+    if ( m_vecItems->IsVirtualDirectoryRoot() || m_vecItems->GetPath() == "sources://programs/" )
     {
       CGUIDialogContextMenu::GetContextButtons("programs", item, buttons);
     }
@@ -122,13 +124,10 @@ bool CGUIWindowPrograms::OnContextButton(int itemNumber, CONTEXT_BUTTON button)
 {
   CFileItemPtr item = (itemNumber >= 0 && itemNumber < m_vecItems->Size()) ? m_vecItems->Get(itemNumber) : CFileItemPtr();
 
-  if (item && m_vecItems->IsVirtualDirectoryRoot())
+  if (CGUIDialogContextMenu::OnContextButton("programs", item, button))
   {
-    if (CGUIDialogContextMenu::OnContextButton("programs", item, button))
-    {
-      Update("");
-      return true;
-    }
+    Update("");
+    return true;
   }
   switch (button)
   {
@@ -179,7 +178,7 @@ bool CGUIWindowPrograms::GetDirectory(const CStdString &strDirectory, CFileItemL
     return false;
 
   // don't allow the view state to change these
-  if (strDirectory.Left(9).Equals("addons://"))
+  if (StringUtils::StartsWithNoCase(strDirectory, "addons://"))
   {
     for (int i=0;i<items.Size();++i)
     {

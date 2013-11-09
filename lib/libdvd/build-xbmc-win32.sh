@@ -2,6 +2,7 @@
 
 MAKECLEAN=0
 MAKEFLAGS=""
+BGPROCESSFILE=$2
 
 if [ "$1" = "clean" ]
 then
@@ -47,7 +48,7 @@ echo "***** Building libdvdread *****"
       --extra-cflags="-DHAVE_DVDCSS_DVDCSS_H -D_XBMC -DNDEBUG -D_MSC_VER -I`pwd`/../includes" \
       --disable-debug
 mkdir -p ../includes/dvdread
-cp ../libdvdread/src/*.h ../includes/dvdread
+cp ../libdvdread/src/dvdread/*.h ../includes/dvdread
 make $MAKEFLAGS
 cd ..
 
@@ -65,6 +66,8 @@ echo "***** Building libdvdnav *****"
       --extra-cflags="-D_XBMC -DNDEBUG -I`pwd`/../includes" \
       --with-dvdread-config="`pwd`/../libdvdread/obj/dvdread-config" \
       --disable-debug
+mkdir -p ../includes/dvdnav
+cp ../libdvdnav/src/dvdnav/*.h ../includes/dvdnav
 make $MAKEFLAGS
 gcc \
       -shared \
@@ -78,3 +81,5 @@ strip -S obj/libdvdnav.dll
 cd ..
 cp libdvdnav/obj/libdvdnav.dll /xbmc/system/players/dvdplayer/
 echo "***** Done *****"
+#remove the bgprocessfile for signaling the process end
+rm $BGPROCESSFILE

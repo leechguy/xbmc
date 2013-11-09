@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #include "DVDStreamInfo.h"
 #include "utils/BitstreamStats.h"
 
-#include "cores/AudioEngine/AEAudioFormat.h"
+#include "cores/AudioEngine/Utils/AEAudioFormat.h"
 
 #include <list>
 #include <queue>
@@ -38,8 +38,6 @@ class CDVDAudioCodec;
 class IAudioCallback;
 class CDVDAudioCodec;
 
-enum CodecID;
-
 #define DECODE_FLAG_DROP    1
 #define DECODE_FLAG_RESYNC  2
 #define DECODE_FLAG_ERROR   4
@@ -48,7 +46,7 @@ enum CodecID;
 
 typedef struct stDVDAudioFrame
 {
-  BYTE* data;
+  uint8_t* data;
   double pts;
   double duration;
   unsigned int size;
@@ -128,6 +126,8 @@ protected:
 
   int DecodeFrame(DVDAudioFrame &audioframe, bool bDropPacket);
 
+  void UpdatePlayerInfo();
+
   CDVDMessageQueue m_messageQueue;
   CDVDMessageQueue& m_messageParent;
 
@@ -148,7 +148,7 @@ protected:
     }
 
     CDVDMsgDemuxerPacket*  msg;
-    BYTE*                  data;
+    uint8_t*               data;
     int                    size;
     double                 dts;
 
@@ -208,5 +208,9 @@ protected:
   bool   m_prevskipped;
   double m_maxspeedadjust;
   double m_resampleratio; //resample ratio when using SYNC_RESAMPLE, used for the codec info
+
+
+  CCriticalSection m_info_section;
+  std::string      m_info;
 };
 

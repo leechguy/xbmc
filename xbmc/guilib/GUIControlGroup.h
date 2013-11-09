@@ -6,8 +6,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -106,7 +106,7 @@ protected:
   typedef std::multimap<int, CGUIControl *> LookupMap;
   void AddLookup(CGUIControl *control);
   void RemoveLookup(CGUIControl *control);
-  const LookupMap &GetLookup() { return m_lookup; };
+  const LookupMap &GetLookup() const { return m_lookup; };
   LookupMap m_lookup;
 
   int  m_defaultControl;

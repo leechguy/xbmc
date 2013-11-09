@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2010 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -13,17 +13,16 @@
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *  http://www.gnu.org/copyleft/gpl.html
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 
 #include "karaokevideobackground.h"
 
+#include "guilib/GraphicContext.h"
 #include "guilib/Texture.h"
 #include "guilib/GUITexture.h"
-#include "settings/Settings.h"
 #include "Application.h"
 #include "DllAvFormat.h"
 #include "DllAvCodec.h"
@@ -31,6 +30,7 @@
 #include "DllSwScale.h"
 #include "filesystem/SpecialProtocol.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/DisplaySettings.h"
 #include "video/FFmpegVideoDecoder.h"
 #include "system.h"
 
@@ -62,11 +62,11 @@ bool KaraokeVideoBackground::openVideoFile( const CStdString& filename )
   m_curVideoFile = filename;
   
   // Find out the necessary aspect ratio for height (assuming fit by width) and width (assuming fit by height)
-  RESOLUTION res = g_graphicsContext.GetVideoResolution();
-  m_displayLeft = g_settings.m_ResInfo[res].Overscan.left;
-  m_displayRight = g_settings.m_ResInfo[res].Overscan.right;
-  m_displayTop = g_settings.m_ResInfo[res].Overscan.top;
-  m_displayBottom = g_settings.m_ResInfo[res].Overscan.bottom;
+  const RESOLUTION_INFO info = g_graphicsContext.GetResInfo();
+  m_displayLeft   = info.Overscan.left;
+  m_displayRight  = info.Overscan.right;
+  m_displayTop    = info.Overscan.top;
+  m_displayBottom = info.Overscan.bottom;
   
   int screen_width = m_displayRight - m_displayLeft;
   int screen_height = m_displayBottom - m_displayTop;
@@ -74,8 +74,9 @@ bool KaraokeVideoBackground::openVideoFile( const CStdString& filename )
   // Do we need to modify the output video size? This could happen in two cases:
   // 1. Either video dimension is larger than the screen - video needs to be downscaled
   // 2. Both video dimensions are smaller than the screen - video needs to be upscaled
-  if ( (m_videoWidth > screen_width || m_videoHeight > screen_height )
-  || (  m_videoWidth < screen_width && m_videoHeight < screen_height ) )
+  if ( ( m_videoWidth > 0 && m_videoHeight > 0 )
+  && ( ( m_videoWidth > screen_width || m_videoHeight > screen_height )
+  || ( m_videoWidth < screen_width && m_videoHeight < screen_height ) ) )
   {
     // Calculate the scale coefficients for width/height separately
     double scale_width = (double) screen_width / (double) m_videoWidth;

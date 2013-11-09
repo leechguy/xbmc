@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ bool CFTPDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items
   CURL url(strPath);
 
   CStdString path = url.GetFileName();
-  if( !path.IsEmpty() && !path.Right(1).Equals("/") )
+  if( !path.IsEmpty() && !StringUtils::EndsWith(path, "/") )
   {
     path += "/";
     url.SetFileName(path);
@@ -49,6 +49,7 @@ bool CFTPDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items
   if (!reader.Open(url))
     return false;
 
+  bool serverNotUseUTF8 = url.GetProtocolOption("utf8").Equals("0");
 
   char buffer[MAX_PATH + 1024];
   while( reader.ReadString(buffer, sizeof(buffer)) )
@@ -73,9 +74,20 @@ bool CFTPDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items
       if( name.Equals("..") || name.Equals(".") )
         continue;
 
-      /* this should be conditional if we ever add    */
-      /* support for the utf8 extension in ftp client */
+      // server returned filename could in utf8 or non-utf8 encoding
+      // we need utf8, so convert it to utf8 anyway
       g_charsetConverter.unknownToUTF8(name);
+
+      // convert got empty result, ignore it
+      if (name.IsEmpty())
+        continue;
+
+      if (serverNotUseUTF8 || name != parse.getName())
+        // non-utf8 name path, tag it with protocol option.
+        // then we can talk to server with the same encoding in CurlFile according to this tag.
+        url.SetProtocolOption("utf8", "0");
+      else
+        url.RemoveProtocolOption("utf8");
 
       CFileItemPtr pItem(new CFileItem(name));
 
@@ -100,7 +112,12 @@ bool CFTPDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items
 
 bool CFTPDirectory::Exists(const char* strPath)
 {
+  // make sure ftp dir ends with slash,
+  // curl need to known it's a dir to check ftp directory existence.
+  CStdString file = strPath;
+  URIUtils::AddSlashAtEnd(file);
+
   CCurlFile ftp;
-  CURL url(strPath);
+  CURL url(file);
   return ftp.Exists(url);
 }

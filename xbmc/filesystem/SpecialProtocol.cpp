@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,12 +21,15 @@
 #include "SpecialProtocol.h"
 #include "URL.h"
 #include "Util.h"
-#include "settings/GUISettings.h"
+#include "guilib/GraphicContext.h"
+#include "profiles/ProfilesManager.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
+#include "utils/StringUtils.h"
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include <dirent.h>
 #endif
 
@@ -96,7 +99,7 @@ CStdString CSpecialProtocol::TranslatePath(const CURL &url)
   // check for special-protocol, if not, return
   if (!url.GetProtocol().Equals("special"))
   {
-#if defined(_LINUX) && defined(_DEBUG)
+#if defined(TARGET_POSIX) && defined(_DEBUG)
     CStdString path(url.Get());
     if (path.length() >= 2 && path[1] == ':')
     {
@@ -127,25 +130,25 @@ CStdString CSpecialProtocol::TranslatePath(const CURL &url)
     RootDir = FullFileName;
 
   if (RootDir.Equals("subtitles"))
-    URIUtils::AddFileToFolder(g_guiSettings.GetString("subtitles.custompath"), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CSettings::Get().GetString("subtitles.custompath"), FileName);
   else if (RootDir.Equals("userdata"))
-    URIUtils::AddFileToFolder(g_settings.GetUserDataFolder(), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CProfilesManager::Get().GetUserDataFolder(), FileName);
   else if (RootDir.Equals("database"))
-    URIUtils::AddFileToFolder(g_settings.GetDatabaseFolder(), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CProfilesManager::Get().GetDatabaseFolder(), FileName);
   else if (RootDir.Equals("thumbnails"))
-    URIUtils::AddFileToFolder(g_settings.GetThumbnailsFolder(), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CProfilesManager::Get().GetThumbnailsFolder(), FileName);
   else if (RootDir.Equals("recordings") || RootDir.Equals("cdrips"))
-    URIUtils::AddFileToFolder(g_guiSettings.GetString("audiocds.recordingpath", false), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CSettings::Get().GetString("audiocds.recordingpath"), FileName);
   else if (RootDir.Equals("screenshots"))
-    URIUtils::AddFileToFolder(g_guiSettings.GetString("debug.screenshotpath", false), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CSettings::Get().GetString("debug.screenshotpath"), FileName);
   else if (RootDir.Equals("musicplaylists"))
-    URIUtils::AddFileToFolder(CUtil::MusicPlaylistsLocation(), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CUtil::MusicPlaylistsLocation(), FileName);
   else if (RootDir.Equals("videoplaylists"))
-    URIUtils::AddFileToFolder(CUtil::VideoPlaylistsLocation(), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(CUtil::VideoPlaylistsLocation(), FileName);
   else if (RootDir.Equals("skin"))
-    URIUtils::AddFileToFolder(g_graphicsContext.GetMediaDir(), FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(g_graphicsContext.GetMediaDir(), FileName);
   else if (RootDir.Equals("logpath"))
-    URIUtils::AddFileToFolder(g_settings.m_logFolder, FileName, translatedPath);
+    translatedPath = URIUtils::AddFileToFolder(g_advancedSettings.m_logFolder, FileName);
 
 
   // from here on, we have our "real" special paths
@@ -160,7 +163,7 @@ CStdString CSpecialProtocol::TranslatePath(const CURL &url)
   {
     CStdString basePath = GetPath(RootDir);
     if (!basePath.IsEmpty())
-      URIUtils::AddFileToFolder(basePath, FileName, translatedPath);
+      translatedPath = URIUtils::AddFileToFolder(basePath, FileName);
     else
       translatedPath.clear();
   }
@@ -179,7 +182,7 @@ CStdString CSpecialProtocol::TranslatePathConvertCase(const CStdString& path)
 {
   CStdString translatedPath = TranslatePath(path);
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
   if (translatedPath.Find("://") > 0)
     return translatedPath;
 
@@ -189,15 +192,16 @@ CStdString CSpecialProtocol::TranslatePathConvertCase(const CStdString& path)
     return translatedPath;
 
   CStdString result;
-  vector<CStdString> tokens;
-  CUtil::Tokenize(translatedPath, tokens, "/");
+  std::vector<std::string> tokens;
+  StringUtils::Tokenize(translatedPath, tokens, "/");
   CStdString file;
   DIR* dir;
   struct dirent* de;
 
   for (unsigned int i = 0; i < tokens.size(); i++)
   {
-    file = result + "/" + tokens[i];
+    file = result + "/";
+    file += tokens[i];
     if (stat(file.c_str(), &stat_buf) == 0)
     {
       result += "/" + tokens[i];
@@ -210,7 +214,7 @@ CStdString CSpecialProtocol::TranslatePathConvertCase(const CStdString& path)
         while ((de = readdir(dir)) != NULL)
         {
           // check if there's a file with same name but different case
-          if (strcasecmp(de->d_name, tokens[i]) == 0)
+          if (strcasecmp(de->d_name, tokens[i].c_str()) == 0)
           {
             result += "/";
             result += de->d_name;

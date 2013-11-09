@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "Util.h"
 #include "log.h"
 #include "CharsetConverter.h"
+#include "utils/StringUtils.h"
 
 #include <sstream>
 #include <cstring>
@@ -42,6 +43,7 @@ CScraperParser::CScraperParser()
   m_document = NULL;
   m_SearchStringEncoding = "UTF-8";
   m_scraper = NULL;
+  m_isNoop = true;
 }
 
 CScraperParser::CScraperParser(const CScraperParser& parser)
@@ -50,6 +52,7 @@ CScraperParser::CScraperParser(const CScraperParser& parser)
   m_document = NULL;
   m_SearchStringEncoding = "UTF-8";
   m_scraper = NULL;
+  m_isNoop = true;
   *this = parser;
 }
 
@@ -115,6 +118,7 @@ bool CScraperParser::LoadFromXML()
     TiXmlElement* pChildElement = m_pRootElement->FirstChildElement("CreateSearchUrl");
     if (pChildElement)
     {
+      m_isNoop = false;
       if (!(m_SearchStringEncoding = pChildElement->Attribute("SearchStringEncoding")))
         m_SearchStringEncoding = "UTF-8";
     }
@@ -122,12 +126,14 @@ bool CScraperParser::LoadFromXML()
     pChildElement = m_pRootElement->FirstChildElement("CreateArtistSearchUrl");
     if (pChildElement)
     {
+      m_isNoop = false;
       if (!(m_SearchStringEncoding = pChildElement->Attribute("SearchStringEncoding")))
         m_SearchStringEncoding = "UTF-8";
     }
     pChildElement = m_pRootElement->FirstChildElement("CreateAlbumSearchUrl");
     if (pChildElement)
     {
+      m_isNoop = false;
       if (!(m_SearchStringEncoding = pChildElement->Attribute("SearchStringEncoding")))
         m_SearchStringEncoding = "UTF-8";
     }
@@ -198,7 +204,7 @@ void CScraperParser::ParseExpression(const CStdString& input, CStdString& dest, 
       if (stricmp(sensitive,"yes") == 0)
         bInsensitive=false; // match case sensitive
 
-    CRegExp reg(bInsensitive);
+    CRegExp reg(bInsensitive, true);
     CStdString strExpression;
     if (pExpression->FirstChild())
       strExpression = pExpression->FirstChild()->Value();
@@ -274,7 +280,7 @@ void CScraperParser::ParseExpression(const CStdString& input, CStdString& dest, 
         int i2=reg2.RegFind(strCurOutput.c_str());
         while (i2 > -1)
         {
-          std::string szRemove = reg2.GetReplaceString("\\2");
+          std::string szRemove(reg2.GetMatch(2));
           int iRemove = szRemove.size();
           int i3 = strCurOutput.find(szRemove);
           if (!szParam.empty())
@@ -495,7 +501,7 @@ void CScraperParser::ConvertJSON(CStdString &string)
   while (reg.RegFind(string.c_str()) > -1)
   {
     int pos = reg.GetSubStart(1);
-    std::string szReplace = reg.GetReplaceString("\\1");
+    std::string szReplace(reg.GetMatch(1));
 
     CStdString replace;
     replace.Format("&#x%s;", szReplace.c_str());
@@ -508,7 +514,7 @@ void CScraperParser::ConvertJSON(CStdString &string)
   {
     int pos1 = reg2.GetSubStart(1);
     int pos2 = reg2.GetSubStart(2);
-    std::string szHexValue = reg2.GetReplaceString("\\1");
+    std::string szHexValue(reg2.GetMatch(1));
 
     CStdString replace;
     replace.Format("%c", strtol(szHexValue.c_str(), NULL, 16));
@@ -531,8 +537,8 @@ void CScraperParser::GetBufferParams(bool* result, const char* attribute, bool d
     result[iBuf] = defvalue;;
   if (attribute)
   {
-    vector<CStdString> vecBufs;
-    CUtil::Tokenize(attribute,vecBufs,",");
+    vector<std::string> vecBufs;
+    StringUtils::Tokenize(attribute,vecBufs,",");
     for (size_t nToken=0; nToken < vecBufs.size(); nToken++)
     {
       int index = atoi(vecBufs[nToken].c_str())-1;

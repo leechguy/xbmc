@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "GUIDialogFileBrowser.h"
 #include "video/windows/GUIWindowVideoBase.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "Util.h"
 #include "utils/URIUtils.h"
 #include "filesystem/Directory.h"
@@ -30,11 +31,12 @@
 #include "filesystem/PVRDirectory.h"
 #include "GUIDialogYesNo.h"
 #include "FileItem.h"
+#include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
-#include "settings/GUISettings.h"
 #include "guilib/LocalizeStrings.h"
 #include "PasswordManager.h"
 #include "URL.h"
+#include "utils/StringUtils.h"
 
 #if defined(TARGET_ANDROID)
 #include "android/activity/XBMCApp.h"
@@ -139,7 +141,7 @@ bool CGUIDialogMediaSource::ShowAndAddMediaSource(const CStdString &type)
     CMediaSource share;
     unsigned int i,j=2;
     bool bConfirmed=false;
-    VECSOURCES* pShares = g_settings.GetSourcesFromType(type);
+    VECSOURCES* pShares = CMediaSourceSettings::Get().GetSources(type);
     CStdString strName = dialog->m_name;
     while (!bConfirmed)
     {
@@ -157,7 +159,7 @@ bool CGUIDialogMediaSource::ShowAndAddMediaSource(const CStdString &type)
     if (dialog->m_paths->Size() > 0) {
       share.m_strThumbnailImage = dialog->m_paths->Get(0)->GetArt("thumb");
     }
-    g_settings.AddShare(type, share);
+    CMediaSourceSettings::Get().AddShare(type, share);
   }
   dialog->m_paths->Clear();
   return confirmed;
@@ -165,7 +167,7 @@ bool CGUIDialogMediaSource::ShowAndAddMediaSource(const CStdString &type)
 
 bool CGUIDialogMediaSource::ShowAndEditMediaSource(const CStdString &type, const CStdString&share)
 {
-  VECSOURCES* pShares = g_settings.GetSourcesFromType(type);
+  VECSOURCES* pShares = CMediaSourceSettings::Get().GetSources(type);
   if (pShares)
   {
     for (unsigned int i=0;i<pShares->size();++i)
@@ -191,7 +193,7 @@ bool CGUIDialogMediaSource::ShowAndEditMediaSource(const CStdString &type, const
   { // yay, add this share
     unsigned int i,j=2;
     bool bConfirmed=false;
-    VECSOURCES* pShares = g_settings.GetSourcesFromType(type);
+    VECSOURCES* pShares = CMediaSourceSettings::Get().GetSources(type);
     CStdString strName = dialog->m_name;
     while (!bConfirmed)
     {
@@ -208,7 +210,7 @@ bool CGUIDialogMediaSource::ShowAndEditMediaSource(const CStdString &type, const
 
     CMediaSource newShare;
     newShare.FromNameAndPaths(type, strName, dialog->GetPaths());
-    g_settings.UpdateShare(type, strOldName, newShare);
+    CMediaSourceSettings::Get().UpdateShare(type, strOldName, newShare);
   }
   dialog->m_paths->Clear();
   return confirmed;
@@ -251,13 +253,12 @@ void CGUIDialogMediaSource::OnPathBrowse(int item)
     share1.strName = "SAP Streams";
     extraShares.push_back(share1);
 
-    if (g_guiSettings.GetString("audiocds.recordingpath",false) != "")
+    if (CSettings::Get().GetString("audiocds.recordingpath") != "")
     {
       share1.strPath = "special://recordings/";
       share1.strName = g_localizeStrings.Get(21883);
       extraShares.push_back(share1);
     }
-
  }
   else if (m_type == "video")
   {
@@ -325,7 +326,7 @@ void CGUIDialogMediaSource::OnPathBrowse(int item)
 #endif
 
     share1.m_ignore = true;
-    if (g_guiSettings.GetString("debug.screenshotpath",false)!= "")
+    if (CSettings::Get().GetString("debug.screenshotpath") != "")
     {
       share1.strPath = "special://screenshots/";
       share1.strName = g_localizeStrings.Get(20008);
@@ -380,16 +381,16 @@ void CGUIDialogMediaSource::OnOK()
   CMediaSource share;
   share.FromNameAndPaths(m_type, m_name, GetPaths());
   // hack: Need to temporarily add the share, then get path, then remove share
-  VECSOURCES *shares = g_settings.GetSourcesFromType(m_type);
+  VECSOURCES *shares = CMediaSourceSettings::Get().GetSources(m_type);
   if (shares)
     shares->push_back(share);
-  if (share.strPath.Left(9).Equals("plugin://") || CDirectory::GetDirectory(share.strPath, items, "", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_ALLOW_PROMPT) || CGUIDialogYesNo::ShowAndGetInput(1001,1025,1003,1004))
+  if (StringUtils::StartsWithNoCase(share.strPath, "plugin://") || CDirectory::GetDirectory(share.strPath, items, "", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_ALLOW_PROMPT) || CGUIDialogYesNo::ShowAndGetInput(1001,1025,1003,1004))
   {
     m_confirmed = true;
     Close();
     if (m_type == "video" && !URIUtils::IsLiveTV(share.strPath) && 
-        !share.strPath.Left(6).Equals("rss://") &&
-        !share.strPath.Left(7).Equals("upnp://"))
+        !StringUtils::StartsWithNoCase(share.strPath, "rss://") &&
+        !StringUtils::StartsWithNoCase(share.strPath, "upnp://"))
     {
       CGUIWindowVideoBase::OnAssignContent(share.strPath);
     }

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@
  */
 
 #include "MusicInfoScraper.h"
-#include "utils/CharsetConverter.h"
 #include "utils/log.h"
 #include "filesystem/CurlFile.h"
 
@@ -27,7 +26,7 @@ using namespace MUSIC_GRABBER;
 using namespace ADDON;
 using namespace std;
 
-CMusicInfoScraper::CMusicInfoScraper(const ADDON::ScraperPtr &scraper) : CThread("CMusicInfoScraper")
+CMusicInfoScraper::CMusicInfoScraper(const ADDON::ScraperPtr &scraper) : CThread("MusicInfoScraper")
 {
   m_bSucceeded=false;
   m_bCanceled=false;

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,7 +24,6 @@
 #include "GUIWindowWeather.h"
 #include "guilib/GUIImage.h"
 #include "utils/Weather.h"
-#include "settings/GUISettings.h"
 #include "guilib/GUIWindowManager.h"
 #include "utils/URIUtils.h"
 #ifdef HAS_PYTHON
@@ -33,7 +32,6 @@
 #include "LangInfo.h"
 #include "utils/log.h"
 #include "utils/SystemInfo.h"
-#include "settings/Settings.h"
 #include "addons/AddonManager.h"
 
 using namespace ADDON;

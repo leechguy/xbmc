@@ -9,8 +9,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -72,12 +72,12 @@ public:
   virtual bool OnMessage(CGUIMessage& message);
   bool ProcessSelector(CGUITexture &nib, unsigned int currentTime, float fScaleY, RangeSelector selector);
   void SetRangeSelection(bool rangeSelection);
-  bool GetRangeSelection() { return m_rangeSelection; }
+  bool GetRangeSelection() const { return m_rangeSelection; }
   void SetRangeSelector(RangeSelector selector);
   void SwitchRangeSelector();
   void SetInfo(int iInfo);
-  void SetPercentage(int iPercent, RangeSelector selector = RangeSelectorLower, bool updateCurrent = false);
-  int GetPercentage(RangeSelector selector = RangeSelectorLower) const;
+  void SetPercentage(float iPercent, RangeSelector selector = RangeSelectorLower, bool updateCurrent = false);
+  float GetPercentage(RangeSelector selector = RangeSelectorLower) const;
   void SetIntValue(int iValue, RangeSelector selector = RangeSelectorLower, bool updateCurrent = false);
   int GetIntValue(RangeSelector selector = RangeSelectorLower) const;
   void SetFloatValue(float fValue, RangeSelector selector = RangeSelectorLower, bool updateCurrent = false);
@@ -113,7 +113,7 @@ protected:
   bool m_rangeSelection;
   RangeSelector m_currentSelector;
 
-  int m_percentValues[2];
+  float m_percentValues[2];
 
   int m_intValues[2];
   int m_iStart;

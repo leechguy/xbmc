@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2007-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2007-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -448,4 +448,11 @@ extern "C" ADDON_STATUS ADDON_SetSetting(const char* id, const void* value)
 extern "C" unsigned int GetSubModules(char ***names)
 {
   return 0; // this vis supports 0 sub modules
+}
+
+//-- Announce -----------------------------------------------------------------
+// Receive announcements from XBMC
+//-----------------------------------------------------------------------------
+extern "C" void ADDON_Announce(const char *flag, const char *sender, const char *message, const void *data)
+{
 }

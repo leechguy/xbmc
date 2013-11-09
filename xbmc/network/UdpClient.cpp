@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 
 #include "threads/SystemClock.h"
 #include "UdpClient.h"
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 #include <sys/ioctl.h>
 #endif
 #include "Network.h"
@@ -34,7 +34,7 @@
 
 #define UDPCLIENT_DEBUG_LEVEL LOGDEBUG
 
-CUdpClient::CUdpClient(void) : CThread("CUdpClient")
+CUdpClient::CUdpClient(void) : CThread("UDPClient")
 {}
 
 CUdpClient::~CUdpClient(void)
@@ -175,7 +175,7 @@ void CUdpClient::Process()
     {
       // read data
       int messageLength = sizeof(messageBuffer) - 1 ;
-#ifndef _LINUX
+#ifndef TARGET_POSIX
       int remoteAddressSize;
 #else
       socklen_t remoteAddressSize;

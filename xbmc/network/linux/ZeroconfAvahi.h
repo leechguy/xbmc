@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <map>
+#include <vector>
 #include <string>
 #include "network/Zeroconf.h"
 
@@ -47,7 +48,7 @@ protected:
                                 const std::string& fcr_type,
                                 const std::string& fcr_name,
                                 unsigned int f_port,
-                                std::map<std::string, std::string> txt);
+                                const std::vector<std::pair<std::string, std::string> >& txt);
 
   virtual bool doRemoveService(const std::string& fcr_ident);
 

@@ -1,28 +1,27 @@
 /*
-*      Copyright (C) 2005-2012 Team XBMC
-*      http://www.xbmc.org
-*
-*  This Program is free software; you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation; either version 2, or (at your option)
-*  any later version.
-*
-*  This Program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-*  GNU General Public License for more details.
-*
-*  You should have received a copy of the GNU General Public License
-*  along with XBMC; see the file COPYING.  If not, see
-*  <http://www.gnu.org/licenses/>.
-*
-*/
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
+ *
+ *  This Program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2, or (at your option)
+ *  any later version.
+ *
+ *  This Program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
+ *
+ */
 
 
 #ifdef HAS_DX
 
 #include "threads/SystemClock.h"
-#include "settings/Settings.h"
 #include "RenderSystemDX.h"
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
@@ -30,8 +29,8 @@
 #include "guilib/GUIWindowManager.h"
 #include "threads/SingleLock.h"
 #include "guilib/D3DResource.h"
-#include "settings/GUISettings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 #include "utils/SystemInfo.h"
 #include "Application.h"
 #include "Util.h"
@@ -101,7 +100,7 @@ bool CRenderSystemDX::InitRenderSystem()
 {
   m_bVSync = true;
 
-  m_useD3D9Ex = (g_advancedSettings.m_AllowD3D9Ex && g_sysinfo.IsVistaOrHigher() && LoadD3D9Ex());
+  m_useD3D9Ex = (g_advancedSettings.m_AllowD3D9Ex && LoadD3D9Ex());
   m_pD3D = NULL;
 
   if (m_useD3D9Ex)
@@ -174,9 +173,15 @@ void CRenderSystemDX::SetMonitor(HMONITOR monitor)
 
 bool CRenderSystemDX::ResetRenderSystem(int width, int height, bool fullScreen, float refreshRate)
 {
-  HMONITOR hMonitor = MonitorFromWindow(m_hDeviceWnd, MONITOR_DEFAULTTONULL);
-  if (hMonitor)
-    SetMonitor(hMonitor);
+  if (!m_pD3DDevice)
+    return false;
+
+  if (m_hDeviceWnd != NULL)
+  {
+    HMONITOR hMonitor = MonitorFromWindow(m_hDeviceWnd, MONITOR_DEFAULTTONULL);
+    if (hMonitor)
+      SetMonitor(hMonitor);
+  }
 
   SetRenderParams(width, height, fullScreen, refreshRate);
 
@@ -729,19 +734,24 @@ bool CRenderSystemDX::EndRender()
 
 bool CRenderSystemDX::ClearBuffers(color_t color)
 {
-  HRESULT hr;
-
   if (!m_bRenderCreated)
     return false;
 
-  if( FAILED( hr = m_pD3DDevice->Clear(
+  if(m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN
+  || m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA)
+  {
+    // if stereo anaglyph, data was cleared when left view was rendererd
+    if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+      return true;
+  }
+
+  return SUCCEEDED(m_pD3DDevice->Clear(
     0,
     NULL,
     D3DCLEAR_TARGET,
     color,
     1.0,
-    0 ) ) )
-    return false;
+    0 ) );
 
   return true;
 }
@@ -816,7 +826,7 @@ void CRenderSystemDX::SetCameraPosition(const CPoint &camera, int screenWidth, i
   // position.
   D3DXMATRIX flipY, translate, mtxView;
   D3DXMatrixScaling(&flipY, 1.0f, -1.0f, 1.0f);
-  D3DXMatrixTranslation(&translate, -(viewport.X + w + offset.x), -(viewport.Y + h + offset.y), 2*h);
+  D3DXMatrixTranslation(&translate, -(w + offset.x), -(h + offset.y), 2*h);
   D3DXMatrixMultiply(&mtxView, &translate, &flipY);
   m_pD3DDevice->SetTransform(D3DTS_VIEW, &mtxView);
 
@@ -998,6 +1008,52 @@ CStdString CRenderSystemDX::GetErrorDescription(HRESULT hr)
   strError.Format("%X - %s (%s)", hr, DXGetErrorString(hr), DXGetErrorDescription(hr));
 
   return strError;
+}
+
+void CRenderSystemDX::SetStereoMode(RENDER_STEREO_MODE mode, RENDER_STEREO_VIEW view)
+{
+  CRenderSystemBase::SetStereoMode(mode, view);
+
+  m_pD3DDevice->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALPHA | D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_GREEN);
+  if(m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN)
+  {
+    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+      m_pD3DDevice->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_RED );
+    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+      m_pD3DDevice->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_GREEN );
+  }
+  if(m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA)
+  {
+    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+      m_pD3DDevice->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_GREEN );
+    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+      m_pD3DDevice->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_RED );
+  }
+}
+
+bool CRenderSystemDX::SupportsStereo(RENDER_STEREO_MODE mode) const
+{
+  switch(mode)
+  {
+    case RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN:
+    case RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA:
+      return true;
+    default:
+      return CRenderSystemBase::SupportsStereo(mode);
+  }
+}
+
+void CRenderSystemDX::FlushGPU()
+{
+  IDirect3DQuery9* pEvent = NULL;
+
+  m_pD3DDevice->CreateQuery(D3DQUERYTYPE_EVENT, &pEvent);
+  if (pEvent != NULL)
+  {
+    pEvent->Issue(D3DISSUE_END);
+    while (S_FALSE == pEvent->GetData(NULL, 0, D3DGETDATA_FLUSH))
+      Sleep(1);
+  }
 }
 
 #endif

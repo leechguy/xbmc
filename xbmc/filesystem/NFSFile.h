@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2011-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2011-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -117,6 +117,7 @@ private:
   struct nfs_context *getContextFromMap(const CStdString &exportname, bool forceCacheHit = false);
   int  getContextForExport(const CStdString &exportname);//get context for given export and add to open contexts map - sets m_pNfsContext (my return a already mounted cached context)
   void destroyOpenContexts();
+  void destroyContext(const CStdString &exportName);
   void resolveHost(const CURL &url);//resolve hostname by dnslookup
   void keepAlive(std::string _exportPath, struct nfsfh  *_pFileHandle);
 };

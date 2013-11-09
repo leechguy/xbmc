@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "filesystem/VirtualDirectory.h"
 #include "filesystem/DirectoryHistory.h"
 #include "view/GUIViewControl.h"
+#include "view/GUIViewState.h"
 #include "dialogs/GUIDialogContextMenu.h"
 #include "playlists/SmartPlayList.h"
 
@@ -103,7 +104,8 @@ protected:
    \return true if the given path can contain a "filter" parameter otherwise false
    */
   virtual bool CanContainFilter(const CStdString &strDirectory) const { return false; }
-  virtual bool Filter();
+  virtual void UpdateFilterPath(const CStdString &strDirector, const CFileItemList &items, bool updateFilterPath);
+  virtual bool Filter(bool advanced = true);
 
   /* \brief Called on response to a GUI_MSG_FILTER_ITEMS message
    Filters the current list with the given filter using FilterItems()

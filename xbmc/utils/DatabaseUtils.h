@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@ namespace dbiplus
 
 typedef enum {
   // special fields used during sorting
+  FieldUnknown = -1,
   FieldNone = 0,
   FieldSort,        // used to store the string to use for sorting
   FieldSortSpecial, // whether the item needs special handling (0 = no, 1 = sort on top, 2 = sort on bottom)
@@ -53,7 +54,9 @@ typedef enum {
   FieldBitrate,
   FieldListeners,
   FieldPlaylist,
+  FieldVirtualFolder,
   FieldRandom,
+  FieldDateTaken,
 
   // fields retrievable from the database
   FieldId,
@@ -118,7 +121,9 @@ typedef enum {
   FieldBorn,
   FieldBandFormed,
   FieldDisbanded,
-  FieldDied
+  FieldDied,
+  FieldStereoMode,
+  FieldMax
 } Field;
 
 typedef std::set<Field> Fields;
@@ -152,8 +157,10 @@ class DatabaseUtils
 public:
   static std::string MediaTypeToString(MediaType mediaType);
   static MediaType MediaTypeFromString(const std::string &strMediaType);
+  static MediaType MediaTypeFromVideoContentType(int videoContentType);
 
   static std::string GetField(Field field, MediaType mediaType, DatabaseQueryPart queryPart);
+  static int GetField(Field field, MediaType mediaType);
   static int GetFieldIndex(Field field, MediaType mediaType);
   static bool GetSelectFields(const Fields &fields, MediaType mediaType, FieldList &selectFields);
   
@@ -161,4 +168,7 @@ public:
   static bool GetDatabaseResults(MediaType mediaType, const FieldList &fields, const std::auto_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results);
 
   static std::string BuildLimitClause(int end, int start = 0);
+
+private:
+  static int GetField(Field field, MediaType mediaType, bool asIndex);
 };

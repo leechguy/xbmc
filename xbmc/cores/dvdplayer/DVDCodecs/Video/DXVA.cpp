@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,9 +36,11 @@
 #include "windowing/WindowingFactory.h"
 #include "../../../VideoRenderers/WinRenderer.h"
 #include "settings/Settings.h"
+#include "settings/MediaSettings.h"
 #include "boost/shared_ptr.hpp"
 #include "utils/AutoPtrHandle.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/MediaSettings.h"
 #include "cores/VideoRenderers/RenderManager.h"
 #include "win32/WIN32Util.h"
 
@@ -95,19 +97,19 @@ typedef struct {
 
 /* XXX Prefered modes must come first */
 static const dxva2_mode_t dxva2_modes[] = {
-    { "MPEG2 VLD",    &DXVA2_ModeMPEG2_VLD,     CODEC_ID_MPEG2VIDEO },
-    { "MPEG1/2 VLD",  &DXVA_ModeMPEG2and1_VLD,  CODEC_ID_MPEG2VIDEO },
+    { "MPEG2 VLD",    &DXVA2_ModeMPEG2_VLD,     AV_CODEC_ID_MPEG2VIDEO },
+    { "MPEG1/2 VLD",  &DXVA_ModeMPEG2and1_VLD,  AV_CODEC_ID_MPEG2VIDEO },
     { "MPEG2 MoComp", &DXVA2_ModeMPEG2_MoComp,  0 },
     { "MPEG2 IDCT",   &DXVA2_ModeMPEG2_IDCT,    0 },
 
     // Intel drivers return standard modes in addition to the Intel specific ones. Try the Intel specific first, they work better for Sandy Bridges.
-    { "Intel H.264 VLD, no FGT",                                      &DXVADDI_Intel_ModeH264_E, CODEC_ID_H264 },
+    { "Intel H.264 VLD, no FGT",                                      &DXVADDI_Intel_ModeH264_E, AV_CODEC_ID_H264 },
     { "Intel H.264 inverse discrete cosine transform (IDCT), no FGT", &DXVADDI_Intel_ModeH264_C, 0 },
     { "Intel H.264 motion compensation (MoComp), no FGT",             &DXVADDI_Intel_ModeH264_A, 0 },
     { "Intel VC-1 VLD",                                               &DXVADDI_Intel_ModeVC1_E,  0 },
 
-    { "H.264 variable-length decoder (VLD), FGT",               &DXVA2_ModeH264_F, CODEC_ID_H264 },
-    { "H.264 VLD, no FGT",                                      &DXVA2_ModeH264_E, CODEC_ID_H264 },
+    { "H.264 variable-length decoder (VLD), FGT",               &DXVA2_ModeH264_F, AV_CODEC_ID_H264 },
+    { "H.264 VLD, no FGT",                                      &DXVA2_ModeH264_E, AV_CODEC_ID_H264 },
     { "H.264 IDCT, FGT",                                        &DXVA2_ModeH264_D, 0,            },
     { "H.264 inverse discrete cosine transform (IDCT), no FGT", &DXVA2_ModeH264_C, 0,            },
     { "H.264 MoComp, FGT",                                      &DXVA2_ModeH264_B, 0,            },
@@ -120,10 +122,10 @@ static const dxva2_mode_t dxva2_modes[] = {
     { "Windows Media Video 9 MoComp",           &DXVA2_ModeWMV9_B, 0 },
     { "Windows Media Video 9 post processing",  &DXVA2_ModeWMV9_A, 0 },
 
-    { "VC-1 VLD",             &DXVA2_ModeVC1_D,    CODEC_ID_VC1 },
-    { "VC-1 VLD",             &DXVA2_ModeVC1_D,    CODEC_ID_WMV3 },
-    { "VC-1 VLD 2010",        &DXVA_ModeVC1_D2010, CODEC_ID_VC1 },
-    { "VC-1 VLD 2010",        &DXVA_ModeVC1_D2010, CODEC_ID_WMV3 },
+    { "VC-1 VLD",             &DXVA2_ModeVC1_D,    AV_CODEC_ID_VC1 },
+    { "VC-1 VLD",             &DXVA2_ModeVC1_D,    AV_CODEC_ID_WMV3 },
+    { "VC-1 VLD 2010",        &DXVA_ModeVC1_D2010, AV_CODEC_ID_VC1 },
+    { "VC-1 VLD 2010",        &DXVA_ModeVC1_D2010, AV_CODEC_ID_WMV3 },
     { "VC-1 IDCT",            &DXVA2_ModeVC1_C,    0 },
     { "VC-1 MoComp",          &DXVA2_ModeVC1_B,    0 },
     { "VC-1 post processing", &DXVA2_ModeVC1_A,    0 },
@@ -312,7 +314,7 @@ CSurfaceContext::CSurfaceContext()
 
 CSurfaceContext::~CSurfaceContext()
 {
-  for (vector<IDirect3DSurface9*>::iterator it = m_heldsurfaces.begin(); it != m_heldsurfaces.end(); it++)
+  for (vector<IDirect3DSurface9*>::iterator it = m_heldsurfaces.begin(); it != m_heldsurfaces.end(); ++it)
     SAFE_RELEASE(*it);
 }
 
@@ -435,7 +437,7 @@ static bool HasVP3WidthBug(AVCodecContext *avctx)
 static bool CheckCompatibility(AVCodecContext *avctx)
 {
   // The incompatibilities are all for H264
-  if(avctx->codec_id != CODEC_ID_H264)
+  if(avctx->codec_id != AV_CODEC_ID_H264)
     return true;
 
   // Macroblock width incompatibility
@@ -444,6 +446,14 @@ static bool CheckCompatibility(AVCodecContext *avctx)
     CLog::Log(LOGWARNING,"DXVA - width %i is not supported with nVidia VP3 hardware. DXVA will not be used", avctx->coded_width);
     return false;
   }
+
+  // there are many corrupt mpeg2 rips from dvd's which don't
+  // follow profile spec properly, they go corrupt on hw, so
+  // keep those running in software for the time being.
+  if (avctx->codec_id  == AV_CODEC_ID_MPEG2VIDEO
+  &&  avctx->height    <= 576
+  &&  avctx->width     <= 720)
+    return false;
 
   // Check for hardware limited to H264 L4.1 (ie Bluray).
 
@@ -626,7 +636,7 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
 
   if(m_refs == 0)
   {
-    if(avctx->codec_id == CODEC_ID_H264)
+    if(avctx->codec_id == AV_CODEC_ID_H264)
       m_refs = 16;
     else
       m_refs = 2;
@@ -771,9 +781,9 @@ int CDecoder::Check(AVCodecContext* avctx)
   }
 
   // Status reports are available only for the DXVA2_ModeH264 and DXVA2_ModeVC1 modes
-  if(avctx->codec_id != CODEC_ID_H264
-  && avctx->codec_id != CODEC_ID_VC1
-  && avctx->codec_id != CODEC_ID_WMV3)
+  if(avctx->codec_id != AV_CODEC_ID_H264
+  && avctx->codec_id != AV_CODEC_ID_VC1
+  && avctx->codec_id != AV_CODEC_ID_WMV3)
     return 0;
 
   DXVA2_DecodeExecuteParams params = {};
@@ -786,7 +796,7 @@ int CDecoder::Check(AVCodecContext* avctx)
   params.pExtensionData = &data;
   data.Function = DXVA_STATUS_REPORTING_FUNCTION;
   data.pPrivateOutputData    = &status;
-  data.PrivateOutputDataSize = avctx->codec_id == CODEC_ID_H264 ? sizeof(DXVA_Status_H264) : sizeof(DXVA_Status_VC1);
+  data.PrivateOutputDataSize = avctx->codec_id == AV_CODEC_ID_H264 ? sizeof(DXVA_Status_H264) : sizeof(DXVA_Status_VC1);
   HRESULT hr;
   if(FAILED( hr = m_decoder->Execute(&params)))
   {
@@ -794,7 +804,7 @@ int CDecoder::Check(AVCodecContext* avctx)
     return VC_ERROR;
   }
 
-  if(avctx->codec_id == CODEC_ID_H264)
+  if(avctx->codec_id == AV_CODEC_ID_H264)
   {
     if(status.h264.bStatus)
       CLog::Log(LOGWARNING, "DXVA - decoder problem of status %d with %d", status.h264.bStatus, status.h264.bBufType);
@@ -939,7 +949,7 @@ int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic)
 
   pic->reordered_opaque = avctx->reordered_opaque;
   pic->type = FF_BUFFER_TYPE_USER;
-  pic->age  = 256*256*256*64; // as everybody else, i've got no idea about this one
+
   for(unsigned i = 0; i < 4; i++)
   {
     pic->data[i] = NULL;
@@ -952,6 +962,12 @@ int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic)
 
   return 0;
 }
+
+unsigned CDecoder::GetAllowedReferences()
+{
+  return m_shared;
+}
+
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
@@ -1175,8 +1191,8 @@ bool CProcessor::Open(UINT width, UINT height, unsigned int flags, unsigned int 
   // And for those GPUs, the correct values will be calculated with the first Render() and the correct processor
   // will replace the one allocated here, before the user sees anything.
   // It's a bit inefficient, that's all.
-  m_deinterlace_mode = g_settings.m_currentVideoSettings.m_DeinterlaceMode;
-  m_interlace_method = g_renderManager.AutoInterlaceMethod(g_settings.m_currentVideoSettings.m_InterlaceMethod);;
+  m_deinterlace_mode = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode;
+  m_interlace_method = g_renderManager.AutoInterlaceMethod(CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod);;
 
   EvaluateQuirkNoDeintProcForProg();
 
@@ -1279,6 +1295,14 @@ bool CProcessor::OpenProcessor()
   D3DFORMAT rtFormat = D3DFMT_X8R8G8B8;
   CHECK(m_service->GetVideoProcessorCaps(m_device, &m_desc, rtFormat, &m_caps))
 
+  /* HACK for Intel Egde Device. 
+   * won't work if backward refs is equals value from the capabilities *
+   * Possible reasons are:                                             *
+   * 1) The device capabilities are incorrectly reported               *
+   * 2) The device is broken                                           */
+  if (IsEqualGUID(m_device, DXVA2_VideoProcIntelEdgeDevice))
+    m_caps.NumBackwardRefSamples = 0;
+
   if (m_caps.DeviceCaps & DXVA2_VPDev_SoftwareDevice)
     CLog::Log(LOGDEBUG, "DXVA - processor is software device");
 
@@ -1367,12 +1391,11 @@ REFERENCE_TIME CProcessor::Add(DVDVideoPicture* picture)
         return 0;
 
       // Convert to NV12 - Chroma
-      uint8_t *s_u, *s_v, *d_uv;
       for (unsigned y = 0; y < picture->iHeight/2; y++)
       {
-        s_u = picture->data[1] + (y * picture->iLineSize[1]);
-        s_v = picture->data[2] + (y * picture->iLineSize[2]);
-        d_uv = ((uint8_t*)(rectangle.pBits)) + (desc.Height + y) * rectangle.Pitch;
+        uint8_t *s_u = picture->data[1] + (y * picture->iLineSize[1]);
+        uint8_t *s_v = picture->data[2] + (y * picture->iLineSize[2]);
+        uint8_t *d_uv = ((uint8_t*)(rectangle.pBits)) + (desc.Height + y) * rectangle.Pitch;
         for (unsigned x = 0; x < picture->iWidth/2; x++)
         {
           *d_uv++ = *s_u++;
@@ -1460,10 +1483,10 @@ bool CProcessor::Render(CRect src, CRect dst, IDirect3DSurface9* target, REFEREN
   // With auto deinterlacing, the Ion Gen. 1 drops some frames with deinterlacing processor + progressive flags for progressive material.
   // For that GPU (or when specified by an advanced setting), use the progressive processor.
   // This is at the expense of the switch speed when video interlacing flags change and a deinterlacing processor is actually required.
-  EDEINTERLACEMODE mode = g_settings.m_currentVideoSettings.m_DeinterlaceMode;
+  EDEINTERLACEMODE mode = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode;
   if (g_advancedSettings.m_DXVANoDeintProcForProgressive || m_quirk_nodeintprocforprog)
     mode = (flags & RENDER_FLAG_FIELD0 || flags & RENDER_FLAG_FIELD1) ? VS_DEINTERLACEMODE_FORCE : VS_DEINTERLACEMODE_OFF;
-  EINTERLACEMETHOD method = g_renderManager.AutoInterlaceMethod(g_settings.m_currentVideoSettings.m_InterlaceMethod);
+  EINTERLACEMETHOD method = g_renderManager.AutoInterlaceMethod(CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod);
   if(m_interlace_method != method
   || m_deinterlace_mode != mode
   || !m_process)
@@ -1489,7 +1512,7 @@ bool CProcessor::Render(CRect src, CRect dst, IDirect3DSurface9* target, REFEREN
       it = m_sample.erase(it);
     }
     else
-      it++;
+      ++it;
   }
 
   if(m_sample.empty())
@@ -1519,7 +1542,7 @@ bool CProcessor::Render(CRect src, CRect dst, IDirect3DSurface9* target, REFEREN
   for (int i = 0; i < count; i++)
     samp[i].SampleFormat.SampleFormat = DXVA2_SampleUnknown;
 
-  for(it = m_sample.begin(); it != m_sample.end() && valid < count; it++)
+  for(it = m_sample.begin(); it != m_sample.end() && valid < count; ++it)
   {
     if (it->sample.Start >= MinTime && it->sample.Start <= MaxTime)
     {
@@ -1571,12 +1594,15 @@ bool CProcessor::Render(CRect src, CRect dst, IDirect3DSurface9* target, REFEREN
 
   blt.DestFormat.VideoTransferFunction = DXVA2_VideoTransFunc_sRGB;
   blt.DestFormat.SampleFormat          = DXVA2_SampleProgressiveFrame;
-  blt.DestFormat.NominalRange          = DXVA2_NominalRange_0_255;
+  if(g_Windowing.UseLimitedColor())
+    blt.DestFormat.NominalRange          = DXVA2_NominalRange_16_235;
+  else
+    blt.DestFormat.NominalRange          = DXVA2_NominalRange_0_255;
   blt.Alpha = DXVA2_Fixed32OpaqueAlpha();
 
-  blt.ProcAmpValues.Brightness = ConvertRange( m_brightness, g_settings.m_currentVideoSettings.m_Brightness
+  blt.ProcAmpValues.Brightness = ConvertRange( m_brightness, CMediaSettings::Get().GetCurrentVideoSettings().m_Brightness
                                              , 0, 100, 50);
-  blt.ProcAmpValues.Contrast   = ConvertRange( m_contrast, g_settings.m_currentVideoSettings.m_Contrast
+  blt.ProcAmpValues.Contrast   = ConvertRange( m_contrast, CMediaSettings::Get().GetCurrentVideoSettings().m_Contrast
                                              , 0, 100, 50);
   blt.ProcAmpValues.Hue        = m_hue.DefaultValue;
   blt.ProcAmpValues.Saturation = m_saturation.DefaultValue;

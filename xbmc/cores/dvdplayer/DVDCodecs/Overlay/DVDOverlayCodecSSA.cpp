@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #include "DVDClock.h"
 #include "Util.h"
 #include "utils/AutoPtrHandle.h"
+#include "utils/StringUtils.h"
 
 using namespace AUTOPTR;
 using namespace std;
@@ -44,7 +45,7 @@ CDVDOverlayCodecSSA::~CDVDOverlayCodecSSA()
 
 bool CDVDOverlayCodecSSA::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
 {
-  if(hints.codec != CODEC_ID_SSA)
+  if(hints.codec != AV_CODEC_ID_SSA)
     return false;
 
   Dispose();
@@ -69,7 +70,7 @@ int CDVDOverlayCodecSSA::Decode(DemuxPacket *pPacket)
     return OC_ERROR;
   
   double pts = pPacket->dts != DVD_NOPTS_VALUE ? pPacket->dts : pPacket->pts;
-  BYTE *data = pPacket->pData;
+  uint8_t *data = pPacket->pData;
   int size = pPacket->iSize;
   double duration = pPacket->duration;
   if(duration == DVD_NOPTS_VALUE)
@@ -81,8 +82,8 @@ int CDVDOverlayCodecSSA::Decode(DemuxPacket *pPacket)
     double beg, end;
     size_t pos;
     CStdString      line, line2;
-    CStdStringArray lines;
-    CUtil::Tokenize((const char*)data, lines, "\r\n");
+    std::vector<std::string> lines;
+    StringUtils::Tokenize((const char*)data, lines, "\r\n");
     for(size_t i=0; i<lines.size(); i++)
     {
       line = lines[i];

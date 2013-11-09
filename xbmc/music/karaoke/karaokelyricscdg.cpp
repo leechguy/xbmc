@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,7 +20,8 @@
 
 #include "system.h"
 #include "filesystem/File.h"
-#include "settings/Settings.h"
+#include "settings/DisplaySettings.h"
+#include "guilib/GraphicContext.h"
 #include "guilib/Texture.h"
 #include "guilib/GUITexture.h"
 #include "settings/AdvancedSettings.h"
@@ -185,11 +186,11 @@ void CKaraokeLyricsCDG::Render()
 				  (float)(CDG_FULL_HEIGHT - CDG_BORDER_HEIGHT) / CDG_FULL_HEIGHT);
 
   // Get screen coordinates
-  RESOLUTION res = g_graphicsContext.GetVideoResolution();
-  CRect vertCoords((float)g_settings.m_ResInfo[res].Overscan.left,
-                   (float)g_settings.m_ResInfo[res].Overscan.top,
-                   (float)g_settings.m_ResInfo[res].Overscan.right,
-                   (float)g_settings.m_ResInfo[res].Overscan.bottom);
+  const RESOLUTION_INFO info = g_graphicsContext.GetResInfo();
+  CRect vertCoords((float)info.Overscan.left,
+                   (float)info.Overscan.top,
+                   (float)info.Overscan.right,
+                   (float)info.Overscan.bottom);
 
   CGUITexture::DrawQuad(vertCoords, 0xffffffff, m_pCdgTexture, &texCoords);
 }

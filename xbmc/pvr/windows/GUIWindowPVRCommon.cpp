@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "filesystem/StackDirectory.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "guilib/LocalizeStrings.h"
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
@@ -40,11 +41,12 @@
 #include "pvr/windows/GUIWindowPVR.h"
 #include "pvr/windows/GUIWindowPVRSearch.h"
 #include "pvr/recordings/PVRRecordings.h"
-#include "settings/GUISettings.h"
+#include "settings/MediaSettings.h"
 #include "settings/Settings.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
 #include "GUIUserMessages.h"
+#include "cores/IPlayer.h"
 
 using namespace std;
 using namespace PVR;
@@ -60,11 +62,14 @@ CGUIWindowPVRCommon::CGUIWindowPVRCommon(CGUIWindowPVR *parent, PVRWindow window
   m_bUpdateRequired = false;
   m_iSelected       = 0;
   m_iSortOrder      = SortOrderAscending;
-  m_iSortMethod     = SORT_METHOD_DATE;
+  m_iSortMethod     = SortByDate;
+  m_iSortAttributes = SortAttributeNone;
   if( m_parent->GetViewState() )
   {
-    m_iSortOrder      = m_parent->GetViewState()->GetSortOrder();
-    m_iSortMethod     = m_parent->GetViewState()->GetSortMethod();
+    SortDescription sorting = m_parent->GetViewState()->GetSortMethod();
+    m_iSortOrder      = sorting.sortOrder;
+    m_iSortMethod     = sorting.sortBy;
+    m_iSortAttributes = sorting.sortAttributes;
   }
 }
 
@@ -228,9 +233,9 @@ bool CGUIWindowPVRCommon::OnContextButtonSortByDate(CFileItem *item, CONTEXT_BUT
   {
     bReturn = true;
 
-    if (m_iSortMethod != SORT_METHOD_DATE)
+    if (m_iSortMethod != SortByDate)
     {
-      m_iSortMethod = SORT_METHOD_DATE;
+      m_iSortMethod = SortByDate;
       m_iSortOrder  = SortOrderAscending;
       CGUIMessage message(GUI_MSG_CHANGE_SORT_METHOD, m_parent->GetID(), 0, m_iSortMethod, 0); 
       m_parent->OnMessage(message);
@@ -255,9 +260,9 @@ bool CGUIWindowPVRCommon::OnContextButtonSortByName(CFileItem *item, CONTEXT_BUT
   {
     bReturn = true;
 
-    if (m_iSortMethod != SORT_METHOD_LABEL)
+    if (m_iSortMethod != SortByLabel)
     {
-      m_iSortMethod = SORT_METHOD_LABEL;
+      m_iSortMethod = SortByLabel;
       m_iSortOrder  = SortOrderAscending;
       CGUIMessage message(GUI_MSG_CHANGE_SORT_METHOD, m_parent->GetID(), 0, m_iSortMethod, 0); 
       m_parent->OnMessage(message);
@@ -282,9 +287,9 @@ bool CGUIWindowPVRCommon::OnContextButtonSortByChannel(CFileItem *item, CONTEXT_
   {
     bReturn = true;
 
-    if (m_iSortMethod != SORT_METHOD_CHANNEL)
+    if (m_iSortMethod != SortByChannel)
     {
-      m_iSortMethod = SORT_METHOD_CHANNEL;
+      m_iSortMethod = SortByChannel;
       m_iSortOrder  = SortOrderAscending;
     }
     else
@@ -340,13 +345,13 @@ bool CGUIWindowPVRCommon::OnContextButtonMenuHooks(CFileItem *item, CONTEXT_BUTT
     bReturn = true;
 
     if (item->IsEPG() && item->GetEPGInfoTag()->HasPVRChannel())
-      g_PVRClients->ProcessMenuHooks(item->GetEPGInfoTag()->ChannelTag()->ClientID(), PVR_MENUHOOK_EPG);
+      g_PVRClients->ProcessMenuHooks(item->GetEPGInfoTag()->ChannelTag()->ClientID(), PVR_MENUHOOK_EPG, item);
     else if (item->IsPVRChannel())
-      g_PVRClients->ProcessMenuHooks(item->GetPVRChannelInfoTag()->ClientID(), PVR_MENUHOOK_CHANNEL);
+      g_PVRClients->ProcessMenuHooks(item->GetPVRChannelInfoTag()->ClientID(), PVR_MENUHOOK_CHANNEL, item);
     else if (item->IsPVRRecording())
-      g_PVRClients->ProcessMenuHooks(item->GetPVRRecordingInfoTag()->m_iClientId, PVR_MENUHOOK_RECORDING);
+      g_PVRClients->ProcessMenuHooks(item->GetPVRRecordingInfoTag()->m_iClientId, PVR_MENUHOOK_RECORDING, item);
     else if (item->IsPVRTimer())
-      g_PVRClients->ProcessMenuHooks(item->GetPVRTimerInfoTag()->m_iClientId, PVR_MENUHOOK_TIMER);
+      g_PVRClients->ProcessMenuHooks(item->GetPVRTimerInfoTag()->m_iClientId, PVR_MENUHOOK_TIMER, item);
   }
 
   return bReturn;
@@ -514,7 +519,7 @@ bool CGUIWindowPVRCommon::ActionPlayChannel(CFileItem *item)
   else
   {
     /* open channel */
-    bReturn = PlayFile(item, g_guiSettings.GetBool("pvrplayback.playminimized"));
+    bReturn = PlayFile(item, CSettings::Get().GetBool("pvrplayback.playminimized"));
   }
 
   return bReturn;
@@ -522,26 +527,25 @@ bool CGUIWindowPVRCommon::ActionPlayChannel(CFileItem *item)
 
 bool CGUIWindowPVRCommon::ActionPlayEpg(CFileItem *item)
 {
-  bool bReturn = false;
-
   CEpgInfoTag *epgTag = item->GetEPGInfoTag();
   if (!epgTag)
-    return bReturn;
+    return false;
 
   CPVRChannelPtr channel = epgTag->ChannelTag();
   if (!channel || channel->ChannelNumber() > 0 ||
       !g_PVRManager.CheckParentalLock(*channel))
-    return bReturn;
+    return false;
 
-  bReturn = g_application.PlayFile(CFileItem(*channel));
+  PlayBackRet ret = g_application.PlayFile(CFileItem(*channel));
 
-  if (!bReturn)
+  if (ret == PLAYBACK_FAIL)
   {
-    /* cannot play file */
-    CGUIDialogOK::ShowAndGetInput(19033,0,19035,0);
+    CStdString msg;
+    msg.Format(g_localizeStrings.Get(19035).c_str(), channel->ChannelName().c_str()); // CHANNELNAME could not be played. Check the log for details.
+    CGUIDialogOK::ShowAndGetInput(19033, 0, msg, 0);
   }
 
-  return bReturn;
+  return ret == PLAYBACK_OK;
 }
 
 bool CGUIWindowPVRCommon::ActionDeleteChannel(CFileItem *item)
@@ -637,12 +641,12 @@ bool CGUIWindowPVRCommon::PlayRecording(CFileItem *item, bool bPlayMinimized /* 
 
       CFileItemList items;
       CDirectory::GetDirectory(dir, items);
-      items.Sort(SORT_METHOD_FILE, SortOrderAscending);
+      items.Sort(SortByFile, SortOrderAscending);
 
       vector<int> stack;
       for (int i = 0; i < items.Size(); ++i)
       {
-        if (URIUtils::GetExtension(items[i]->GetPath()) == ext)
+        if (URIUtils::HasExtension(items[i]->GetPath(), ext))
           stack.push_back(i);
       }
 
@@ -686,7 +690,7 @@ bool CGUIWindowPVRCommon::PlayFile(CFileItem *item, bool bPlayMinimized /* = fal
     return true;
   }
 
-  g_settings.m_bStartVideoWindowed = bPlayMinimized;
+  CMediaSettings::Get().SetVideoStartWindowed(bPlayMinimized);
 
   if (item->HasPVRRecordingInfoTag())
   {
@@ -702,7 +706,7 @@ bool CGUIWindowPVRCommon::PlayFile(CFileItem *item, bool bPlayMinimized /* = fal
     {
       /* try a fast switch */
       if (channel && (g_PVRManager.IsPlayingTV() || g_PVRManager.IsPlayingRadio()) &&
-         (channel->IsRadio() == g_PVRManager.IsPlayingRadio()) && g_application.m_pPlayer)
+         (channel->IsRadio() == g_PVRManager.IsPlayingRadio()))
       {
         if (channel->StreamURL().IsEmpty())
           bSwitchSuccessful = g_application.m_pPlayer->SwitchChannel(*channel);
@@ -717,9 +721,15 @@ bool CGUIWindowPVRCommon::PlayFile(CFileItem *item, bool bPlayMinimized /* = fal
 
     if (!bSwitchSuccessful)
     {
+      CStdString msg;
+      CStdString channelName = g_localizeStrings.Get(19029); // Channel
+      if (channel)
+        channelName = channel->ChannelName();
+      msg.Format(g_localizeStrings.Get(19035).c_str(), channelName.c_str()); // CHANNELNAME could not be played. Check the log for details.
+
       CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error,
               g_localizeStrings.Get(19166), // PVR information
-              g_localizeStrings.Get(19035)); // This channel cannot be played. Check the log for details.
+              msg);
       return false;
     }
   }

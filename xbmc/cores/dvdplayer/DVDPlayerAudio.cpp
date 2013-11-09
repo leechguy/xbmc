@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #include "DVDCodecs/DVDCodecs.h"
 #include "DVDCodecs/DVDFactoryCodec.h"
 #include "DVDPerformanceCounter.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "video/VideoReferenceClock.h"
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
@@ -63,7 +63,7 @@ double CPTSInputQueue::Get(int64_t bytes, bool consume)
   CSingleLock lock(m_sync);
 
   IT it = m_list.begin();
-  for(; it != m_list.end(); it++)
+  for(; it != m_list.end(); ++it)
   {
     if(bytes <= it->first)
     {
@@ -99,7 +99,7 @@ public:
 
 
 CDVDPlayerAudio::CDVDPlayerAudio(CDVDClock* pClock, CDVDMessageQueue& parent)
-: CThread("CDVDPlayerAudio")
+: CThread("DVDPlayerAudio")
 , m_messageQueue("audio")
 , m_messageParent(parent)
 , m_dvdAudio((bool&)m_bStop)
@@ -145,10 +145,8 @@ CDVDPlayerAudio::~CDVDPlayerAudio()
 
 bool CDVDPlayerAudio::OpenStream( CDVDStreamInfo &hints )
 {
-  bool passthrough = AUDIO_IS_BITSTREAM(g_guiSettings.GetInt("audiooutput.mode"));
-
   CLog::Log(LOGNOTICE, "Finding audio codec for: %i", hints.codec);
-  CDVDAudioCodec* codec = CDVDFactoryCodec::CreateAudioCodec(hints, passthrough);
+  CDVDAudioCodec* codec = CDVDFactoryCodec::CreateAudioCodec(hints);
   if( !codec )
   {
     CLog::Log(LOGERROR, "Unsupported audio codec");
@@ -175,9 +173,14 @@ void CDVDPlayerAudio::OpenStream( CDVDStreamInfo &hints, CDVDAudioCodec* codec )
   /* store our stream hints */
   m_streaminfo = hints;
 
-  /* update codec information from what codec gave ut */
-  m_streaminfo.channels = m_pAudioCodec->GetChannels();
-  m_streaminfo.samplerate = m_pAudioCodec->GetSampleRate();
+  /* update codec information from what codec gave out, if any */
+  int channelsFromCodec = m_pAudioCodec->GetChannels();
+  int samplerateFromCodec = m_pAudioCodec->GetEncodedSampleRate();
+
+  if (channelsFromCodec > 0)
+    m_streaminfo.channels = channelsFromCodec;
+  if (samplerateFromCodec > 0)
+    m_streaminfo.samplerate = samplerateFromCodec;
 
   /* check if we only just got sample rate, in which case the previous call
    * to CreateAudioCodec() couldn't have started passthrough */
@@ -191,8 +194,8 @@ void CDVDPlayerAudio::OpenStream( CDVDStreamInfo &hints, CDVDAudioCodec* codec )
 
   m_synctype = SYNC_DISCON;
   m_setsynctype = SYNC_DISCON;
-  if (g_guiSettings.GetBool("videoplayer.usedisplayasclock"))
-    m_setsynctype = g_guiSettings.GetInt("videoplayer.synctype");
+  if (CSettings::Get().GetBool("videoplayer.usedisplayasclock"))
+    m_setsynctype = CSettings::Get().GetInt("videoplayer.synctype");
   m_prevsynctype = -1;
 
   m_error = 0;
@@ -205,7 +208,7 @@ void CDVDPlayerAudio::OpenStream( CDVDStreamInfo &hints, CDVDAudioCodec* codec )
   m_errortime = CurrentHostCounter();
   m_silence = false;
 
-  m_maxspeedadjust = g_guiSettings.GetFloat("videoplayer.maxspeedadjust");
+  m_maxspeedadjust = CSettings::Get().GetNumber("videoplayer.maxspeedadjust");
 }
 
 void CDVDPlayerAudio::CloseStream(bool bWaitForBuffers)
@@ -231,6 +234,11 @@ void CDVDPlayerAudio::CloseStream(bool bWaitForBuffers)
     m_dvdAudio.Drain();
     m_bStop = true;
   }
+  else
+  {
+    m_dvdAudio.Flush();
+  }
+
   m_dvdAudio.Destroy();
 
   // uninit queue
@@ -284,7 +292,7 @@ int CDVDPlayerAudio::DecodeFrame(DVDAudioFrame &audioframe, bool bDropPacket)
         CLog::Log(LOGERROR, "CDVDPlayerAudio:DecodeFrame - Codec tried to consume more data than available. Potential memory corruption");
         m_decode.Release();
         m_pAudioCodec->Reset();
-        assert(0);
+        return DECODE_FLAG_ERROR;
       }
 
       m_decode.data += len;
@@ -295,7 +303,7 @@ int CDVDPlayerAudio::DecodeFrame(DVDAudioFrame &audioframe, bool bDropPacket)
       audioframe.size = m_pAudioCodec->GetData(&audioframe.data);
       audioframe.pts  = m_audioClock;
 
-      if (audioframe.size <= 0)
+      if (audioframe.size == 0)
         continue;
 
       audioframe.channel_layout        = m_pAudioCodec->GetChannelMap();
@@ -307,12 +315,12 @@ int CDVDPlayerAudio::DecodeFrame(DVDAudioFrame &audioframe, bool bDropPacket)
       audioframe.encoded_sample_rate   = m_pAudioCodec->GetEncodedSampleRate();
       audioframe.passthrough           = m_pAudioCodec->NeedPassthrough();
 
-      if (m_streaminfo.samplerate != audioframe.sample_rate)
+      if (m_streaminfo.samplerate != audioframe.encoded_sample_rate)
       {
         // The sample rate has changed or we just got it for the first time
         // for this stream. See if we should enable/disable passthrough due
         // to it.
-        m_streaminfo.samplerate = audioframe.sample_rate;
+        m_streaminfo.samplerate = audioframe.encoded_sample_rate;
         if (!switched && SwitchCodecIfNeeded()) {
           // passthrough has been enabled/disabled, reprocess the packet
           m_decode.data -= len;
@@ -368,7 +376,7 @@ int CDVDPlayerAudio::DecodeFrame(DVDAudioFrame &audioframe, bool bDropPacket)
     if (ret == MSGQ_TIMEOUT)
       return DECODE_FLAG_TIMEOUT;
 
-    if (MSGQ_IS_ERROR(ret) || ret == MSGQ_ABORT)
+    if (MSGQ_IS_ERROR(ret))
       return DECODE_FLAG_ABORT;
 
     if (pMsg->IsType(CDVDMsg::DEMUXER_PACKET))
@@ -498,16 +506,33 @@ void CDVDPlayerAudio::OnStartup()
 
   g_dvdPerformanceCounter.EnableAudioDecodePerformance(this);
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
   CoInitializeEx(NULL, COINIT_MULTITHREADED);
 #endif
+}
+
+void CDVDPlayerAudio::UpdatePlayerInfo()
+{
+  std::ostringstream s;
+  s << "aq:"     << setw(2) << min(99,m_messageQueue.GetLevel() + MathUtils::round_int(100.0/8.0*m_dvdAudio.GetCacheTime())) << "%";
+  s << ", Kb/s:" << fixed << setprecision(2) << (double)GetAudioBitrate() / 1024.0;
+
+  //print the inverse of the resample ratio, since that makes more sense
+  //if the resample ratio is 0.5, then we're playing twice as fast
+  if (m_synctype == SYNC_RESAMPLE)
+    s << ", rr:" << fixed << setprecision(5) << 1.0 / m_resampleratio;
+
+  s << ", att:" << fixed << setprecision(1) << log(GetCurrentAttenuation()) * 20.0f << " dB";
+
+  { CSingleLock lock(m_info_section);
+    m_info = s.str();
+  }
 }
 
 void CDVDPlayerAudio::Process()
 {
   CLog::Log(LOGNOTICE, "running thread: CDVDPlayerAudio::Process()");
 
-  int result;
   bool packetadded(false);
 
   DVDAudioFrame audioframe;
@@ -516,8 +541,10 @@ void CDVDPlayerAudio::Process()
   while (!m_bStop)
   {
     //Don't let anybody mess with our global variables
-    result = DecodeFrame(audioframe, m_speed > DVD_PLAYSPEED_NORMAL || m_speed < 0 ||
+    int result = DecodeFrame(audioframe, m_speed > DVD_PLAYSPEED_NORMAL || m_speed < 0 ||
                          CAEFactory::IsSuspended()); // blocks if no audio is available, but leaves critical section before doing so
+
+    UpdatePlayerInfo();
 
     if( result & DECODE_FLAG_ERROR )
     {
@@ -527,10 +554,11 @@ void CDVDPlayerAudio::Process()
 
     if( result & DECODE_FLAG_TIMEOUT )
     {
+      bool transitioningToStalled = !m_stalled;
       m_stalled = true;
 
       // Flush as the audio output may keep looping if we don't
-      if(m_speed == DVD_PLAYSPEED_NORMAL)
+      if(m_speed == DVD_PLAYSPEED_NORMAL && transitioningToStalled)
       {
         m_dvdAudio.Drain();
         m_dvdAudio.Flush();
@@ -780,12 +808,12 @@ bool CDVDPlayerAudio::OutputPacket(DVDAudioFrame &audioframe)
   }
   else if (m_synctype == SYNC_RESAMPLE)
   {
-    double proportional = 0.0, proportionaldiv;
+    double proportional = 0.0;
 
     //on big errors use more proportional
     if (fabs(m_error / DVD_TIME_BASE) > 0.0)
     {
-      proportionaldiv = PROPORTIONAL * (PROPREF / fabs(m_error / DVD_TIME_BASE));
+      double proportionaldiv = PROPORTIONAL * (PROPREF / fabs(m_error / DVD_TIME_BASE));
       if (proportionaldiv < PROPDIVMIN) proportionaldiv = PROPDIVMIN;
       else if (proportionaldiv > PROPDIVMAX) proportionaldiv = PROPDIVMAX;
 
@@ -804,7 +832,7 @@ void CDVDPlayerAudio::OnExit()
 {
   g_dvdPerformanceCounter.DisableAudioDecodePerformance();
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
   CoUninitialize();
 #endif
 
@@ -839,12 +867,8 @@ void CDVDPlayerAudio::WaitForBuffers()
 
 bool CDVDPlayerAudio::SwitchCodecIfNeeded()
 {
-  // check if passthrough is disabled
-  if (!AUDIO_IS_BITSTREAM(g_guiSettings.GetInt("audiooutput.mode")))
-    return false;
-
   CLog::Log(LOGDEBUG, "CDVDPlayerAudio: Sample rate changed, checking for passthrough");
-  CDVDAudioCodec *codec = CDVDFactoryCodec::CreateAudioCodec(m_streaminfo, true);
+  CDVDAudioCodec *codec = CDVDFactoryCodec::CreateAudioCodec(m_streaminfo);
   if (!codec || codec->NeedPassthrough() == m_pAudioCodec->NeedPassthrough()) {
     // passthrough state has not changed
     delete codec;
@@ -858,18 +882,8 @@ bool CDVDPlayerAudio::SwitchCodecIfNeeded()
 
 string CDVDPlayerAudio::GetPlayerInfo()
 {
-  std::ostringstream s;
-  s << "aq:"     << setw(2) << min(99,m_messageQueue.GetLevel() + MathUtils::round_int(100.0/8.0*m_dvdAudio.GetCacheTime())) << "%";
-  s << ", Kb/s:" << fixed << setprecision(2) << (double)GetAudioBitrate() / 1024.0;
-
-  //print the inverse of the resample ratio, since that makes more sense
-  //if the resample ratio is 0.5, then we're playing twice as fast
-  if (m_synctype == SYNC_RESAMPLE)
-    s << ", rr:" << fixed << setprecision(5) << 1.0 / m_resampleratio;
-
-  s << ", att:" << fixed << setprecision(1) << log(GetCurrentAttenuation()) * 20.0f << " dB";
-
-  return s.str();
+  CSingleLock lock(m_info_section);
+  return m_info;
 }
 
 int CDVDPlayerAudio::GetAudioBitrate()

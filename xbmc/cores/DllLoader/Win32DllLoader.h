@@ -3,8 +3,8 @@
 #define _WIN32DLLLOADER_H_
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -49,8 +49,8 @@ public:
 private:
   void OverrideImports(const CStdString &dll);
   void RestoreImports();
-  bool ResolveImport(const char *dllName, const char *functionName, void **fixup);
-  bool ResolveOrdinal(const char *dllName, unsigned long ordinal, void **fixup);
+  static bool ResolveImport(const char *dllName, const char *functionName, void **fixup);
+  static bool ResolveOrdinal(const char *dllName, unsigned long ordinal, void **fixup);
   bool NeedsHooking(const char *dllName);
 
   HMODULE m_dllHandle;

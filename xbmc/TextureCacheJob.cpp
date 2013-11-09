@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,9 +22,8 @@
 #include "TextureCache.h"
 #include "guilib/Texture.h"
 #include "guilib/DDSImage.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "utils/log.h"
 #include "filesystem/File.h"
 #include "pictures/Picture.h"
@@ -34,6 +33,9 @@
 #include "FileItem.h"
 #include "music/MusicThumbLoader.h"
 #include "music/tags/MusicInfoTag.h"
+#if defined(HAS_OMXPLAYER)
+#include "cores/omxplayer/OMXImage.h"
+#endif
 
 CTextureCacheJob::CTextureCacheJob(const CStdString &url, const CStdString &oldHash)
 {
@@ -88,6 +90,18 @@ bool CTextureCacheJob::CacheTexture(CBaseTexture **out_texture)
   else if (m_details.hash == m_oldHash)
     return true;
 
+#if defined(HAS_OMXPLAYER)
+  if (COMXImage::CreateThumb(image, width, height, additional_info, CTextureCache::GetCachedPath(m_cachePath + ".jpg")))
+  {
+    m_details.width = width;
+    m_details.height = height;
+    m_details.file = m_cachePath + ".jpg";
+    if (out_texture)
+      *out_texture = LoadImage(CTextureCache::GetCachedPath(m_details.file), width, height, additional_info);
+    CLog::Log(LOGDEBUG, "Fast %s image '%s' to '%s': %p", m_oldHash.IsEmpty() ? "Caching" : "Recaching", image.c_str(), m_details.file.c_str(), out_texture);
+    return true;
+  }
+#endif
   CBaseTexture *texture = LoadImage(image, width, height, additional_info);
   if (texture)
   {
@@ -119,7 +133,7 @@ CStdString CTextureCacheJob::DecodeImageURL(const CStdString &url, unsigned int 
   CStdString image(url);
   additional_info.clear();
   width = height = 0;
-  if (url.compare(0, 8, "image://") == 0)
+  if (StringUtils::StartsWith(url, "image://"))
   {
     // format is image://[type@]<url_encoded_path>?options
     CURL thumbURL(url);
@@ -174,11 +188,12 @@ CBaseTexture *CTextureCacheJob::LoadImage(const CStdString &image, unsigned int 
 
   // Validate file URL to see if it is an image
   CFileItem file(image, false);
+  file.FillInMimeType();
   if (!(file.IsPicture() && !(file.IsZIP() || file.IsRAR() || file.IsCBR() || file.IsCBZ() ))
-      && !file.GetMimeType().Left(6).Equals("image/") && !file.GetMimeType().Equals("application/octet-stream")) // ignore non-pictures
+      && !StringUtils::StartsWithNoCase(file.GetMimeType(), "image/") && !file.GetMimeType().Equals("application/octet-stream")) // ignore non-pictures
     return NULL;
 
-  CBaseTexture *texture = CBaseTexture::LoadFromFile(image, width, height, g_guiSettings.GetBool("pictures.useexifrotation"));
+  CBaseTexture *texture = CBaseTexture::LoadFromFile(image, width, height, CSettings::Get().GetBool("pictures.useexifrotation"));
   if (!texture)
     return NULL;
 
@@ -194,8 +209,8 @@ CBaseTexture *CTextureCacheJob::LoadImage(const CStdString &image, unsigned int 
 bool CTextureCacheJob::UpdateableURL(const CStdString &url) const
 {
   // we don't constantly check online images
-  if (url.compare(0, 7, "http://") == 0 ||
-      url.compare(0, 8, "https://") == 0)
+  if (StringUtils::StartsWith(url, "http://") ||
+      StringUtils::StartsWith(url, "https://"))
     return false;
   return true;
 }
@@ -237,7 +252,7 @@ bool CTextureDDSJob::operator==(const CJob* job) const
 
 bool CTextureDDSJob::DoWork()
 {
-  if (URIUtils::GetExtension(m_original).Equals(".dds"))
+  if (URIUtils::HasExtension(m_original, ".dds"))
     return false;
   CBaseTexture *texture = CBaseTexture::LoadFromFile(m_original);
   if (texture)

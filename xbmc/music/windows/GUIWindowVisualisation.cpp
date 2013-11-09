@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,8 +25,9 @@
 #include "GUIInfoManager.h"
 #include "music/dialogs/GUIDialogVisualisationPresetList.h"
 #include "guilib/GUIWindowManager.h"
-#include "settings/Settings.h"
+#include "guilib/Key.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 
 using namespace MUSIC_INFO;
 
@@ -58,7 +59,7 @@ bool CGUIWindowVisualisation::OnAction(const CAction &action)
   case ACTION_SHOW_INFO:
     {
       m_initTimer.Stop();
-      g_settings.m_bMyMusicSongThumbInVis = g_infoManager.ToggleShowInfo();
+      CSettings::Get().SetBool("mymusic.songthumbinvis", g_infoManager.ToggleShowInfo());
       return true;
     }
     break;
@@ -69,7 +70,7 @@ bool CGUIWindowVisualisation::OnAction(const CAction &action)
 
   case ACTION_SHOW_GUI:
     // save the settings
-    g_settings.Save();
+    CSettings::Get().Save();
     g_windowManager.PreviousWindow();
     return true;
     break;
@@ -150,7 +151,7 @@ bool CGUIWindowVisualisation::OnMessage(CGUIMessage& message)
   case GUI_MSG_WINDOW_DEINIT:
     {
       if (IsActive()) // save any changed settings from the OSD
-        g_settings.Save();
+        CSettings::Get().Save();
       // check and close any OSD windows
       CGUIDialogMusicOSD *pOSD = (CGUIDialogMusicOSD *)g_windowManager.GetWindow(WINDOW_DIALOG_MUSIC_OSD);
       if (pOSD && pOSD->IsDialogRunning()) pOSD->Close(true);
@@ -162,7 +163,7 @@ bool CGUIWindowVisualisation::OnMessage(CGUIMessage& message)
     {
       // check whether we've come back here from a window during which time we've actually
       // stopped playing music
-      if (message.GetParam1() == WINDOW_INVALID && !g_application.IsPlayingAudio())
+      if (message.GetParam1() == WINDOW_INVALID && !g_application.m_pPlayer->IsPlayingAudio())
       { // why are we here if nothing is playing???
         g_windowManager.PreviousWindow();
         return true;
@@ -175,7 +176,7 @@ bool CGUIWindowVisualisation::OnMessage(CGUIMessage& message)
       if (g_infoManager.GetCurrentSongTag())
         m_tag = *g_infoManager.GetCurrentSongTag();
 
-      if (g_settings.m_bMyMusicSongThumbInVis)
+      if (CSettings::Get().GetBool("mymusic.songthumbinvis"))
       { // always on
         m_initTimer.Stop();
       }
@@ -197,6 +198,8 @@ EVENT_RESULT CGUIWindowVisualisation::OnMouseEvent(const CPoint &point, const CM
     OnAction(CAction(ACTION_SHOW_GUI));
     return EVENT_RESULT_HANDLED;
   }
+  if (event.m_id == ACTION_GESTURE_NOTIFY)
+    return EVENT_RESULT_UNHANDLED;
   if (event.m_id != ACTION_MOUSE_MOVE || event.m_offsetX || event.m_offsetY)
   { // some other mouse action has occurred - bring up the OSD
     CGUIDialog *pOSD = (CGUIDialog *)g_windowManager.GetWindow(WINDOW_DIALOG_MUSIC_OSD);
@@ -224,7 +227,7 @@ void CGUIWindowVisualisation::FrameMove()
   if (m_initTimer.IsRunning() && m_initTimer.GetElapsedSeconds() > (float)g_advancedSettings.m_songInfoDuration)
   {
     m_initTimer.Stop();
-    if (!g_settings.m_bMyMusicSongThumbInVis)
+    if (!CSettings::Get().GetBool("mymusic.songthumbinvis"))
     { // reached end of fade in, fade out again
       g_infoManager.SetShowInfo(false);
     }

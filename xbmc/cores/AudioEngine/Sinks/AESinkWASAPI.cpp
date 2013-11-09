@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@
 #include <stdint.h>
 
 #include "../Utils/AEUtil.h"
-#include "settings/GUISettings.h"
 #include "settings/AdvancedSettings.h"
 #include "utils/StdString.h"
 #include "utils/log.h"
@@ -35,6 +34,7 @@
 #include "../Utils/AEDeviceInfo.h"
 #include <Mmreg.h>
 #include <mmdeviceapi.h>
+#include "utils/StringUtils.h"
 
 #pragma comment(lib, "Avrt.lib")
 
@@ -176,18 +176,25 @@ CStdStringA localWideToUtf(LPCWSTR wstr)
 }
 
 CAESinkWASAPI::CAESinkWASAPI() :
-  m_pAudioClient(NULL),
-  m_pRenderClient(NULL),
   m_needDataEvent(0),
   m_pDevice(NULL),
-  m_initialized(false),
-  m_running(false),
+  m_pAudioClient(NULL),
+  m_pRenderClient(NULL),
   m_encodedFormat(AE_FMT_INVALID),
   m_encodedChannels(0),
   m_encodedSampleRate(0),
+  sinkReqFormat(AE_FMT_INVALID),
+  sinkRetFormat(AE_FMT_INVALID),
+  m_running(false),
+  m_initialized(false),
+  m_isSuspended(false),
+  m_isDirty(false),
   m_uiBufferLen(0),
   m_avgTimeWaiting(50),
-  m_isDirty(false)
+  m_sinkLatency(0.0),
+  m_lastWriteToBuffer(0),
+  m_pBuffer(NULL),
+  m_bufferPtr(0)
 {
   m_channelLayout.Reset();
 }
@@ -203,6 +210,7 @@ bool CAESinkWASAPI::Initialize(AEAudioFormat &format, std::string &device)
     return false;
 
   m_device = device;
+  bool bdefault = false;
 
   /* Save requested format */
   /* Clear returned format */
@@ -224,41 +232,47 @@ bool CAESinkWASAPI::Initialize(AEAudioFormat &format, std::string &device)
   hr = pEnumDevices->GetCount(&uiCount);
   EXIT_ON_FAILURE(hr, __FUNCTION__": Retrieval of audio endpoint count failed.")
 
-  for (UINT i = 0; i < uiCount; i++)
+  if(StringUtils::EndsWithNoCase(device, std::string("default")))
+    bdefault = true;
+
+  if(!bdefault)
   {
-    IPropertyStore *pProperty = NULL;
-    PROPVARIANT varName;
-
-    hr = pEnumDevices->Item(i, &m_pDevice);
-    EXIT_ON_FAILURE(hr, __FUNCTION__": Retrieval of WASAPI endpoint failed.")
-
-    hr = m_pDevice->OpenPropertyStore(STGM_READ, &pProperty);
-    EXIT_ON_FAILURE(hr, __FUNCTION__": Retrieval of WASAPI endpoint properties failed.")
-
-    hr = pProperty->GetValue(PKEY_AudioEndpoint_GUID, &varName);
-    if (FAILED(hr))
+    for (UINT i = 0; i < uiCount; i++)
     {
-      CLog::Log(LOGERROR, __FUNCTION__": Retrieval of WASAPI endpoint GUID failed.");
+      IPropertyStore *pProperty = NULL;
+      PROPVARIANT varName;
+
+      hr = pEnumDevices->Item(i, &m_pDevice);
+      EXIT_ON_FAILURE(hr, __FUNCTION__": Retrieval of WASAPI endpoint failed.")
+
+      hr = m_pDevice->OpenPropertyStore(STGM_READ, &pProperty);
+      EXIT_ON_FAILURE(hr, __FUNCTION__": Retrieval of WASAPI endpoint properties failed.")
+
+      hr = pProperty->GetValue(PKEY_AudioEndpoint_GUID, &varName);
+      if (FAILED(hr))
+      {
+        CLog::Log(LOGERROR, __FUNCTION__": Retrieval of WASAPI endpoint GUID failed.");
+        SAFE_RELEASE(pProperty);
+        goto failed;
+      }
+
+      std::string strDevName = localWideToUtf(varName.pwszVal);
+
+      if (device == strDevName)
+        i = uiCount;
+      else
+        SAFE_RELEASE(m_pDevice);
+
+      PropVariantClear(&varName);
       SAFE_RELEASE(pProperty);
-      goto failed;
     }
-
-    std::string strDevName = localWideToUtf(varName.pwszVal);
-
-    if (device == strDevName)
-      i = uiCount;
-    else
-      SAFE_RELEASE(m_pDevice);
-
-    PropVariantClear(&varName);
-    SAFE_RELEASE(pProperty);
   }
-
   SAFE_RELEASE(pEnumDevices);
 
   if (!m_pDevice)
   {
-    CLog::Log(LOGINFO, __FUNCTION__": Could not locate the device named \"%s\" in the list of WASAPI endpoint devices.  Trying the default device...", device.c_str());
+    if(!bdefault)
+      CLog::Log(LOGINFO, __FUNCTION__": Could not locate the device named \"%s\" in the list of WASAPI endpoint devices.  Trying the default device...", device.c_str());
     hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &m_pDevice);
     EXIT_ON_FAILURE(hr, __FUNCTION__": Could not retrieve the default WASAPI audio endpoint.")
 
@@ -304,6 +318,14 @@ bool CAESinkWASAPI::Initialize(AEAudioFormat &format, std::string &device)
   m_initialized = true;
   m_isDirty     = false;
 
+  // allow feeding less samples than buffer size
+  // if the device is opened exclusive and event driven, provided samples must match buffersize
+  // ActiveAE tries to align provided samples with buffer size but cannot guarantee (e.g. transcoding)
+  // this can be avoided by dropping the event mode which has not much benefit; SoftAE polls anyway
+  delete [] m_pBuffer;
+  m_pBuffer = new uint8_t[format.m_frames * format.m_frameSize];
+  m_bufferPtr = 0;
+
   return true;
 
 failed:
@@ -348,9 +370,12 @@ void CAESinkWASAPI::Deinitialize()
   SAFE_RELEASE(m_pDevice);
 
   m_initialized = false;
+
+  delete [] m_pBuffer;
+  m_bufferPtr = 0;
 }
 
-bool CAESinkWASAPI::IsCompatible(const AEAudioFormat format, const std::string device)
+bool CAESinkWASAPI::IsCompatible(const AEAudioFormat &format, const std::string &device)
 {
   if (!m_initialized || m_isDirty)
     return false;
@@ -393,7 +418,19 @@ double CAESinkWASAPI::GetDelay()
   if (!m_initialized)
     return 0.0;
 
-  return m_sinkLatency;
+  double time_played = 0.0;
+  if (m_running)
+  {
+    unsigned int now = XbmcThreads::SystemClockMillis();
+    time_played = (double)(now-m_lastWriteToBuffer) / 1000;
+  }
+
+  double delay = m_sinkLatency - time_played + (double)m_bufferPtr / (double)m_format.m_sampleRate;
+
+  if (delay < 0)
+    delay = 0.0;
+
+  return delay;
 }
 
 double CAESinkWASAPI::GetCacheTime()
@@ -420,7 +457,7 @@ double CAESinkWASAPI::GetCacheTotal()
   return m_sinkLatency;
 }
 
-unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool hasAudio)
+unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool hasAudio, bool blocking)
 {
   if (!m_initialized)
     return 0;
@@ -435,7 +472,15 @@ unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool 
   LARGE_INTEGER timerFreq;
 #endif
 
-  unsigned int NumFramesRequested = frames;
+  unsigned int NumFramesRequested = m_format.m_frames;
+  unsigned int FramesToCopy = std::min(m_format.m_frames - m_bufferPtr, frames);
+  if (m_bufferPtr != 0 || frames != m_format.m_frames)
+  {
+    memcpy(m_pBuffer+m_bufferPtr*m_format.m_frameSize, data, FramesToCopy*m_format.m_frameSize);
+    m_bufferPtr += FramesToCopy;
+    if (m_bufferPtr != m_format.m_frames)
+      return frames;
+  }
 
   if (!m_running) //first time called, pre-fill buffer then start audio client
   {
@@ -455,12 +500,7 @@ unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool 
       return INT_MAX;
     }
 
-    /* Inject one buffer of silence if sink has just opened */
-    /* to avoid losing start of stream or GUI sound         */
-    if (g_advancedSettings.m_streamSilence)
-      memcpy(buf, data, NumFramesRequested * m_format.m_frameSize); //fill buffer with audio
-    else
-      memset(buf,    0, NumFramesRequested * m_format.m_frameSize); //fill buffer with silence
+    memset(buf, 0, NumFramesRequested * m_format.m_frameSize); //fill buffer with silence
 
     hr = m_pRenderClient->ReleaseBuffer(NumFramesRequested, flags); //pass back to audio driver
     if (FAILED(hr))
@@ -472,10 +512,10 @@ unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool 
       return INT_MAX;
     }
     hr = m_pAudioClient->Start(); //start the audio driver running
-    if FAILED(hr)
+    if (FAILED(hr))
       CLog::Log(LOGERROR, __FUNCTION__": AudioClient Start Failed");
     m_running = true; //signal that we're processing frames
-    return g_advancedSettings.m_streamSilence ? NumFramesRequested : 0U;
+    return 0U;
   }
 
 #ifndef _DEBUG
@@ -485,22 +525,26 @@ unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool 
 #endif
 
   /* Wait for Audio Driver to tell us it's got a buffer available */
-  DWORD eventAudioCallback = WaitForSingleObject(m_needDataEvent, 1100);
+  DWORD eventAudioCallback;
+  if(!blocking)
+    eventAudioCallback = WaitForSingleObject(m_needDataEvent, 0);
+  else
+    eventAudioCallback = WaitForSingleObject(m_needDataEvent, 1100);
 
-  if (eventAudioCallback != WAIT_OBJECT_0 || !&buf)
+  if (!blocking)
   {
-    /* Event handle timed out - flag sink as dirty for re-initializing */
-    CLog::Log(LOGERROR, __FUNCTION__": Endpoint Buffer timed out");
-    if (g_advancedSettings.m_streamSilence)
+    if(eventAudioCallback != WAIT_OBJECT_0)
+	  return 0;
+  }
+  else
+  {
+    if(eventAudioCallback != WAIT_OBJECT_0 || !&buf)
     {
-      m_isDirty = true; //flag new device or re-init needed
-      Deinitialize();
-      m_running = false;
+      CLog::Log(LOGERROR, __FUNCTION__": Endpoint Buffer timed out");
       return INT_MAX;
     }
-    m_running = false;
-    return 0;
   }
+
 
   if (!m_running)
     return 0;
@@ -525,7 +569,8 @@ unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool 
     #endif
     return INT_MAX;
   }
-  memcpy(buf, data, NumFramesRequested * m_format.m_frameSize); //fill buffer
+  memcpy(buf, m_bufferPtr == 0 ? data : m_pBuffer, NumFramesRequested * m_format.m_frameSize); //fill buffer
+  m_bufferPtr = 0;
   hr = m_pRenderClient->ReleaseBuffer(NumFramesRequested, flags); //pass back to audio driver
   if (FAILED(hr))
   {
@@ -534,40 +579,28 @@ unsigned int CAESinkWASAPI::AddPackets(uint8_t *data, unsigned int frames, bool 
     #endif
     return INT_MAX;
   }
+  m_lastWriteToBuffer = XbmcThreads::SystemClockMillis();
 
-  return NumFramesRequested;
+  if (FramesToCopy != frames)
+  {
+    m_bufferPtr = frames-FramesToCopy;
+    memcpy(m_pBuffer, data+FramesToCopy*m_format.m_frameSize, m_bufferPtr*m_format.m_frameSize);
+  }
+
+  return frames;
 }
 
-bool CAESinkWASAPI::SoftSuspend()
-{
-  /* Sink has been asked to suspend output - we release audio   */
-  /* device as we are in exclusive mode and thus allow external */
-  /* audio sources to play. This requires us to reinitialize    */
-  /* on resume.                                                 */
-
-  Deinitialize();
-
-  return true;
-}
-
-bool CAESinkWASAPI::SoftResume()
-{
-  /* Sink asked to resume output. To release audio device in    */
-  /* exclusive mode we release the device context and therefore */
-  /* must reinitialize. Return false to force re-init by engine */
-
-  return false;
-}
-
-void CAESinkWASAPI::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList)
+void CAESinkWASAPI::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList, bool force)
 {
   IMMDeviceEnumerator* pEnumerator = NULL;
   IMMDeviceCollection* pEnumDevices = NULL;
+  IMMDevice*           pDefaultDevice = NULL;
   CAEDeviceInfo        deviceInfo;
   CAEChannelInfo       deviceChannels;
+  LPWSTR               pwszID = NULL;
+  std::wstring         wstrDDID;
 
   WAVEFORMATEXTENSIBLE wfxex = {0};
-  WAVEFORMATEX*        pwfxex = NULL;
   HRESULT              hr;
 
   hr = CoCreateInstance(CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, IID_IMMDeviceEnumerator, (void**)&pEnumerator);
@@ -575,6 +608,18 @@ void CAESinkWASAPI::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList)
 
   UINT uiCount = 0;
 
+  // get the default audio endpoint
+  if(pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDefaultDevice) == S_OK)
+  {
+    if(pDefaultDevice->GetId(&pwszID) == S_OK)
+    {
+      wstrDDID = pwszID;
+      CoTaskMemFree(pwszID);
+    }
+    SAFE_RELEASE(pDefaultDevice);
+  }
+
+  // enumerate over all audio endpoints
   hr = pEnumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pEnumDevices);
   EXIT_ON_FAILURE(hr, __FUNCTION__": Retrieval of audio endpoint enumeration failed.")
 
@@ -846,9 +891,6 @@ void CAESinkWASAPI::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList)
       CLog::Log(LOGDEBUG, __FUNCTION__": Failed to activate device for passthrough capability testing.");
     }
 
-    SAFE_RELEASE(pDevice);
-    SAFE_RELEASE(pProperty);
-
     deviceInfo.m_deviceName       = strDevName;
     deviceInfo.m_displayName      = strWinDevType.append(strFriendlyName);
     deviceInfo.m_displayNameExtra = std::string("WASAPI: ").append(strFriendlyName);
@@ -857,6 +899,21 @@ void CAESinkWASAPI::EnumerateDevicesEx(AEDeviceInfoList &deviceInfoList)
 
     /* Store the device info */
     deviceInfoList.push_back(deviceInfo);
+
+    if(pDevice->GetId(&pwszID) == S_OK)
+    {
+      if(wstrDDID.compare(pwszID) == 0)
+      {
+        deviceInfo.m_deviceName = std::string("default");
+        deviceInfo.m_displayName = std::string("default");
+        deviceInfo.m_displayNameExtra = std::string("");
+        deviceInfoList.push_back(deviceInfo);
+      }
+      CoTaskMemFree(pwszID);
+    }
+
+    SAFE_RELEASE(pDevice);
+    SAFE_RELEASE(pProperty);
   }
   return;
 
@@ -890,17 +947,8 @@ void CAESinkWASAPI::BuildWaveFormatExtensible(AEAudioFormat &format, WAVEFORMATE
     wfxex.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
     if (format.m_dataFormat == AE_FMT_AC3 || format.m_dataFormat == AE_FMT_DTS)
     {
-      wfxex.dwChannelMask          = bool (format.m_channelLayout.Count() == 2) ? KSAUDIO_SPEAKER_STEREO : KSAUDIO_SPEAKER_5POINT1;
-
-      if (format.m_dataFormat == AE_FMT_AC3)
-      {
-        wfxex.SubFormat            = KSDATAFORMAT_SUBTYPE_IEC61937_DOLBY_DIGITAL;
-      }
-      else
-      {
-        wfxex.SubFormat            = KSDATAFORMAT_SUBTYPE_IEC61937_DOLBY_DIGITAL;
-       }
-
+      wfxex.dwChannelMask               = bool (format.m_channelLayout.Count() == 2) ? KSAUDIO_SPEAKER_STEREO : KSAUDIO_SPEAKER_5POINT1;
+      wfxex.SubFormat                   = KSDATAFORMAT_SUBTYPE_IEC61937_DOLBY_DIGITAL;
       wfxex.Format.wBitsPerSample       = 16;
       wfxex.Samples.wValidBitsPerSample = 16;
       wfxex.Format.nChannels            = (WORD)format.m_channelLayout.Count();
@@ -1069,6 +1117,7 @@ bool CAESinkWASAPI::InitializeExclusive(AEAudioFormat &format)
 initialize:
 
   AEChannelsFromSpeakerMask(wfxex.dwChannelMask);
+  format.m_channelLayout = m_channelLayout;
 
   /* When the stream is raw, the values in the format structure are set to the link    */
   /* parameters, so store the encoded stream values here for the IsCompatible function */
@@ -1101,11 +1150,7 @@ initialize:
 
   REFERENCE_TIME audioSinkBufferDurationMsec, hnsLatency;
 
-  /* Get m_audioSinkBufferSizeMsec from advancedsettings.xml */
-  audioSinkBufferDurationMsec = (REFERENCE_TIME)g_advancedSettings.m_audioSinkBufferDurationMsec * 10000;
-
-  /* Use advancedsetting value for buffer size as long as it's over minimum set above */
-  audioSinkBufferDurationMsec = (REFERENCE_TIME)std::max(audioSinkBufferDurationMsec, (REFERENCE_TIME)500000);
+  audioSinkBufferDurationMsec = (REFERENCE_TIME)500000;
   audioSinkBufferDurationMsec = (REFERENCE_TIME)((audioSinkBufferDurationMsec / format.m_frameSize) * format.m_frameSize); //even number of frames
 
   if (AE_IS_RAW(format.m_dataFormat))
@@ -1168,6 +1213,12 @@ initialize:
   /* second buffer is filled. Multiplying the returned 100ns intervals by 0.0000002 */
   /* is handles both the unit conversion and twin buffers.                          */
   hr = m_pAudioClient->GetStreamLatency(&hnsLatency);
+  if (FAILED(hr))
+  {
+    CLog::Log(LOGERROR, __FUNCTION__": GetStreamLatency Failed : %s", WASAPIErrToStr(hr));
+    return false;
+  }
+
   m_sinkLatency = hnsLatency * 0.0000002;
 
   CLog::Log(LOGINFO, __FUNCTION__": WASAPI Exclusive Mode Sink Initialized using: %s, %d, %d",
@@ -1236,4 +1287,26 @@ const char *CAESinkWASAPI::WASAPIErrToStr(HRESULT err)
     default: break;
   }
   return NULL;
+}
+
+void CAESinkWASAPI::Drain()
+{
+  if(!m_pAudioClient)
+    return;
+
+  Sleep( (DWORD)(GetDelay()*500) );
+
+  if (m_running)
+  {
+    try
+    {
+      m_pAudioClient->Stop();  //stop the audio output
+      m_pAudioClient->Reset(); //flush buffer and reset audio clock stream position
+    }
+    catch (...)
+    {
+      CLog::Log(LOGDEBUG, __FUNCTION__, "Invalidated AudioClient - Releasing");
+    }
+  }
+  m_running = false;
 }

@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -53,9 +53,6 @@ public:
    * Set navigation route
    */
   void SetNavigation(int id);
-
-  // GetFirstAction is only needed in deprecated http api
-  CStdString GetFirstAction() const { return m_actions.size() > 0 ? m_actions[0].action : ""; };
 private:
   struct cond_action_pair
   {

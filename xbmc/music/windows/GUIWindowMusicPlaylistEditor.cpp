@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,8 +32,9 @@
 #include "guilib/GUIWindowManager.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "FileItem.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "GUIUserMessages.h"
+#include "guilib/Key.h"
 #include "guilib/LocalizeStrings.h"
 
 #define CONTROL_LABELFILES        12
@@ -166,6 +167,8 @@ bool CGUIWindowMusicPlaylistEditor::GetDirectory(const CStdString &strDirectory,
 
 void CGUIWindowMusicPlaylistEditor::OnPrepareFileItems(CFileItemList &items)
 {
+  CGUIWindowMusicBase::OnPrepareFileItems(items);
+
   RetrieveMusicInfo();
 }
 
@@ -395,9 +398,8 @@ void CGUIWindowMusicPlaylistEditor::OnSavePlaylist()
   { // save playlist as an .m3u
     PLAYLIST::CPlayListM3U playlist;
     playlist.Add(*m_playlist);
-    CStdString path, strBase;
-    URIUtils::AddFileToFolder(g_guiSettings.GetString("system.playlistspath"), "music", strBase);
-    URIUtils::AddFileToFolder(strBase, name + ".m3u", path);
+    CStdString strBase = URIUtils::AddFileToFolder(CSettings::Get().GetString("system.playlistspath"), "music");
+    CStdString path = URIUtils::AddFileToFolder(strBase, name + ".m3u");
     playlist.Save(path);
     m_strLoadedPlaylist = name;
   }
@@ -406,7 +408,7 @@ void CGUIWindowMusicPlaylistEditor::OnSavePlaylist()
 void CGUIWindowMusicPlaylistEditor::AppendToPlaylist(CFileItemList &newItems)
 {
   OnRetrieveMusicInfo(newItems);
-  FormatItemLabels(newItems, LABEL_MASKS(g_guiSettings.GetString("musicfiles.trackformat"), g_guiSettings.GetString("musicfiles.trackformatright"), "%L", ""));
+  FormatItemLabels(newItems, LABEL_MASKS(CSettings::Get().GetString("musicfiles.trackformat"), CSettings::Get().GetString("musicfiles.trackformatright"), "%L", ""));
   m_playlist->Append(newItems);
   UpdatePlaylist();
 }

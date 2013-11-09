@@ -3,6 +3,7 @@ SRCS += DDSImage.cpp
 SRCS += DirectXGraphics.cpp
 SRCS += DirtyRegionSolvers.cpp
 SRCS += DirtyRegionTracker.cpp
+SRCS += cximage.cpp
 SRCS += FrameBufferObject.cpp
 SRCS += GraphicContext.cpp
 SRCS += GUIAction.cpp
@@ -61,11 +62,13 @@ SRCS += GUIVisualisationControl.cpp
 SRCS += GUIWindow.cpp
 SRCS += GUIWindowManager.cpp
 SRCS += GUIWrappingListContainer.cpp
+SRCS += imagefactory.cpp
 SRCS += IWindowManagerCallback.cpp
 SRCS += JpegIO.cpp
 SRCS += Key.cpp
 SRCS += LocalizeStrings.cpp
 SRCS += Shader.cpp
+SRCS += StereoscopicsManager.cpp
 SRCS += Texture.cpp
 SRCS += TextureBundleXPR.cpp
 SRCS += TextureBundleXBT.cpp
@@ -83,6 +86,7 @@ endif
 
 ifeq (@USE_OPENGLES@,1)
 SRCS += TextureGL.cpp
+SRCS += TexturePi.cpp
 SRCS += GUIFontTTFGL.cpp
 SRCS += GUITextureGLES.cpp
 SRCS += MatrixGLES.cpp

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -58,6 +58,7 @@ void EpgSearchFilter::Reset()
   m_iChannelGroup            = EPG_SEARCH_UNSET;
   m_bIgnorePresentTimers     = true;
   m_bIgnorePresentRecordings = true;
+  m_iUniqueBroadcastId	     = EPG_SEARCH_UNSET;
 }
 
 bool EpgSearchFilter::MatchGenre(const CEpgInfoTag &tag) const
@@ -106,16 +107,25 @@ bool EpgSearchFilter::MatchSearchTerm(const CEpgInfoTag &tag) const
   return bReturn;
 }
 
+bool EpgSearchFilter::MatchBroadcastId(const CEpgInfoTag &tag) const
+{
+  if (m_iUniqueBroadcastId != EPG_SEARCH_UNSET)
+    return (tag.UniqueBroadcastID() == m_iUniqueBroadcastId);
+
+  return true;
+}
+
 bool EpgSearchFilter::FilterEntry(const CEpgInfoTag &tag) const
 {
   return (MatchGenre(tag) &&
+      MatchBroadcastId(tag) &&
       MatchDuration(tag) &&
       MatchStartAndEndTimes(tag) &&
       MatchSearchTerm(tag)) &&
       (!tag.HasPVRChannel() ||
-      (MatchChannelNumber(tag) &&
-       MatchChannelGroup(tag) &&
-       (!m_bFTAOnly || !tag.ChannelTag()->IsEncrypted())));
+       (MatchChannelNumber(tag) &&
+        MatchChannelGroup(tag) &&
+        (!m_bFTAOnly || !tag.ChannelTag()->IsEncrypted())));
 }
 
 int EpgSearchFilter::RemoveDuplicates(CFileItemList &results)

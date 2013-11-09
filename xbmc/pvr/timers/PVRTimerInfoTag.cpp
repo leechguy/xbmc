@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,12 +18,11 @@
  *
  */
 
-#include "Application.h"
-#include "settings/GUISettings.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogOK.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 
@@ -47,9 +46,9 @@ CPVRTimerInfoTag::CPVRTimerInfoTag(void)
   m_strSummary         = StringUtils::EmptyString;
   m_iClientId          = g_PVRClients->GetFirstConnectedClientID();
   m_iClientIndex       = -1;
-  m_iClientChannelUid  = -1;
-  m_iPriority          = g_guiSettings.GetInt("pvrrecord.defaultpriority");
-  m_iLifetime          = g_guiSettings.GetInt("pvrrecord.defaultlifetime");
+  m_iClientChannelUid  = PVR_VIRTUAL_CHANNEL_UID;
+  m_iPriority          = CSettings::Get().GetInt("pvrrecord.defaultpriority");
+  m_iLifetime          = CSettings::Get().GetInt("pvrrecord.defaultlifetime");
   m_bIsRepeating       = false;
   m_iWeekdays          = 0;
   m_strFileNameAndPath = StringUtils::EmptyString;
@@ -57,8 +56,8 @@ CPVRTimerInfoTag::CPVRTimerInfoTag(void)
   m_bIsRadio           = false;
   CEpgInfoTagPtr emptyTag;
   m_epgTag             = emptyTag;
-  m_iMarginStart       = g_guiSettings.GetInt("pvrrecord.marginstart");
-  m_iMarginEnd         = g_guiSettings.GetInt("pvrrecord.marginend");
+  m_iMarginStart       = CSettings::Get().GetInt("pvrrecord.marginstart");
+  m_iMarginEnd         = CSettings::Get().GetInt("pvrrecord.marginend");
   m_iGenreType         = 0;
   m_iGenreSubType      = 0;
   m_StartTime          = CDateTime::GetUTCDateTime();
@@ -543,7 +542,7 @@ void CPVRTimerInfoTag::GetNotificationText(CStdString &strText) const
 
 void CPVRTimerInfoTag::QueueNotification(void) const
 {
-  if (g_guiSettings.GetBool("pvrrecord.timernotifications"))
+  if (CSettings::Get().GetBool("pvrrecord.timernotifications"))
   {
     CStdString strMessage;
     GetNotificationText(strMessage);

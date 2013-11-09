@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2011-2012 Team XBMC
+ *      Copyright (C) 2011-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -34,8 +34,8 @@
 #include "CoreAudioChannelLayout.h"
 
 #include "cores/AudioEngine/Utils/AEUtil.h"
-#include "settings/GUISettings.h"
 #include "utils/log.h"
+#include "settings/Settings.h"
 
 CCoreAudioAEHALOSX::CCoreAudioAEHALOSX() :
   m_audioGraph        (NULL   ),
@@ -45,7 +45,8 @@ CCoreAudioAEHALOSX::CCoreAudioAEHALOSX() :
   m_encoded           (false  ),
   m_initVolume        (1.0f   ),
   m_NumLatencyFrames  (0      ),
-  m_OutputBufferIndex (0      )
+  m_OutputBufferIndex (0      ),
+  m_ae                (NULL   )
 {
   m_AudioDevice   = new CCoreAudioDevice();
   m_OutputStream  = new CCoreAudioStream();
@@ -92,9 +93,9 @@ bool CCoreAudioAEHALOSX::InitializePCM(ICoreAudioSource *pSource, AEAudioFormat 
   if (!m_audioGraph)
     return false;
 
-  AudioChannelLayoutTag layout = g_LayoutMap[ g_guiSettings.GetInt("audiooutput.channels") ];
+  AudioChannelLayoutTag layout = g_LayoutMap[ CSettings::Get().GetInt("audiooutput.channels") ];
   // force optical/coax to 2.0 output channels
-  if (!m_Passthrough && g_guiSettings.GetInt("audiooutput.mode") == AUDIO_IEC958)
+  if (!m_Passthrough && CSettings::Get().GetInt("audiooutput.channels") ==  AE_CH_LAYOUT_2_0)
     layout = g_LayoutMap[1];
 
   if (!m_audioGraph->Open(pSource, format, outputDevice, allowMixing, layout, m_initVolume ))

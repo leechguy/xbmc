@@ -1,16 +1,15 @@
 # XBMC Media Center language file
 # Addon Name: Confluence
 # Addon id: skin.confluence
-# Addon version: 2.1.3
 # Addon Provider: Jezz_X, Team XBMC
 msgid ""
 msgstr ""
-"Project-Id-Version: XBMC Main Translation Project (Frodo)\n"
+"Project-Id-Version: XBMC Main\n"
 "Report-Msgid-Bugs-To: http://trac.xbmc.org/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: XBMC Translation Team\n"
-"Language-Team: Portuguese (http://www.transifex.com/projects/p/XBMC-Main-Frodo/language/pt/)\n"
+"Language-Team: Portuguese (http://www.transifex.com/projects/p/xbmc-main/language/pt/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -37,9 +36,9 @@ msgctxt "#31006"
 msgid "View Options"
 msgstr "Ver opções"
 
-msgctxt "#31008"
-msgid "Fullscreen"
-msgstr "Ecrã cheio"
+msgctxt "#31007"
+msgid "Settings Options"
+msgstr "Opções de Definições"
 
 msgctxt "#31009"
 msgid "Total Duration"
@@ -89,6 +88,10 @@ msgctxt "#31033"
 msgid "Info"
 msgstr "Info"
 
+msgctxt "#31039"
+msgid "Actions"
+msgstr "Acções"
+
 msgctxt "#31040"
 msgid "Now Playing"
 msgstr "A reproduzir"
@@ -109,9 +112,9 @@ msgctxt "#31045"
 msgid "REWIND"
 msgstr "RETROCEDER "
 
-msgctxt "#31048"
-msgid "Visualization Presets"
-msgstr "Pré-selecções de visualização"
+msgctxt "#31046"
+msgid "SEEKING"
+msgstr "PROCURANDO"
 
 msgctxt "#31049"
 msgid "End Time"
@@ -165,10 +168,6 @@ msgctxt "#31103"
 msgid "Show \"Paused\" in picture slide show"
 msgstr "Mostrar \"Pausado\" ao Apresentar Slides"
 
-msgctxt "#31104"
-msgid "Play Trailers in a window [COLOR=grey3](Video Information Dialog Only)[/COLOR]"
-msgstr "Reproduzir trailers numa janela [COLOR=grey3](só na janela de info de vídeo)[/COLOR]"
-
 msgctxt "#31106"
 msgid "Miscellaneous options"
 msgstr "Várias opções"
@@ -205,25 +204,13 @@ msgctxt "#31117"
 msgid "Show Recently added Videos"
 msgstr "Mostrar Vídeos Recentes"
 
-msgctxt "#31118"
-msgid "Home Page Programs Submenu"
-msgstr "Submenu de Programas da Página Inicial"
-
 msgctxt "#31119"
 msgid "Hide Background Fanart"
 msgstr "Ocultar Fanart de fundo"
 
-msgctxt "#31122"
-msgid "Weather Page"
-msgstr "Página Meteorológica"
-
 msgctxt "#31124"
 msgid "Show Background \"Now Playing\" Video"
 msgstr "Mostrar vídeo \"A reproduzir\" em fundo"
-
-msgctxt "#31125"
-msgid "Show Background \"Now Playing\" Visualization"
-msgstr "Mostrar visualização \"A reproduzir\" em fundo"
 
 msgctxt "#31126"
 msgid "Play TV theme songs in video library (TvTunes add-on)"
@@ -237,10 +224,6 @@ msgctxt "#31128"
 msgid "Lyrics"
 msgstr "Letras"
 
-msgctxt "#31129"
-msgid "Hide Fanart in full screen visualization"
-msgstr "Ocultar Fanart na visualização de ecrã inteiro"
-
 msgctxt "#31132"
 msgid "Lyrics Add-on"
 msgstr "Add-on de Letras de música"
@@ -248,18 +231,6 @@ msgstr "Add-on de Letras de música"
 msgctxt "#31133"
 msgid "Subtitle Add-on"
 msgstr "Add-on de Legendas"
-
-msgctxt "#31134"
-msgid "Home Page Videos Submenu"
-msgstr "Submenu de Vídeos da Página Inicial"
-
-msgctxt "#31135"
-msgid "Home Page Music Submenu"
-msgstr "Submenu de Música da Página Inicial"
-
-msgctxt "#31136"
-msgid "Home Page Pictures Submenu"
-msgstr "Submenu de Fotos da Página Inicial"
 
 msgctxt "#31140"
 msgid "Music OSD"
@@ -409,6 +380,18 @@ msgctxt "#31356"
 msgid "Download Subtitles"
 msgstr "Transferir Legendas"
 
+msgctxt "#31360"
+msgid "Watch as 2D"
+msgstr "Ver em 2D"
+
+msgctxt "#31361"
+msgid "Change mode"
+msgstr "Alterar modo"
+
+msgctxt "#31362"
+msgid "Enabled"
+msgstr "Activado"
+
 msgctxt "#31390"
 msgid "Skin default"
 msgstr "Padrão do tema"
@@ -449,10 +432,6 @@ msgctxt "#31408"
 msgid "[B]CONFIGURE ADD-ONS[/B][CR][CR]Manage your installed Add-ons · Browse for and install Add-ons from xbmc.org[CR]Modify Add-on settings"
 msgstr "[B]CONFIGURAR ADD-ONS[/B][CR][CR]Gerir Add-ons instalados · Procurar e instalar Add-ons de xbmc.org[CR]Alterar opções dos Add-ons"
 
-msgctxt "#31409"
-msgid "[B]CONFIGURE TV SETTINGS[/B][CR][CR]Change fullscreen info · Manage EPG data settings"
-msgstr "[B]CONFIGURAR DEFINIÇÕES DE TV[/B][CR][CR]Alterar informações em ecrã inteiro · Gerir definições de dados do EPG"
-
 msgctxt "#31410"
 msgid "[B]CONFIGURE SERVICE SETTINGS[/B][CR][CR]Setup control of XBMC via UPnP and HTTP · Configure file sharing[CR]Enable Zeroconf · Configure AirPlay"
 msgstr "[B]CONFIGURAR SERVIÇOS[/B][CR][CR]Configurar controlo do XBMC via UPnP e HTTP · Configurar partilha de ficheiros[CR]Activar ZeroConf · Configurar AirPlay"
@@ -461,17 +440,9 @@ msgctxt "#31411"
 msgid "First run help...."
 msgstr "Ajuda de primeira inicialização..."
 
-msgctxt "#31412"
-msgid "This tab signifies that there is a menu off to the side of this window that contains extra options for this section.  To access the menu, navigate to the left with your remote control or keyboard or place your mouse pointer over the tab. [CR][CR]Click \"Ok\" to close this dialog. It will not appear again."
-msgstr "Este tabulador indica que existe um menu lateral, nesta janela, que contém mais opções para esta secção. Para aceder ao menu, navegue para a esquerda com o controlo remoto ou teclado, ou então coloque o rato sobre a tabulação. [CR][CR] Clique \"OK\" para fechar esta caixa, que não irá ser exibida novamente."
-
 msgctxt "#31421"
 msgid "Select your XBMC user Profile[CR]to login and continue"
 msgstr "Escolha o seu perfil de utilizador do XBMC[CR]para iniciar sessão e prosseguir"
-
-msgctxt "#31500"
-msgid "Recording Timers"
-msgstr "Temporizadores de Gravação"
 
 msgctxt "#31501"
 msgid "Scheduled Time"
@@ -540,3 +511,43 @@ msgstr "Recebendo previsões meteorológicas..."
 msgctxt "#31910"
 msgid "Map & Alerts"
 msgstr "Mapa e Alertas"
+
+msgctxt "#31950"
+msgid "WEATHER"
+msgstr "TEMPO"
+
+msgctxt "#31951"
+msgid "PICTURES"
+msgstr "FOTOS"
+
+msgctxt "#31952"
+msgid "LIVE TV"
+msgstr "TV AO VIVO"
+
+msgctxt "#31953"
+msgid "VIDEOS"
+msgstr "VÍDEOS"
+
+msgctxt "#31954"
+msgid "MOVIES"
+msgstr "FILMES"
+
+msgctxt "#31955"
+msgid "TV SHOWS"
+msgstr "SÉRIES TV"
+
+msgctxt "#31956"
+msgid "MUSIC"
+msgstr "MÚSICA"
+
+msgctxt "#31957"
+msgid "PROGRAMS"
+msgstr "PROGRAMAS"
+
+msgctxt "#31958"
+msgid "PLAY DISC"
+msgstr "REPRODUZIR DISCO"
+
+msgctxt "#31959"
+msgid "SYSTEM"
+msgstr "SISTEMA"

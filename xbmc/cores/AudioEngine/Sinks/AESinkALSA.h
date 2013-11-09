@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -41,16 +41,16 @@ public:
 
   virtual bool Initialize  (AEAudioFormat &format, std::string &device);
   virtual void Deinitialize();
-  virtual bool IsCompatible(const AEAudioFormat format, const std::string device);
+  virtual bool IsCompatible(const AEAudioFormat &format, const std::string &device);
 
   virtual void         Stop            ();
   virtual double       GetDelay        ();
   virtual double       GetCacheTime    ();
   virtual double       GetCacheTotal   ();
-  virtual unsigned int AddPackets      (uint8_t *data, unsigned int frames, bool hasAudio);
+  virtual unsigned int AddPackets      (uint8_t *data, unsigned int frames, bool hasAudio, bool blocking = false);
   virtual void         Drain           ();
 
-  static void EnumerateDevicesEx(AEDeviceInfoList &list);
+  static void EnumerateDevicesEx(AEDeviceInfoList &list, bool force = false);
 private:
   CAEChannelInfo GetChannelLayout(AEAudioFormat format);
   void           GetAESParams(const AEAudioFormat format, std::string& params);
@@ -62,7 +62,6 @@ private:
   unsigned int      m_bufferSize;
   double            m_formatSampleRateMul;
   bool              m_passthrough;
-  CAEChannelInfo    m_channelLayout;
   std::string       m_device;
   snd_pcm_t        *m_pcm;
   int               m_timeout;
@@ -75,7 +74,7 @@ private:
   static void AppendParams(std::string &device, const std::string &params);
   static bool TryDevice(const std::string &name, snd_pcm_t **pcmp, snd_config_t *lconf);
   static bool TryDeviceWithParams(const std::string &name, const std::string &params, snd_pcm_t **pcmp, snd_config_t *lconf);
-  static bool OpenPCMDevice(const std::string &name, const std::string &params, int channels, snd_pcm_t **pcmp, snd_config_t *lconf, bool preferDmixStereo = false);
+  static bool OpenPCMDevice(const std::string &name, const std::string &params, int channels, snd_pcm_t **pcmp, snd_config_t *lconf);
 
   static AEDeviceType AEDeviceTypeFromName(const std::string &name);
   static std::string GetParamFromName(const std::string &name, const std::string &param);

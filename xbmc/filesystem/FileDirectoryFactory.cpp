@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "NSFFileDirectory.h"
 #include "SIDFileDirectory.h"
 #include "ASAPFileDirectory.h"
+#include "UDFDirectory.h"
 #include "RSSDirectory.h"
 #include "cores/paplayer/ASAPCodec.h"
 #endif
@@ -47,6 +48,7 @@
 #include "ZipManager.h"
 #include "settings/AdvancedSettings.h"
 #include "FileItem.h"
+#include "utils/StringUtils.h"
 
 using namespace XFILE;
 using namespace PLAYLIST;
@@ -61,6 +63,9 @@ CFileDirectoryFactory::~CFileDirectoryFactory(void)
 // return NULL + set pItem->m_bIsFolder to remove it completely from list.
 IFileDirectory* CFileDirectoryFactory::Create(const CStdString& strPath, CFileItem* pItem, const CStdString& strMask)
 {
+  if (URIUtils::IsStack(strPath)) // disqualify stack as we need to work with each of the parts instead
+    return NULL;
+
   CStdString strExtension=URIUtils::GetExtension(strPath);
   strExtension.MakeLower();
 
@@ -113,6 +118,9 @@ IFileDirectory* CFileDirectoryFactory::Create(const CStdString& strPath, CFileIt
   if (pItem->IsRSS())
     return new CRSSDirectory();
 
+  if (pItem->IsDVDImage())
+    return new CUDFDirectory();
+
 #endif
 #if defined(TARGET_ANDROID)
   if (strExtension.Equals(".apk"))
@@ -163,13 +171,13 @@ IFileDirectory* CFileDirectoryFactory::Create(const CStdString& strPath, CFileIt
     CStdString strUrl;
     URIUtils::CreateArchivePath(strUrl, "rar", strPath, "");
 
-    vector<CStdString> tokens;
-    CUtil::Tokenize(strPath,tokens,".");
+    vector<std::string> tokens;
+    StringUtils::Tokenize(strPath,tokens,".");
     if (tokens.size() > 2)
     {
       if (strExtension.Equals(".001"))
       {
-        if (tokens[tokens.size()-2].Equals("ts")) // .ts.001 - treat as a movie file to scratch some users itch
+        if (StringUtils::EqualsNoCase(tokens[tokens.size()-2], "ts")) // .ts.001 - treat as a movie file to scratch some users itch
           return NULL;
       }
       CStdString token = tokens[tokens.size()-2];
@@ -224,7 +232,7 @@ IFileDirectory* CFileDirectoryFactory::Create(const CStdString& strPath, CFileIt
     IFileDirectory* pDir=new CSmartPlaylistDirectory;
     return pDir; // treat as directory
   }
-  if (g_advancedSettings.m_playlistAsFolders && CPlayListFactory::IsPlaylist(strPath))
+  if (CPlayListFactory::IsPlaylist(strPath))
   { // Playlist file
     // currently we only return the directory if it contains
     // more than one file.  Reason is that .pls and .m3u may be used

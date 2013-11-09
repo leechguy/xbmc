@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,16 +24,22 @@
 #include <sys/resource.h>
 #include <signal.h>
 #include "utils/log.h"
+#include "settings/DisplaySettings.h"
 #include "threads/Event.h"
 #include "Application.h"
 #include "WindowingFactory.h"
-#include "Settings.h"
+#include "settings/DisplaySettings.h"
 #undef BOOL
 
 #import <Foundation/Foundation.h>
+#include <objc/runtime.h>
 
 #import "IOSScreenManager.h"
-#import "XBMCController.h"
+#if defined(TARGET_DARWIN_IOS_ATV2)
+#import "xbmc/osx/atv2/XBMCController.h"
+#elif defined(TARGET_DARWIN_IOS)
+#import "xbmc/osx/ios/XBMCController.h"
+#endif
 #import "IOSExternalTouchController.h"
 #import "IOSEAGLView.h"
 
@@ -218,7 +224,8 @@ static CEvent screenChangeEvent;
 #if __IPHONE_OS_VERSION_MIN_REQUIRED > __IPHONE_4_2
   res.size = screen.preferredMode.size;
 #else
-  res.size = [BRWindow interfaceFrame].size;
+  Class brwin = objc_getClass("BRWindow");
+  res.size = [brwin interfaceFrame].size;
 #endif
 #else
   //main screen is in portrait mode (physically) so exchange height and width
@@ -237,7 +244,7 @@ static CEvent screenChangeEvent;
   //change back to internal screen
   if([[UIScreen screens] count] == 1 && _screenIdx != 0)
   {
-    RESOLUTION_INFO res = g_settings.m_ResInfo[RES_DESKTOP];//internal screen default res
+    RESOLUTION_INFO res = CDisplaySettings::Get().GetResolutionInfo(RES_DESKTOP);//internal screen default res
     g_Windowing.SetFullScreen(true, res, false);
   }
 }

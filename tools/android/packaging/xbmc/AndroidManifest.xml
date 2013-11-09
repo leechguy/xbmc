@@ -2,11 +2,11 @@
 <!-- BEGIN_INCLUDE(manifest) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.xbmc.xbmc"
-    android:versionCode="7"
-    android:versionName="13.0-ALPHA1" >
+    android:versionCode="16"
+    android:versionName="13.0-ALPHA10" >
 
     <!-- This is the platform API where NativeActivity was introduced. -->
-    <uses-sdk android:minSdkVersion="9" />
+    <uses-sdk android:minSdkVersion="14" />
 
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -16,7 +16,7 @@
     <application android:icon="@drawable/ic_launcher" android:debuggable="true" android:label="@string/app_name" android:hasCode="true">
         <activity
             android:name=".Splash"
-            android:configChanges="orientation|keyboardHidden"
+            android:configChanges="orientation|keyboard|keyboardHidden|navigation"
             android:finishOnTaskLaunch="true"
             android:launchMode="singleInstance"
             android:screenOrientation="sensorLandscape"
@@ -25,6 +25,31 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="image/*" />
+
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:scheme="ftp" />
+                <data android:scheme="ftps" />
+                <data android:scheme="rtp" />
+                <data android:scheme="rtsp" />
+                <data android:scheme="mms" />
+                <data android:scheme="dav" />
+                <data android:scheme="davs" />
+                <data android:scheme="ssh" />
+                <data android:scheme="sftp" />
+                <data android:scheme="smb" />
+             </intent-filter>
         </activity>
 
         <!--
@@ -32,8 +57,8 @@
              This will take care of integrating with our NDK code.
         -->
         <activity
-            android:name="android.app.NativeActivity"
-            android:configChanges="orientation|keyboardHidden"
+            android:name=".Main"
+            android:configChanges="orientation|keyboard|keyboardHidden|navigation"
             android:finishOnTaskLaunch="true"
             android:label="XBMC"
             android:launchMode="singleInstance"

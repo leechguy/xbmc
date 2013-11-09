@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -33,8 +33,10 @@
 #include "music/tags/MusicInfoTag.h"
 #include "guilib/GUIWindowManager.h"
 #include "dialogs/GUIDialogOK.h"
-#include "settings/GUISettings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingPath.h"
+#include "settings/Settings.h"
+#include "settings/windows/GUIControlSettings.h"
 #include "FileItem.h"
 #include "filesystem/SpecialProtocol.h"
 #include "storage/MediaManager.h"
@@ -42,6 +44,9 @@
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
 #include "utils/URIUtils.h"
+#include "settings/MediaSourceSettings.h"
+#include "Application.h"
+#include "music/MusicDatabase.h"
 
 using namespace std;
 using namespace XFILE;
@@ -54,6 +59,7 @@ CCDDARipper& CCDDARipper::GetInstance()
 }
 
 CCDDARipper::CCDDARipper()
+  : CJobQueue(false, 1) //enforce fifo and non-parallel processing
 {
 }
 
@@ -65,9 +71,7 @@ CCDDARipper::~CCDDARipper()
 bool CCDDARipper::RipTrack(CFileItem* pItem)
 {
   // don't rip non cdda items
-  CStdString strExt;
-  URIUtils::GetExtension(pItem->GetPath(), strExt);
-  if (strExt.CompareNoCase(".cdda") != 0) 
+  if (!URIUtils::HasExtension(pItem->GetPath(), ".cdda"))
   {
     CLog::Log(LOGDEBUG, "cddaripper: file is not a cdda track");
     return false;
@@ -84,7 +88,7 @@ bool CCDDARipper::RipTrack(CFileItem* pItem)
 
   AddJob(new CCDDARipJob(pItem->GetPath(),strFile,
                          *pItem->GetMusicInfoTag(),
-                         g_guiSettings.GetInt("audiocds.encoder")));
+                         CSettings::Get().GetInt("audiocds.encoder")));
 
   return true;
 }
@@ -136,11 +140,11 @@ bool CCDDARipper::RipCD()
     if (item->GetPath().Find(".cdda") < 0)
       continue;
 
-    bool eject = g_guiSettings.GetBool("audiocds.ejectonrip") && 
+    bool eject = CSettings::Get().GetBool("audiocds.ejectonrip") && 
                  i == vecItems.Size()-1;
     AddJob(new CCDDARipJob(item->GetPath(),strFile,
                            *item->GetMusicInfoTag(),
-                           g_guiSettings.GetInt("audiocds.encoder"), eject));
+                           CSettings::Get().GetInt("audiocds.encoder"), eject));
   }
 
   return true;
@@ -151,12 +155,23 @@ const char* CCDDARipper::GetExtension(int iEncoder)
   if (iEncoder == CDDARIP_ENCODER_WAV) return ".wav";
   if (iEncoder == CDDARIP_ENCODER_VORBIS) return ".ogg";
   if (iEncoder == CDDARIP_ENCODER_FLAC) return ".flac";
+  if (iEncoder == CDDARIP_ENCODER_FFMPEG_M4A) return ".m4a";
+  if (iEncoder == CDDARIP_ENCODER_FFMPEG_WMA) return ".wma";
   return ".mp3";
 }
 
 bool CCDDARipper::CreateAlbumDir(const MUSIC_INFO::CMusicInfoTag& infoTag, CStdString& strDirectory, int& legalType)
 {
-  strDirectory = g_guiSettings.GetString("audiocds.recordingpath");
+  CSettingPath *recordingpathSetting = (CSettingPath*)CSettings::Get().GetSetting("audiocds.recordingpath");
+  if (recordingpathSetting != NULL)
+  {
+    strDirectory = recordingpathSetting->GetValue();
+    if (strDirectory.empty())
+    {
+      if (CGUIControlButtonSetting::GetPath(recordingpathSetting))
+        strDirectory = recordingpathSetting->GetValue();
+    }
+  }
   URIUtils::AddSlashAtEnd(strDirectory);
 
   if (strDirectory.size() < 3)
@@ -173,7 +188,7 @@ bool CCDDARipper::CreateAlbumDir(const MUSIC_INFO::CMusicInfoTag& infoTag, CStdS
   CFileItem ripPath(strDirectory, true);
   if (ripPath.IsSmb())
     legalType = LEGAL_WIN32_COMPAT;
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
   if (ripPath.IsHD())
     legalType = LEGAL_WIN32_COMPAT;
 #endif
@@ -182,7 +197,7 @@ bool CCDDARipper::CreateAlbumDir(const MUSIC_INFO::CMusicInfoTag& infoTag, CStdS
 
   if (!strAlbumDir.IsEmpty())
   {
-    URIUtils::AddFileToFolder(strDirectory, strAlbumDir, strDirectory);
+    strDirectory = URIUtils::AddFileToFolder(strDirectory, strAlbumDir);
     URIUtils::AddSlashAtEnd(strDirectory);
   }
 
@@ -205,7 +220,7 @@ CStdString CCDDARipper::GetAlbumDirName(const MUSIC_INFO::CMusicInfoTag& infoTag
   // use audiocds.trackpathformat setting to format
   // directory name where CD tracks will be stored,
   // use only format part ending at the last '/'
-  strAlbumDir = g_guiSettings.GetString("audiocds.trackpathformat");
+  strAlbumDir = CSettings::Get().GetString("audiocds.trackpathformat");
   int pos = max(strAlbumDir.ReverseFind('/'), strAlbumDir.ReverseFind('\\'));
   if (pos < 0)
     return ""; // no directory
@@ -272,7 +287,7 @@ CStdString CCDDARipper::GetTrackName(CFileItem *item)
 
   // get track file name format from audiocds.trackpathformat setting,
   // use only format part starting from the last '/'
-  CStdString strFormat = g_guiSettings.GetString("audiocds.trackpathformat");
+  CStdString strFormat = CSettings::Get().GetString("audiocds.trackpathformat");
   int pos = max(strFormat.ReverseFind('/'), strFormat.ReverseFind('\\'));
   if (pos != -1)
   {
@@ -286,7 +301,7 @@ CStdString CCDDARipper::GetTrackName(CFileItem *item)
   CStdString track = destItem.GetLabel();
   if (track.IsEmpty())
     track.Format("%s%02i", "Track-", trackNumber);
-  track += GetExtension(g_guiSettings.GetInt("audiocds.encoder"));
+  track += GetExtension(CSettings::Get().GetInt("audiocds.encoder"));
 
   return track;
 }
@@ -294,7 +309,21 @@ CStdString CCDDARipper::GetTrackName(CFileItem *item)
 void CCDDARipper::OnJobComplete(unsigned int jobID, bool success, CJob* job)
 {
   if (success)
+  {
+    if(CJobQueue::QueueEmpty())
+    {
+      CStdString dir = URIUtils::GetDirectory(((CCDDARipJob*)job)->GetOutput());
+      bool unimportant;
+      int source = CUtil::GetMatchingSource(dir, *CMediaSourceSettings::Get().CMediaSourceSettings::GetSources("music"), unimportant);
+
+      CMusicDatabase database;
+      database.Open();
+      if (source>=0 && database.InsideScannedPath(dir))
+        g_application.StartMusicScan(dir);
+      database.Close();
+    }
     return CJobQueue::OnJobComplete(jobID, success, job);
+  }
 
   CancelJobs();
 }

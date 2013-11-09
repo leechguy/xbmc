@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 #include "pvr/timers/PVRTimers.h"
 #include "pvr/PVRManager.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "utils/log.h"
 #include "utils/Variant.h"
 #include "addons/include/xbmc_pvr_types.h"
@@ -203,6 +203,7 @@ CEpgInfoTag &CEpgInfoTag::operator =(const CEpgInfoTag &other)
 
 void CEpgInfoTag::Serialize(CVariant &value) const
 {
+  value["broadcastid"] = m_iUniqueBroadcastID;
   value["rating"] = m_iStarRating;
   value["title"] = m_strTitle;
   value["plotoutline"] = m_strPlotOutline;
@@ -213,6 +214,14 @@ void CEpgInfoTag::Serialize(CVariant &value) const
   value["endtime"] = m_endTime.IsValid() ? m_endTime.GetAsDBDateTime() : StringUtils::EmptyString;
   value["runtime"] = StringUtils::Format("%d", GetDuration() / 60);
   value["firstaired"] = m_firstAired.IsValid() ? m_firstAired.GetAsDBDate() : StringUtils::EmptyString;
+  value["progress"] = Progress();
+  value["progresspercentage"] = ProgressPercentage();
+  value["episodename"] = m_strEpisodeName;
+  value["episodenum"] = m_iEpisodeNumber;
+  value["episodepart"] = m_iEpisodePart;
+  value["hastimer"] = HasTimer();
+  value["isactive"] = IsActive();
+  value["wasactive"] = WasActive();
 }
 
 bool CEpgInfoTag::Changed(void) const
@@ -444,7 +453,7 @@ CStdString CEpgInfoTag::Title(bool bOverrideParental /* = false */) const
 
   if (!bOverrideParental && bParentalLocked)
     strTitle = g_localizeStrings.Get(19266); // parental locked
-  else if (strTitle.empty() && !g_guiSettings.GetBool("epg.hidenoinfoavailable"))
+  else if (strTitle.empty() && !CSettings::Get().GetBool("epg.hidenoinfoavailable"))
     strTitle = g_localizeStrings.Get(19055); // no information available
 
   return strTitle;

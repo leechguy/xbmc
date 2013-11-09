@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,6 +27,8 @@
 #include "utils/Fanart.h"
 
 class TiXmlNode;
+class CAlbum;
+class CMusicDatabase;
 
 class CArtist
 {
@@ -34,7 +36,16 @@ public:
   long idArtist;
   bool operator<(const CArtist& a) const
   {
-    return strArtist < a.strArtist;
+    if (strMusicBrainzArtistID.IsEmpty() && a.strMusicBrainzArtistID.IsEmpty())
+    {
+      if (strArtist < a.strArtist) return true;
+      if (strArtist > a.strArtist) return false;
+      return false;
+    }
+
+    if (strMusicBrainzArtistID < a.strMusicBrainzArtistID) return true;
+    if (strMusicBrainzArtistID > a.strMusicBrainzArtistID) return false;
+    return false;
   }
 
   void Reset()
@@ -53,6 +64,7 @@ public:
     thumbURL.Clear();
     discography.clear();
     idArtist = -1;
+    strPath.Empty();
   }
 
   /*! \brief Load artist information from an XML file.
@@ -66,6 +78,7 @@ public:
   bool Save(TiXmlNode *node, const CStdString &tag, const CStdString& strPath);
 
   CStdString strArtist;
+  CStdString strMusicBrainzArtistID;
   std::vector<std::string> genre;
   CStdString strBiography;
   std::vector<std::string> styles;
@@ -76,9 +89,51 @@ public:
   CStdString strDied;
   CStdString strDisbanded;
   std::vector<std::string> yearsActive;
+  CStdString strPath;
   CScraperUrl thumbURL;
   CFanart fanart;
   std::vector<std::pair<CStdString,CStdString> > discography;
 };
 
+class CArtistCredit
+{
+  friend class CAlbum;
+  friend class CMusicDatabase;
+
+public:
+  CArtistCredit() { }
+  CArtistCredit(std::string strArtist, std::string strJoinPhrase) : m_strArtist(strArtist), m_strJoinPhrase(strJoinPhrase), m_boolFeatured(false) { }
+  CArtistCredit(std::string strArtist, std::string strMusicBrainzArtistID, std::string strJoinPhrase)
+  : m_strArtist(strArtist), m_strMusicBrainzArtistID(strMusicBrainzArtistID), m_strJoinPhrase(strJoinPhrase), m_boolFeatured(false)  {  }
+  bool operator<(const CArtistCredit& a) const
+  {
+    if (m_strMusicBrainzArtistID.empty() && a.m_strMusicBrainzArtistID.empty())
+    {
+      if (m_strArtist < a.m_strArtist) return true;
+      if (m_strArtist > a.m_strArtist) return false;
+      return false;
+    }
+
+    if (m_strMusicBrainzArtistID < a.m_strMusicBrainzArtistID) return true;
+    if (m_strMusicBrainzArtistID > a.m_strMusicBrainzArtistID) return false;
+    return false;
+  }
+
+  std::string GetArtist() const                { return m_strArtist; }
+  std::string GetMusicBrainzArtistID() const   { return m_strMusicBrainzArtistID; }
+  std::string GetJoinPhrase() const            { return m_strJoinPhrase; }
+  void SetArtist(const std::string &strArtist) { m_strArtist = strArtist; }
+  void SetMusicBrainzArtistID(const std::string &strMusicBrainzArtistID) { m_strMusicBrainzArtistID = strMusicBrainzArtistID; }
+  void SetJoinPhrase(const std::string &strJoinPhrase) { m_strJoinPhrase = strJoinPhrase; }
+
+private:
+  long idArtist;
+  std::string m_strArtist;
+  std::string m_strMusicBrainzArtistID;
+  std::string m_strJoinPhrase;
+  bool m_boolFeatured;
+};
+
 typedef std::vector<CArtist> VECARTISTS;
+typedef std::vector<CArtistCredit> VECARTISTCREDITS;
+

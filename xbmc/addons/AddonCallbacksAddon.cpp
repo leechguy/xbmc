@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,6 +28,9 @@
 #include "filesystem/Directory.h"
 #include "utils/URIUtils.h"
 #include "FileItem.h"
+#include "network/Network.h"
+#include "utils/CharsetConverter.h"
+#include "cores/dvdplayer/DVDCodecs/DVDCodecs.h"
 
 using namespace XFILE;
 
@@ -42,6 +45,7 @@ CAddonCallbacksAddon::CAddonCallbacksAddon(CAddon* addon)
   /* write XBMC addon-on specific add-on function addresses to the callback table */
   m_callbacks->Log                = AddOnLog;
   m_callbacks->QueueNotification  = QueueNotification;
+  m_callbacks->WakeOnLan          = WakeOnLan;
   m_callbacks->GetSetting         = GetAddonSetting;
   m_callbacks->UnknownToUTF8      = UnknownToUTF8;
   m_callbacks->GetLocalizedString = GetLocalizedString;
@@ -157,6 +161,11 @@ void CAddonCallbacksAddon::QueueNotification(void *addonData, const queue_msg_t 
   }
 }
 
+bool CAddonCallbacksAddon::WakeOnLan(const char *mac)
+{
+  return g_application.getNetwork().WakeOnLan(mac);
+}
+
 bool CAddonCallbacksAddon::GetAddonSetting(void *addonData, const char *strSettingName, void *settingValue)
 {
   CAddonCallbacks* addon = (CAddonCallbacks*) addonData;
@@ -211,6 +220,20 @@ bool CAddonCallbacksAddon::GetAddonSetting(void *addonData, const char *strSetti
           {
             *(bool*) settingValue = (bool) (addonHelper->m_addon->GetSetting(id) == "true" ? true : false);
             return true;
+          }
+          else if (strcmpi(type, "slider") == 0)
+          {
+            const char *option = setting->Attribute("option");
+            if (option && strcmpi(option, "int") == 0)
+            {
+              *(int*) settingValue = (int) atoi(addonHelper->m_addon->GetSetting(id));
+              return true;
+            }
+            else
+            {
+              *(float*) settingValue = (float) atof(addonHelper->m_addon->GetSetting(id));
+              return true;
+            }
           }
         }
         setting = setting->NextSiblingElement("setting");

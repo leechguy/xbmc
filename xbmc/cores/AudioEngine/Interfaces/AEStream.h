@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2010-2012 Team XBMC
+ *      Copyright (C) 2010-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -19,7 +19,7 @@
  *
  */
 
-#include "../AEAudioFormat.h"
+#include "cores/AudioEngine/Utils/AEAudioFormat.h"
 #include "cores/IAudioCallback.h"
 #include <stdint.h>
 
@@ -97,7 +97,7 @@ public:
    * Start draining the stream
    * @note Once called AddData will not consume more data.
    */
-  virtual void Drain() = 0;
+  virtual void Drain(bool wait) = 0;
 
   /**
    * Returns true if the is stream draining

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,11 +19,11 @@
  */
 
 #include "Database.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
 #include "utils/Crc32.h"
 #include "filesystem/SpecialProtocol.h"
 #include "filesystem/File.h"
+#include "profiles/ProfilesManager.h"
 #include "utils/AutoPtrHandle.h"
 #include "utils/log.h"
 #include "utils/SortUtils.h"
@@ -356,7 +356,7 @@ void CDatabase::InitSettings(DatabaseSettings &dbSettings)
   {
     dbSettings.type = "sqlite3";
     if (dbSettings.host.IsEmpty())
-      dbSettings.host = CSpecialProtocol::TranslatePath(g_settings.GetDatabaseFolder());
+      dbSettings.host = CSpecialProtocol::TranslatePath(CProfilesManager::Get().GetDatabaseFolder());
   }
 
   // use separate, versioned database
@@ -464,6 +464,9 @@ bool CDatabase::Connect(const CStdString &dbName, const DatabaseSettings &dbSett
 
   // database name is always required
   m_pDB->setDatabase(dbName.c_str());
+
+  // set SSL configuration regardless if any are empty (all empty means no SSL).
+  m_pDB->setSSLConfig(dbSettings.key.c_str(), dbSettings.cert.c_str(), dbSettings.ca.c_str(), dbSettings.capath.c_str(), dbSettings.ciphers.c_str());
 
   // create the datasets
   m_pDS.reset(m_pDB->CreateDataset());

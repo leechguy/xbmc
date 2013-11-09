@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -29,13 +29,14 @@
 #include "utils/URIUtils.h"
 #include "utils/TimeUtils.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "guilib/TextureManager.h"
-#include "settings/GUISettings.h"
 #include "guilib/GUISpinControlEx.h"
 #include "guilib/GUIRadioButtonControl.h"
 #include "guilib/GUISettingsSliderControl.h"
 #include "guilib/GUIEditControl.h"
 #include "guilib/GUIProgressControl.h"
+#include "guilib/GUIRenderingControl.h"
 
 #define CONTROL_BTNVIEWASICONS  2
 #define CONTROL_BTNSORTBY       3
@@ -93,8 +94,10 @@ CAddonCallbacksGUI::CAddonCallbacksGUI(CAddon* addon)
   m_callbacks->Window_GetControl_RadioButton  = CAddonCallbacksGUI::Window_GetControl_RadioButton;
   m_callbacks->Window_GetControl_Edit         = CAddonCallbacksGUI::Window_GetControl_Edit;
   m_callbacks->Window_GetControl_Progress     = CAddonCallbacksGUI::Window_GetControl_Progress;
+  m_callbacks->Window_GetControl_RenderAddon  = CAddonCallbacksGUI::Window_GetControl_RenderAddon;
 
   m_callbacks->Window_SetControlLabel         = CAddonCallbacksGUI::Window_SetControlLabel;
+  m_callbacks->Window_MarkDirtyRegion         = CAddonCallbacksGUI::Window_MarkDirtyRegion;
 
   m_callbacks->Control_Spin_SetVisible        = CAddonCallbacksGUI::Control_Spin_SetVisible;
   m_callbacks->Control_Spin_SetText           = CAddonCallbacksGUI::Control_Spin_SetText;
@@ -125,6 +128,9 @@ CAddonCallbacksGUI::CAddonCallbacksGUI(CAddon* addon)
   m_callbacks->ListItem_SetProperty           = CAddonCallbacksGUI::ListItem_SetProperty;
   m_callbacks->ListItem_GetProperty           = CAddonCallbacksGUI::ListItem_GetProperty;
   m_callbacks->ListItem_SetPath               = CAddonCallbacksGUI::ListItem_SetPath;
+
+  m_callbacks->RenderAddon_SetCallbacks       = CAddonCallbacksGUI::RenderAddon_SetCallbacks;
+  m_callbacks->RenderAddon_Delete             = CAddonCallbacksGUI::RenderAddon_Delete;
 }
 
 CAddonCallbacksGUI::~CAddonCallbacksGUI()
@@ -181,10 +187,9 @@ GUIHANDLE CAddonCallbacksGUI::Window_New(void *addonData, const char *xmlFilenam
     if (!XFILE::CFile::Exists(strSkinPath))
     {
       /* Check for the matching folder for the skin in the fallback skins folder */
-      CStdString basePath;
-      URIUtils::AddFileToFolder(guiHelper->m_addon->Path(), "resources", basePath);
-      URIUtils::AddFileToFolder(basePath, "skins", basePath);
-      URIUtils::AddFileToFolder(basePath, URIUtils::GetFileName(g_SkinInfo->Path()), basePath);
+      CStdString basePath = URIUtils::AddFileToFolder(guiHelper->m_addon->Path(), "resources");
+      basePath = URIUtils::AddFileToFolder(basePath, "skins");
+      basePath = URIUtils::AddFileToFolder(basePath, URIUtils::GetFileName(g_SkinInfo->Path()));
       strSkinPath = g_SkinInfo->GetSkinPath(xmlFilename, &res, basePath);
       if (!XFILE::CFile::Exists(strSkinPath))
       {
@@ -200,13 +205,12 @@ GUIHANDLE CAddonCallbacksGUI::Window_New(void *addonData, const char *xmlFilenam
     //FIXME make this static method of current skin?
     CStdString str("none");
     AddonProps props(str, ADDON_SKIN, str, str);
-    CSkinInfo skinInfo(props);
-    CStdString basePath;
-    URIUtils::AddFileToFolder(guiHelper->m_addon->Path(), "resources", basePath);
-    URIUtils::AddFileToFolder(basePath, "skins", basePath);
-    URIUtils::AddFileToFolder(basePath, defaultSkin, basePath);
+    CStdString basePath = URIUtils::AddFileToFolder(guiHelper->m_addon->Path(), "resources");
+    basePath = URIUtils::AddFileToFolder(basePath, "skins");
+    basePath = URIUtils::AddFileToFolder(basePath, defaultSkin);
     props.path = basePath;
 
+    CSkinInfo skinInfo(props);
     skinInfo.Start();
     strSkinPath = skinInfo.GetSkinPath(xmlFilename, &res, basePath);
 
@@ -927,6 +931,22 @@ GUIHANDLE CAddonCallbacksGUI::Window_GetControl_Progress(void *addonData, GUIHAN
   return pGUIControl;
 }
 
+GUIHANDLE CAddonCallbacksGUI::Window_GetControl_RenderAddon(void *addonData, GUIHANDLE handle, int controlId)
+{
+  CAddonCallbacks* helper = (CAddonCallbacks*) addonData;
+  if (!helper || !handle)
+    return NULL;
+
+  CGUIAddonWindow *pAddonWindow = (CGUIAddonWindow*)handle;
+  CGUIControl* pGUIControl = (CGUIControl*)pAddonWindow->GetControl(controlId);
+  if (pGUIControl && pGUIControl->GetControlType() != CGUIControl::GUICONTROL_RENDERADDON)
+    return NULL;
+
+  CGUIAddonRenderingControl *pProxyControl;
+  pProxyControl = new CGUIAddonRenderingControl((CGUIRenderingControl*)pGUIControl);
+  return pProxyControl;
+}
+
 void CAddonCallbacksGUI::Window_SetControlLabel(void *addonData, GUIHANDLE handle, int controlId, const char *label)
 {
   CAddonCallbacks* helper = (CAddonCallbacks*) addonData;
@@ -938,6 +958,17 @@ void CAddonCallbacksGUI::Window_SetControlLabel(void *addonData, GUIHANDLE handl
   CGUIMessage msg(GUI_MSG_LABEL_SET, pAddonWindow->m_iWindowId, controlId);
   msg.SetLabel(label);
   pAddonWindow->OnMessage(msg);
+}
+
+void CAddonCallbacksGUI::Window_MarkDirtyRegion(void *addonData, GUIHANDLE handle)
+{
+  CAddonCallbacks* helper = (CAddonCallbacks*) addonData;
+  if (!helper || !handle)
+    return;
+
+  CGUIAddonWindow *pAddonWindow = (CGUIAddonWindow*)handle;
+
+  pAddonWindow->MarkDirtyRegion();
 }
 
 void CAddonCallbacksGUI::Control_Spin_SetVisible(void *addonData, GUIHANDLE spinhandle, bool yesNo)
@@ -1218,9 +1249,37 @@ void CAddonCallbacksGUI::ListItem_SetPath(void *addonData, GUIHANDLE handle, con
   ((CFileItem*)handle)->SetPath(path);
 }
 
+void CAddonCallbacksGUI::RenderAddon_SetCallbacks(void *addonData, GUIHANDLE handle, GUIHANDLE clienthandle, bool (*createCB)(GUIHANDLE,int,int,int,int,void*), void (*renderCB)(GUIHANDLE), void (*stopCB)(GUIHANDLE), bool (*dirtyCB)(GUIHANDLE))
+{
+  CAddonCallbacks* helper = (CAddonCallbacks*) addonData;
+  if (!helper || !handle)
+    return;
 
+  CGUIAddonRenderingControl *pAddonControl = (CGUIAddonRenderingControl*)handle;
 
+  Lock();
+  pAddonControl->m_clientHandle  = clienthandle;
+  pAddonControl->CBCreate        = createCB;
+  pAddonControl->CBRender        = renderCB;
+  pAddonControl->CBStop          = stopCB;
+  pAddonControl->CBDirty         = dirtyCB;
+  Unlock();
 
+  pAddonControl->m_pControl->InitCallback(pAddonControl);
+}
+
+void CAddonCallbacksGUI::RenderAddon_Delete(void *addonData, GUIHANDLE handle)
+{
+  CAddonCallbacks* helper = (CAddonCallbacks*) addonData;
+  if (!helper || !handle)
+    return;
+
+  CGUIAddonRenderingControl *pAddonControl = (CGUIAddonRenderingControl*)handle;
+
+  Lock();
+  pAddonControl->Delete();
+  Unlock();
+}
 
 
 
@@ -1246,13 +1305,11 @@ CGUIAddonWindow::~CGUIAddonWindow(void)
 
 bool CGUIAddonWindow::OnAction(const CAction &action)
 {
-  // do the base class window first, and the call to python after this
-  bool ret = CGUIWindow::OnAction(action);  // we don't currently want the mediawindow actions here
-  if (CBOnAction)
-  {
-    CBOnAction(m_clientHandle, action.GetID());
-  }
-  return ret;
+  // Let addon decide whether it wants to hande action first
+  if (CBOnAction && CBOnAction(m_clientHandle, action.GetID()))
+    return true;
+
+  return CGUIWindow::OnAction(action);
 }
 
 bool CGUIAddonWindow::OnMessage(CGUIMessage& message)
@@ -1293,6 +1350,16 @@ bool CGUIAddonWindow::OnMessage(CGUIMessage& message)
       }
     }
     break;
+
+    case GUI_MSG_FOCUSED:
+    {
+      if (HasID(message.GetSenderId()) && CBOnFocus)
+      {
+        CBOnFocus(m_clientHandle, message.GetControlId());
+      }
+    }
+    break;
+
     case GUI_MSG_CLICKED:
     {
       int iControl=message.GetSenderId();
@@ -1326,7 +1393,8 @@ bool CGUIAddonWindow::OnMessage(CGUIMessage& message)
                                                  message.GetParam1() == ACTION_MOUSE_LEFT_CLICK)) ||
                                                  !controlClicked->IsContainer())
           {
-            CBOnClick(m_clientHandle, iControl);
+            if (CBOnClick(m_clientHandle, iControl))
+              return true;
           }
           else if (controlClicked->IsContainer() && message.GetParam1() == ACTION_MOUSE_RIGHT_CLICK)
           {
@@ -1338,7 +1406,6 @@ bool CGUIAddonWindow::OnMessage(CGUIMessage& message)
 //            PyXBMC_AddPendingCall(Py_XBMC_Event_OnAction, inf);
 //            PulseActionEvent();
           }
-          return true;
         }
       }
     }
@@ -1350,8 +1417,7 @@ bool CGUIAddonWindow::OnMessage(CGUIMessage& message)
 
 void CGUIAddonWindow::AllocResources(bool forceLoad /*= FALSE */)
 {
-  CStdString tmpDir;
-  URIUtils::GetDirectory(GetProperty("xmlfile").asString(), tmpDir);
+  CStdString tmpDir = URIUtils::GetDirectory(GetProperty("xmlfile").asString());
   CStdString fallbackMediaPath;
   URIUtils::GetParentPath(tmpDir, fallbackMediaPath);
   URIUtils::RemoveSlashAtEnd(fallbackMediaPath);
@@ -1365,9 +1431,6 @@ void CGUIAddonWindow::AllocResources(bool forceLoad /*= FALSE */)
 
 void CGUIAddonWindow::FreeResources(bool forceUnLoad /*= FALSE */)
 {
-  // Unload temporary language strings
-  ClearAddonStrings();
-
   CGUIMediaWindow::FreeResources(forceUnLoad);
 }
 
@@ -1453,12 +1516,6 @@ void CGUIAddonWindow::PulseActionEvent()
   m_actionEvent.Set();
 }
 
-void CGUIAddonWindow::ClearAddonStrings()
-{
-  // Unload temporary language strings
-  g_localizeStrings.ClearBlock(m_addon->Path());
-}
-
 bool CGUIAddonWindow::OnClick(int iItem)
 {
   // Hook Over calling  CGUIMediaWindow::OnClick(iItem) results in it trying to PLAY the file item
@@ -1535,6 +1592,63 @@ void CGUIAddonWindowDialog::Show_Internal(bool show /* = true */)
 
     g_windowManager.RemoveDialog(GetID());
   }
+}
+
+CGUIAddonRenderingControl::CGUIAddonRenderingControl(CGUIRenderingControl *pControl)
+{
+  m_pControl = pControl;
+  m_refCount = 1;
+}
+
+bool CGUIAddonRenderingControl::Create(int x, int y, int w, int h, void *device)
+{
+  if (CBCreate)
+  {
+    if (CBCreate(m_clientHandle, x, y, w, h, device))
+    {
+      m_refCount++;
+      return true;
+    }
+  }
+  return false;
+}
+
+void CGUIAddonRenderingControl::Render()
+{
+  if (CBRender)
+  {
+    g_graphicsContext.BeginPaint();
+    CBRender(m_clientHandle);
+    g_graphicsContext.EndPaint();
+  }
+}
+
+void CGUIAddonRenderingControl::Stop()
+{
+  if (CBStop)
+  {
+    CBStop(m_clientHandle);
+  }
+  m_refCount--;
+  if (m_refCount <= 0)
+    delete this;
+}
+
+void CGUIAddonRenderingControl::Delete()
+{
+  m_refCount--;
+  if (m_refCount <= 0)
+    delete this;
+}
+
+bool CGUIAddonRenderingControl::IsDirty()
+{
+  bool ret = true;
+  if (CBDirty)
+  {
+    ret = CBDirty(m_clientHandle);
+  }
+  return ret;
 }
 
 }; /* namespace ADDON */

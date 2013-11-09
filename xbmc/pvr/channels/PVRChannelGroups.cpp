@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 #include "PVRChannelGroups.h"
 
 #include "FileItem.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "guilib/GUIWindowManager.h"
 #include "utils/log.h"
 #include "URL.h"
@@ -52,7 +52,7 @@ void CPVRChannelGroups::Clear(void)
 
 bool CPVRChannelGroups::GetGroupsFromClients(void)
 {
-  if (! g_guiSettings.GetBool("pvrmanager.syncchannelgroups"))
+  if (! CSettings::Get().GetBool("pvrmanager.syncchannelgroups"))
     return true;
 
   return g_PVRClients->GetChannelGroups(this) == PVR_ERROR_NO_ERROR;
@@ -160,7 +160,7 @@ void CPVRChannelGroups::RemoveFromAllGroups(const CPVRChannel &channel)
 
 bool CPVRChannelGroups::Update(bool bChannelsOnly /* = false */)
 {
-  bool bUpdateAllGroups = !bChannelsOnly && g_guiSettings.GetBool("pvrmanager.syncchannelgroups");
+  bool bUpdateAllGroups = !bChannelsOnly && CSettings::Get().GetBool("pvrmanager.syncchannelgroups");
   bool bReturn(true);
 
   // sync groups
@@ -218,7 +218,7 @@ bool CPVRChannelGroups::LoadUserDefinedChannelGroups(void)
   if (!database)
     return false;
 
-  bool bSyncWithBackends = g_guiSettings.GetBool("pvrmanager.syncchannelgroups");
+  bool bSyncWithBackends = CSettings::Get().GetBool("pvrmanager.syncchannelgroups");
 
   CSingleLock lock(m_critSection);
 
@@ -518,4 +518,17 @@ void CPVRChannelGroups::FillGroupsGUI(int iWindowId, int iControlId) const
   // selected group
   CGUIMessage msgSel(GUI_MSG_ITEM_SELECT, iWindowId, iControlId, iSelectedGroupPtr);
   g_windowManager.SendMessage(msgSel);
+}
+
+bool CPVRChannelGroups::CreateChannelEpgs(void)
+{
+  bool bReturn(false);
+  CSingleLock lock(m_critSection);
+  for (std::vector<CPVRChannelGroupPtr>::iterator it = m_groups.begin(); it != m_groups.end(); it++)
+  {
+    /* Only create EPGs for the internatl groups */
+    if ((*it)->IsInternalGroup())
+      bReturn = (*it)->CreateChannelEpgs();
+  }
+  return bReturn;
 }

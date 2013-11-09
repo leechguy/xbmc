@@ -2,8 +2,8 @@
 #define MOUSE_STAT_H
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
  *
  */
 
+#include "settings/ISettingCallback.h"
 #include "windowing/XBMC_events.h"
 
 #define XBMC_BUTTON(X)		(1 << ((X)-1))
@@ -58,12 +59,13 @@ struct MouseState
 
 class CAction;
 
-class CMouseStat
+class CMouseStat : public ISettingCallback
 {
 public:
-
   CMouseStat();
   virtual ~CMouseStat();
+
+  virtual void OnSettingChanged(const CSetting *setting);
 
   void Initialize();
   void HandleEvent(XBMC_Event& newEvent);

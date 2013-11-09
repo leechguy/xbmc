@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -31,12 +31,12 @@
 #include "dialogs/GUIDialogTextViewer.h"
 #include "GUIUserMessages.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "utils/JobManager.h"
 #include "utils/FileOperationJob.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "addons/AddonInstaller.h"
-#include "Application.h"
 #include "pvr/PVRManager.h"
 
 #define CONTROL_BTN_INSTALL          6
@@ -207,9 +207,8 @@ void CGUIDialogAddonInfo::OnUninstall()
   }
 
   // ensure the addon isn't disabled in our database
-  CAddonDatabase database;
-  database.Open();
-  database.DisableAddon(m_localAddon->ID(), false);
+  CAddonMgr::Get().DisableAddon(m_localAddon->ID(), false);
+
   CJobManager::GetInstance().AddJob(new CAddonUnInstallJob(m_localAddon),
                                     &CAddonInstaller::Get());
   CAddonMgr::Get().RemoveAddon(m_localAddon->ID());
@@ -221,12 +220,7 @@ void CGUIDialogAddonInfo::OnEnable(bool enable)
   if (!m_localAddon.get())
     return;
 
-  CStdString xbmcPath = CSpecialProtocol::TranslatePath("special://xbmc/addons");
-  CAddonDatabase database;
-  database.Open();
-  database.DisableAddon(m_localAddon->ID(), !enable);
-  database.Close();
-
+  CAddonMgr::Get().DisableAddon(m_localAddon->ID(), !enable);
   SetItem(m_item);
   UpdateControls();
   g_windowManager.SendMessage(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE);
@@ -396,7 +390,7 @@ void CGUIDialogAddonInfo::GrabRollbackVersions()
 {
   CFileItemList items;
   XFILE::CDirectory::GetDirectory("special://home/addons/packages/",items,".zip",DIR_FLAG_NO_FILE_DIRS);
-  items.Sort(SORT_METHOD_LABEL, SortOrderAscending);
+  items.Sort(SortByLabel, SortOrderAscending);
   for (int i=0;i<items.Size();++i)
   {
     if (items[i]->m_bIsFolder)

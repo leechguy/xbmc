@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2010-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2010-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -66,6 +66,10 @@ enum iosPlatform
   iPhone4S,
   iPhone5,
   iPhone5GSMCDMA, 
+  iPhone5CGSM,
+  iPhone5CGlobal,
+  iPhone5SGSM,
+  iPhone5SGlobal,
   iPodTouch4G,
   iPodTouch5G,  
   iPad3WIFI,
@@ -76,6 +80,7 @@ enum iosPlatform
   iPad4GSMCDMA,  
 };
 
+// platform strings are based on http://theiphonewiki.com/wiki/Models
 enum iosPlatform getIosPlatform()
 {
 #if defined(TARGET_DARWIN_IOS)
@@ -96,6 +101,10 @@ enum iosPlatform getIosPlatform()
   if ([platform isEqualToString:@"iPhone4,1"])    return iPhone4S;
   if ([platform isEqualToString:@"iPhone5,1"])    return iPhone5;
   if ([platform isEqualToString:@"iPhone5,2"])    return iPhone5GSMCDMA;
+  if ([platform isEqualToString:@"iPhone5,3"])    return iPhone5CGSM;
+  if ([platform isEqualToString:@"iPhone5,4"])    return iPhone5CGlobal;
+  if ([platform isEqualToString:@"iPhone6,1"])    return iPhone5SGSM;
+  if ([platform isEqualToString:@"iPhone6,2"])    return iPhone5SGlobal;
   
   if ([platform isEqualToString:@"iPod1,1"])      return iPodTouch1G;
   if ([platform isEqualToString:@"iPod2,1"])      return iPodTouch2G;
@@ -148,6 +157,20 @@ bool DarwinHasRetina(void)
   return (platform >= iPhone4);
 }
 
+const char *GetDarwinOSReleaseString(void)
+{
+  static std::string osreleaseStr;
+  if (osreleaseStr.empty())
+  {
+    size_t size;
+    sysctlbyname("kern.osrelease", NULL, &size, NULL, 0);
+    char *osrelease = new char[size];
+    sysctlbyname("kern.osrelease", osrelease, &size, NULL, 0);
+    osreleaseStr = osrelease;
+    delete [] osrelease;
+  }
+  return osreleaseStr.c_str();
+}
 
 const char *GetDarwinVersionString(void)
 {
@@ -177,7 +200,7 @@ int  GetDarwinFrameworkPath(bool forPython, char* path, uint32_t *pathsize)
   *pathsize = 0;
 
   // a) XBMC frappliance running under ATV2
-  Class XBMCfrapp = NSClassFromString(@"XBMCAppliance");
+  Class XBMCfrapp = NSClassFromString(@"XBMCATV2Detector");
   if (XBMCfrapp != NULL)
   {
     pathname = [[NSBundle bundleForClass:XBMCfrapp] pathForResource:@"Frameworks" ofType:@""];
@@ -234,7 +257,7 @@ int  GetDarwinExecutablePath(char* path, uint32_t *pathsize)
   NSString *pathname;
 
   // a) XBMC frappliance running under ATV2
-  Class XBMCfrapp = NSClassFromString(@"XBMCAppliance");
+  Class XBMCfrapp = NSClassFromString(@"XBMCATV2Detector");
   if (XBMCfrapp != NULL)
   {
     pathname = [[NSBundle bundleForClass:XBMCfrapp] pathForResource:@"XBMC" ofType:@""];
@@ -254,13 +277,58 @@ int  GetDarwinExecutablePath(char* path, uint32_t *pathsize)
   return 0;
 }
 
+const char* DarwinGetXbmcRootFolder(void)
+{
+  static std::string rootFolder = "";
+  if ( rootFolder.length() == 0)
+  {
+    if (DarwinIsIosSandboxed())
+    {
+      // when we are sandbox make documents our root
+      // so that user can access everything he needs 
+      // via itunes sharing
+      rootFolder = "Documents";
+    }
+    else
+    {
+      rootFolder = "Library/Preferences";
+    }
+  }
+  return rootFolder.c_str();
+}
+
+bool DarwinIsIosSandboxed(void)
+{
+  static int ret = -1;
+  if (ret == -1)
+  {
+    uint32_t path_size = 2*MAXPATHLEN;
+    char     given_path[2*MAXPATHLEN];
+    int      result = -1; 
+    ret = 0;
+    memset(given_path, 0x0, path_size);
+    /* Get Application directory */  
+    result = GetDarwinExecutablePath(given_path, &path_size);
+    if (result == 0)
+    {
+      // we re sandboxed if we are installed in /var/mobile/Applications
+      if (strlen("/var/mobile/Applications/") < path_size &&
+        strncmp(given_path, "/var/mobile/Applications/", strlen("/var/mobile/Applications/")) == 0)
+      {
+        ret = 1;
+      }
+    }
+  }
+  return ret == 1;
+}
+
 bool DarwinHasVideoToolboxDecoder(void)
 {
   static int DecoderAvailable = -1;
 
   if (DecoderAvailable == -1)
   {
-    Class XBMCfrapp = NSClassFromString(@"XBMCAppliance");
+    Class XBMCfrapp = NSClassFromString(@"XBMCATV2Detector");
     if (XBMCfrapp != NULL)
     {
       // atv2 has seatbelt profile key removed so nothing to do here
@@ -268,49 +336,29 @@ bool DarwinHasVideoToolboxDecoder(void)
     }
     else
     {
-      /* Get Application directory */
-      uint32_t path_size = 2*MAXPATHLEN;
-      char     given_path[2*MAXPATHLEN];
-      int      result = -1;
-      
-      memset(given_path, 0x0, path_size);
-      result = GetDarwinExecutablePath(given_path, &path_size);
-      if (result == 0) 
+      /* When XBMC is started from a sandbox directory we have to check the sysctl values */      
+      if (DarwinIsIosSandboxed())
       {
-        /* When XBMC is started from a sandbox directory we have to check the sysctl values */
-        if (strlen("/var/mobile/Applications/") < path_size &&
-           strncmp(given_path, "/var/mobile/Applications/", strlen("/var/mobile/Applications/")) == 0)
-        {
+        uint64_t proc_enforce = 0;
+        uint64_t vnode_enforce = 0; 
+        size_t size = sizeof(vnode_enforce);
 
-          uint64_t proc_enforce = 0;
-          uint64_t vnode_enforce = 0; 
-          size_t size = sizeof(vnode_enforce);
-          
-          sysctlbyname("security.mac.proc_enforce",  &proc_enforce,  &size, NULL, 0);  
-          sysctlbyname("security.mac.vnode_enforce", &vnode_enforce, &size, NULL, 0);
-          
-          if (vnode_enforce && proc_enforce)
-          {
-            DecoderAvailable = 0;
-            CLog::Log(LOGINFO, "VideoToolBox decoder not available. Use : sysctl -w security.mac.proc_enforce=0; sysctl -w security.mac.vnode_enforce=0\n");
-            //NSLog(@"%s VideoToolBox decoder not available. Use : sysctl -w security.mac.proc_enforce=0; sysctl -w security.mac.vnode_enforce=0", __PRETTY_FUNCTION__);
-          }
-          else
-          {
-            DecoderAvailable = 1;
-            CLog::Log(LOGINFO, "VideoToolBox decoder available\n");
-            //NSLog(@"%s VideoToolBox decoder available", __PRETTY_FUNCTION__);
-          }  
+        sysctlbyname("security.mac.proc_enforce",  &proc_enforce,  &size, NULL, 0);  
+        sysctlbyname("security.mac.vnode_enforce", &vnode_enforce, &size, NULL, 0);
+
+        if (vnode_enforce && proc_enforce)
+        {
+          DecoderAvailable = 1;
+          CLog::Log(LOGINFO, "VideoToolBox decoder not available. Use : sysctl -w security.mac.proc_enforce=0; sysctl -w security.mac.vnode_enforce=0\n");
         }
         else
         {
           DecoderAvailable = 1;
-        }
-        //NSLog(@"%s Executable path %s", __PRETTY_FUNCTION__, given_path);
+          CLog::Log(LOGINFO, "VideoToolBox decoder available\n");
+        }  
       }
       else
       {
-        // In theory this case can never happen. But who knows.
         DecoderAvailable = 1;
       }
     }
@@ -348,7 +396,7 @@ int DarwinBatteryLevel(void)
     powerSourceVal = CFDictionaryGetValue(powerSource, CFSTR(kIOPSMaxCapacityKey));
     CFNumberGetValue((CFNumberRef)powerSourceVal, kCFNumberSInt32Type, &maxLevel);
 
-    batteryLevel = (int)((double)curLevel/(double)maxLevel);
+    batteryLevel = (double)curLevel/(double)maxLevel;
   }
 #endif
   return batteryLevel * 100;  
@@ -365,7 +413,7 @@ void DarwinSetScheduling(int message)
   policy = SCHED_OTHER;
   thread_extended_policy_data_t theFixedPolicy={true};
 
-  if (message == GUI_MSG_PLAYBACK_STARTED && g_application.IsPlayingVideo())
+  if (message == GUI_MSG_PLAYBACK_STARTED && g_application.m_pPlayer->IsPlayingVideo())
   {
     policy = SCHED_RR;
     theFixedPolicy.timeshare = false;
@@ -379,19 +427,19 @@ void DarwinSetScheduling(int message)
   result = pthread_setschedparam(this_pthread_self, policy, &param );
 }
 
-bool DarwinCFStringRefToString(CFStringRef source, std::string &destination)
+bool DarwinCFStringRefToStringWithEncoding(CFStringRef source, std::string &destination, CFStringEncoding encoding)
 {
-  const char *cstr = CFStringGetCStringPtr(source, CFStringGetSystemEncoding());
+  const char *cstr = CFStringGetCStringPtr(source, encoding);
   if (!cstr)
   {
     CFIndex strLen = CFStringGetMaximumSizeForEncoding(CFStringGetLength(source) + 1,
-                                                       CFStringGetSystemEncoding());
+                                                       encoding);
     char *allocStr = (char*)malloc(strLen);
 
     if(!allocStr)
       return false;
 
-    if(!CFStringGetCString(source, allocStr, strLen, CFStringGetSystemEncoding()))
+    if(!CFStringGetCString(source, allocStr, strLen, encoding))
     {
       free((void*)allocStr);
       return false;
@@ -405,6 +453,16 @@ bool DarwinCFStringRefToString(CFStringRef source, std::string &destination)
 
   destination = cstr;
   return true;
+}
+
+bool DarwinCFStringRefToString(CFStringRef source, std::string &destination)
+{
+  return DarwinCFStringRefToStringWithEncoding(source, destination, CFStringGetSystemEncoding());
+}
+
+bool DarwinCFStringRefToUTF8String(CFStringRef source, std::string &destination)
+{
+  return DarwinCFStringRefToStringWithEncoding(source, destination, kCFStringEncodingUTF8);
 }
 
 #endif

@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 #include "utils/StdString.h"
 #include "utils/UrlOptions.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #undef SetPort // WIN32INCLUDES this is defined as SetPortA in WinSpool.h which is being included _somewhere_
 #endif
 
@@ -63,8 +63,10 @@ public:
   char GetDirectorySeparator() const;
 
   CStdString Get() const;
-  CStdString GetWithoutUserDetails() const;
+  std::string GetWithoutUserDetails(bool redact = false) const;
   CStdString GetWithoutFilename() const;
+  std::string GetRedacted() const;
+  static std::string GetRedacted(const std::string& path);
   bool IsLocal() const;
   bool IsLocalHost() const;
   static bool IsFileOnly(const CStdString &url); ///< return true if there are no directories in the url.
@@ -82,6 +84,13 @@ public:
   void SetOption(const CStdString &key, const CStdString &value);
   void RemoveOption(const CStdString &key);
 
+  void GetProtocolOptions(std::map<CStdString, CStdString> &options) const;
+  bool HasProtocolOption(const CStdString &key) const;
+  bool GetProtocolOption(const CStdString &key, CStdString &value) const;
+  CStdString GetProtocolOption(const CStdString &key) const;
+  void SetProtocolOption(const CStdString &key, const CStdString &value);
+  void RemoveProtocolOption(const CStdString &key);
+
 protected:
   int m_iPort;
   CStdString m_strHostName;
@@ -95,4 +104,5 @@ protected:
   CStdString m_strOptions;
   CStdString m_strProtocolOptions;
   CUrlOptions m_options;
+  CUrlOptions m_protocolOptions;
 };

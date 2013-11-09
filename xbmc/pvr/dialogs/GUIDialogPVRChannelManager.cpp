@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,11 +32,12 @@
 #include "guilib/GUIRadioButtonControl.h"
 #include "guilib/GUISpinControlEx.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "guilib/LocalizeStrings.h"
+#include "profiles/ProfilesManager.h"
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
 #include "pvr/addons/PVRClients.h"
-#include "settings/GUISettings.h"
 #include "settings/Settings.h"
 #include "storage/MediaManager.h"
 
@@ -63,6 +64,9 @@ using namespace PVR;
 CGUIDialogPVRChannelManager::CGUIDialogPVRChannelManager(void) :
     CGUIDialog(WINDOW_DIALOG_PVR_CHANNEL_MANAGER, "DialogPVRChannelManager.xml"),
     m_bIsRadio(false),
+    m_bMovingMode(false),
+    m_bContainsChanges(false),
+    m_iSelected(0),
     m_channelItems(new CFileItemList)
 {
 }
@@ -133,9 +137,10 @@ bool CGUIDialogPVRChannelManager::OnAction(const CAction& action)
          CGUIDialog::OnAction(action);
 }
 
-bool CGUIDialogPVRChannelManager::OnMessageInit(CGUIMessage &message)
+void CGUIDialogPVRChannelManager::OnInitWindow()
 {
-  CGUIWindow::OnMessage(message);
+  CGUIDialog::OnInitWindow();
+
   m_iSelected = 0;
   m_bIsRadio = false;
   m_bMovingMode = false;
@@ -143,8 +148,13 @@ bool CGUIDialogPVRChannelManager::OnMessageInit(CGUIMessage &message)
   SetProperty("IsRadio", "");
   Update();
   SetData(m_iSelected);
+}
 
-  return true;
+void CGUIDialogPVRChannelManager::OnDeinitWindow(int nextWindowID)
+{
+  Clear();
+
+  CGUIDialog::OnDeinitWindow(nextWindowID);
 }
 
 bool CGUIDialogPVRChannelManager::OnClickListChannels(CGUIMessage &message)
@@ -299,7 +309,7 @@ bool CGUIDialogPVRChannelManager::OnClickButtonChannelLogo(CGUIMessage &message)
   CFileItemPtr pItem = m_channelItems->Get(m_iSelected);
   if (!pItem)
     return false;
-  if (g_settings.GetCurrentProfile().canWriteSources() && !g_passwordManager.IsProfileLockUnlocked())
+  if (CProfilesManager::Get().GetCurrentProfile().canWriteSources() && !g_passwordManager.IsProfileLockUnlocked())
     return false;
   else if (!g_passwordManager.IsMasterLockUnlocked(true))
     return false;
@@ -331,10 +341,10 @@ bool CGUIDialogPVRChannelManager::OnClickButtonChannelLogo(CGUIMessage &message)
 
   CStdString strThumb;
   VECSOURCES shares;
-  if (g_guiSettings.GetString("pvrmenu.iconpath") != "")
+  if (CSettings::Get().GetString("pvrmenu.iconpath") != "")
   {
     CMediaSource share1;
-    share1.strPath = g_guiSettings.GetString("pvrmenu.iconpath");
+    share1.strPath = CSettings::Get().GetString("pvrmenu.iconpath");
     share1.strName = g_localizeStrings.Get(19018);
     shares.push_back(share1);
   }
@@ -572,11 +582,6 @@ bool CGUIDialogPVRChannelManager::OnMessage(CGUIMessage& message)
 
   switch (iMessage)
   {
-    case GUI_MSG_WINDOW_DEINIT:
-      Clear();
-      break;
-    case GUI_MSG_WINDOW_INIT:
-      return OnMessageInit(message);
     case GUI_MSG_CLICKED:
       return OnMessageClick(message);
   }

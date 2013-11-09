@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 #include "utils/Job.h"
 
 class CCriticalSection;
@@ -49,7 +50,7 @@ public:
                       const std::string& fcr_type,
                       const std::string& fcr_name,
                       unsigned int f_port,
-                      std::map<std::string, std::string> txt);
+                      std::vector<std::pair<std::string, std::string> > txt /*= std::vector<std::pair<std::string, std::string> >()*/);
 
   ///removes the specified service
   ///returns false if fcr_identifier does not exist
@@ -61,7 +62,7 @@ public:
   //starts publishing
   //services that were added with PublishService(...) while Zeroconf wasn't
   //started, get published now.
-  void Start();
+  bool Start();
 
   // unpublishs all services (but keeps them stored in this class)
   // a call to Start() will republish them
@@ -78,6 +79,8 @@ public:
   static bool   IsInstantiated() { return  smp_instance != 0; }
   // win32: process results from the bonjour daemon
   virtual void  ProcessResults() {}
+  // returns if the service is started and services are announced
+  bool IsStarted() { return m_started; }
 
 protected:
   //methods to implement for concrete implementations
@@ -86,7 +89,7 @@ protected:
                                 const std::string& fcr_type,
                                 const std::string& fcr_name,
                                 unsigned int f_port,
-                                std::map<std::string, std::string> txt) = 0;
+                                const std::vector<std::pair<std::string, std::string> >& txt) = 0;
   //removes the service if published
   virtual bool doRemoveService(const std::string& fcr_ident) = 0;
 
@@ -107,7 +110,7 @@ private:
     std::string type;
     std::string name;
     unsigned int port;
-    std::map<std::string, std::string> txt;
+    std::vector<std::pair<std::string, std::string> > txt;
   };
 
   //protects data

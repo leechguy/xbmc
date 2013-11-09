@@ -1,6 +1,5 @@
-#pragma once
 /*
- *      Copyright (C) 2012 Team XBMC
+ *      Copyright (C) 2012-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -18,6 +17,7 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
+#pragma once
 #include "PltMediaConnect.h"
 #include "interfaces/IAnnouncer.h"
 #include "FileItem.h"
@@ -61,6 +61,12 @@ public:
                                          NPT_UInt32                    requested_count,
                                          const char*                   sort_criteria,
                                          const PLT_HttpRequestContext& context);
+
+    virtual NPT_Result OnUpdateObject(PLT_ActionReference&             action,
+                                      const char*                      object_id,
+                                      NPT_Map<NPT_String,NPT_String>&  current_vals,
+                                      NPT_Map<NPT_String,NPT_String>&  new_vals,
+                                      const PLT_HttpRequestContext&    context);
 
     // PLT_FileMediaServer methods
     virtual NPT_Result ServeFile(const NPT_HttpRequest&              request,

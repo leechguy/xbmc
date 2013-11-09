@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 #include "XMLUtils.h"
 #include "URL.h"
 #include "StringUtils.h"
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "PlatformDefs.h" //for strcasecmp
 #endif
 
@@ -126,19 +126,30 @@ bool XMLUtils::GetBoolean(const TiXmlNode* pRootNode, const char* strTag, bool& 
 
 bool XMLUtils::GetString(const TiXmlNode* pRootNode, const char* strTag, CStdString& strStringValue)
 {
+  std::string value;
+  if (GetString(pRootNode, strTag, value))
+  {
+    strStringValue = value;
+    return true;
+  }
+  return false;
+}
+
+bool XMLUtils::GetString(const TiXmlNode* pRootNode, const char* strTag, std::string& strStringValue)
+{
   const TiXmlElement* pElement = pRootNode->FirstChildElement(strTag );
   if (!pElement) return false;
   const char* encoded = pElement->Attribute("urlencoded");
   const TiXmlNode* pNode = pElement->FirstChild();
   if (pNode != NULL)
   {
-    strStringValue = pNode->Value();
+    strStringValue = pNode->ValueStr();
     if (encoded && strcasecmp(encoded,"yes") == 0)
-      CURL::Decode(strStringValue);
+      strStringValue = CURL::Decode(strStringValue);
     return true;
   }
-  strStringValue.Empty();
-  return false;
+  strStringValue.clear();
+  return true;
 }
 
 bool XMLUtils::HasChild(const TiXmlNode* pRootNode, const char* strTag)
@@ -180,7 +191,7 @@ bool XMLUtils::GetAdditiveString(const TiXmlNode* pRootNode, const char* strTag,
   Parses the XML for multiple tags of the given name.
   Does not clear the array to support chaining.
 */
-bool XMLUtils::GetStringArray(const TiXmlNode* pRootNode, const char* strTag, std::vector<std::string>& arrayValue, bool clear /* = false */, const std::string separator /* = "" */)
+bool XMLUtils::GetStringArray(const TiXmlNode* pRootNode, const char* strTag, std::vector<std::string>& arrayValue, bool clear /* = false */, const std::string& separator /* = "" */)
 {
   std::string strTemp;
   const TiXmlElement* node = pRootNode->FirstChildElement(strTag);
@@ -215,38 +226,6 @@ bool XMLUtils::GetStringArray(const TiXmlNode* pRootNode, const char* strTag, st
   return bResult;
 }
 
-/*!
-  Returns true if the encoding of the document is other then UTF-8.
-  /param strEncoding Returns the encoding of the document. Empty if UTF-8
-*/
-bool XMLUtils::GetEncoding(const CXBMCTinyXML* pDoc, CStdString& strEncoding)
-{
-  const TiXmlNode* pNode=NULL;
-  while ((pNode=pDoc->IterateChildren(pNode)) && pNode->Type()!=TiXmlNode::TINYXML_DECLARATION) {}
-  if (!pNode) return false;
-  const TiXmlDeclaration* pDecl=pNode->ToDeclaration();
-  if (!pDecl) return false;
-  strEncoding=pDecl->Encoding();
-  if (strEncoding.Equals("UTF-8") || strEncoding.Equals("UTF8")) strEncoding.Empty();
-  strEncoding.MakeUpper();
-  return !strEncoding.IsEmpty(); // Other encoding then UTF8?
-}
-
-/*!
-  Returns true if the encoding of the document is specified as as UTF-8
-  /param strXML The XML file (embedded in a string) to check.
-*/
-bool XMLUtils::HasUTF8Declaration(const CStdString &strXML)
-{
-  CStdString test = strXML;
-  test.ToLower();
-  // test for the encoding="utf-8" string
-  if (test.Find("encoding=\"utf-8\"") >= 0)
-    return true;
-  // TODO: test for plain UTF8 here?
-  return false;
-}
-
 bool XMLUtils::GetPath(const TiXmlNode* pRootNode, const char* strTag, CStdString& strStringValue)
 {
   const TiXmlElement* pElement = pRootNode->FirstChildElement(strTag);
@@ -268,7 +247,7 @@ bool XMLUtils::GetPath(const TiXmlNode* pRootNode, const char* strTag, CStdStrin
 bool XMLUtils::GetDate(const TiXmlNode* pRootNode, const char* strTag, CDateTime& date)
 {
   CStdString strDate;
-  if (GetString(pRootNode, strTag, strDate))
+  if (GetString(pRootNode, strTag, strDate) && !strDate.empty())
   {
     date.SetFromDBDate(strDate);
     return true;
@@ -280,7 +259,7 @@ bool XMLUtils::GetDate(const TiXmlNode* pRootNode, const char* strTag, CDateTime
 bool XMLUtils::GetDateTime(const TiXmlNode* pRootNode, const char* strTag, CDateTime& dateTime)
 {
   CStdString strDateTime;
-  if (GetString(pRootNode, strTag, strDateTime))
+  if (GetString(pRootNode, strTag, strDateTime) && !strDateTime.empty())
   {
     dateTime.SetFromDBDateTime(strDateTime);
     return true;

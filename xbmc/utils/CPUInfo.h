@@ -2,8 +2,8 @@
 #define CPUINFO_H
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -93,7 +93,7 @@ private:
 
   FILE* m_fProcStat;
   FILE* m_fProcTemperature;
-  FILE* m_fCPUInfo;
+  FILE* m_fCPUFreq;
 
   unsigned long long m_userTicks;
   unsigned long long m_niceTicks;

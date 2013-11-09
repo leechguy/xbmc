@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
-
 
 #include "TuxBoxDirectory.h"
 #include "DirectoryCache.h"
@@ -130,7 +129,7 @@ bool CTuxBoxDirectory::GetDirectory(const CStdString& strPath, CFileItemList &it
       // parse returned xml
       CXBMCTinyXML doc;
       data.Replace("></",">-</"); //FILL EMPTY ELEMENTS WITH "-"!
-      doc.Parse(data.c_str());
+      doc.Parse(data, http.GetServerReportedCharset());
       TiXmlElement *root = doc.RootElement();
       if(root == NULL)
       {

@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
+ *      Copyright (C) 2005-2013 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -24,9 +24,6 @@
 #include "PlayerCoreFactory.h"
 #include "cores/dvdplayer/DVDPlayer.h"
 #include "cores/paplayer/PAPlayer.h"
-#if defined(HAS_AMLPLAYER)
-#include "cores/amlplayer/AMLPlayer.h"
-#endif
 #if defined(HAS_OMXPLAYER)
 #include "cores/omxplayer/OMXPlayer.h"
 #endif
@@ -105,9 +102,6 @@ public:
       case EPC_PAPLAYER: pPlayer = new PAPlayer(callback); break;
 #endif
       case EPC_EXTPLAYER: pPlayer = new CExternalPlayer(callback); break;
-#if defined(HAS_AMLPLAYER)
-      case EPC_AMLPLAYER: pPlayer = new CAMLPlayer(callback); break;
-#endif
 #if defined(HAS_OMXPLAYER)
       case EPC_OMXPLAYER: pPlayer = new COMXPlayer(callback); break;
 #endif

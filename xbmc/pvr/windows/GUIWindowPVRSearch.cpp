@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "dialogs/GUIDialogOK.h"
 #include "dialogs/GUIDialogProgress.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/Key.h"
 #include "pvr/PVRManager.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
 #include "pvr/dialogs/GUIDialogPVRGuideSearch.h"
@@ -140,7 +141,7 @@ void CGUIWindowPVRSearch::UpdateData(bool bUpdateSelectedFile /* = true */)
   }
   else
   {
-    m_parent->m_vecItems->Sort(m_iSortMethod, m_iSortOrder);
+    m_parent->m_vecItems->Sort(m_iSortMethod, m_iSortOrder, m_iSortAttributes);
   }
 
   m_parent->m_viewControl.SetItems(*m_parent->m_vecItems);

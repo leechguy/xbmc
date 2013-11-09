@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,13 +26,17 @@
 #include "GUIFont.h"
 #include "utils/XMLUtils.h"
 #include "GUIControlFactory.h"
+#include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "filesystem/SpecialProtocol.h"
+#include "settings/Setting.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
 #include "utils/StringUtils.h"
 #include "windowing/WindowingFactory.h"
+#include "FileItem.h"
 #include "URL.h"
+#include "Util.h"
 
 using namespace std;
 
@@ -47,7 +51,7 @@ GUIFontManager::~GUIFontManager(void)
   Clear();
 }
 
-void GUIFontManager::RescaleFontSizeAndAspect(float *size, float *aspect, const RESOLUTION_INFO &sourceRes, bool preserveAspect) const
+void GUIFontManager::RescaleFontSizeAndAspect(float *size, float *aspect, const RESOLUTION_INFO &sourceRes, bool preserveAspect)
 {
   // set scaling resolution so that we can scale our font sizes correctly
   // as fonts aren't scaled at render time (due to aliasing) we must scale
@@ -57,7 +61,7 @@ void GUIFontManager::RescaleFontSizeAndAspect(float *size, float *aspect, const 
   if (preserveAspect)
   {
     // font always displayed in the aspect specified by the aspect parameter
-    *aspect /= g_graphicsContext.GetPixelRatio(g_graphicsContext.GetVideoResolution());
+    *aspect /= g_graphicsContext.GetResInfo().fPixelRatio;
   }
   else
   {
@@ -78,7 +82,7 @@ static bool CheckFont(CStdString& strPath, const CStdString& newPath,
   if (!XFILE::CFile::Exists(strPath))
   {
     strPath = URIUtils::AddFileToFolder(newPath,filename);
-#ifdef _LINUX
+#ifdef TARGET_POSIX
     strPath = CSpecialProtocol::TranslatePathConvertCase(strPath);
 #endif
     return false;
@@ -112,7 +116,7 @@ CGUIFont* GUIFontManager::LoadTTF(const CStdString& strFontName, const CStdStrin
   else
     strPath = strFilename;
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
   strPath = CSpecialProtocol::TranslatePathConvertCase(strPath);
 #endif
 
@@ -235,17 +239,6 @@ void GUIFontManager::ReloadTTFFonts(void)
 
     font->SetFont(pFontFile);
   }
-}
-
-void GUIFontManager::UnloadTTFFonts()
-{
-  for (vector<CGUIFontTTFBase*>::iterator i = m_vecFontFiles.begin(); i != m_vecFontFiles.end(); i++)
-    delete (*i);
-
-  m_vecFontFiles.clear();
-
-  for (vector<CGUIFont*>::iterator i = m_vecFonts.begin(); i != m_vecFonts.end(); i++)
-    (*i)->SetFont(NULL);
 }
 
 void GUIFontManager::Unload(const CStdString& strFontName)
@@ -575,4 +568,28 @@ bool GUIFontManager::IsFontSetUnicode(const CStdString& strFontSet)
   }
 
   return false;
+}
+
+void GUIFontManager::SettingOptionsFontsFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current)
+{
+  CFileItemList items;
+  CFileItemList items2;
+
+  // find TTF fonts
+  XFILE::CDirectory::GetDirectory("special://home/media/Fonts/", items2);
+
+  if (XFILE::CDirectory::GetDirectory("special://xbmc/media/Fonts/", items))
+  {
+    items.Append(items2);
+    for (int i = 0; i < items.Size(); ++i)
+    {
+      CFileItemPtr pItem = items[i];
+
+      if (!pItem->m_bIsFolder
+          && URIUtils::HasExtension(pItem->GetLabel(), ".ttf"))
+      {
+        list.push_back(make_pair(pItem->GetLabel(), pItem->GetLabel()));
+      }
+    }
+  }
 }

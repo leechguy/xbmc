@@ -9,8 +9,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 #include "IMsgTargetCallback.h"
 #include "DirtyRegionTracker.h"
 #include "utils/GlobalsHandling.h"
+#include <list>
 
 class CGUIDialog;
 
@@ -61,12 +62,12 @@ public:
   void ActivateWindow(int iWindowID, const std::vector<CStdString>& params, bool swappingWindows = false);
   void PreviousWindow();
 
-  void CloseDialogs(bool forceClose = false);
+  void CloseDialogs(bool forceClose = false) const;
 
   // OnAction() runs through our active dialogs and windows and sends the message
   // off to the callbacks (application, python, playlist player) and to the
   // currently focused window(s).  Returns true only if the message is handled.
-  bool OnAction(const CAction &action);
+  bool OnAction(const CAction &action) const;
 
   /*! \brief Process active controls allowing them to animate before rendering.
    */
@@ -118,9 +119,11 @@ public:
   void RemoveDialog(int id);
   int GetTopMostModalDialogID(bool ignoreClosing = false) const;
 
-  void SendThreadMessage(CGUIMessage& message);
-  void SendThreadMessage(CGUIMessage& message, int window);
+  void SendThreadMessage(CGUIMessage& message, int window = 0);
   void DispatchThreadMessages();
+  // method to removed queued messages with message id in the requested message id list.
+  // pMessageIDList: point to first integer of a 0 ends integer array.
+  int RemoveThreadMessageByMessageIds(int *pMessageIDList);
   void AddMsgTarget( IMsgTargetCallback* pMsgTarget );
   int GetActiveWindow() const;
   int GetFocusedWindow() const;
@@ -139,7 +142,7 @@ public:
   void DumpTextureUse();
 #endif
 private:
-  void RenderPass();
+  void RenderPass() const;
 
   void LoadNotOnDemandWindows();
   void UnloadNotOnDemandWindows();
@@ -165,7 +168,7 @@ private:
   std::stack<int> m_windowHistory;
 
   IWindowManagerCallback* m_pCallback;
-  std::vector < std::pair<CGUIMessage*,int> > m_vecThreadMessages;
+  std::list < std::pair<CGUIMessage*,int> > m_vecThreadMessages;
   CCriticalSection m_critSection;
   std::vector <IMsgTargetCallback*> m_vecMsgTargets;
 

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,17 +26,12 @@
 #include <limits>
 #include "utils/log.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 extern "C" FILE *fopen_utf8(const char *_Filename, const char *_Mode);
 #else
 #define fopen_utf8 fopen
 #endif
 
-typedef struct _UNICODE_STRING {
-  USHORT  Length;
-  USHORT  MaximumLength;
-  PWSTR  Buffer;
-} UNICODE_STRING, *PUNICODE_STRING;
 #include "commons/Exception.h"
 
 #define DLL_PROCESS_DETACH   0
@@ -54,7 +49,7 @@ typedef struct _UNICODE_STRING {
 typedef BOOL (APIENTRY *EntryFunc)(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved);
 
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 /*
  * This is a dirty hack.
  * The win32 DLLs contain an alloca routine, that first probes the soon
@@ -106,11 +101,6 @@ DllLoader::DllLoader(const char *sDll, bool bTrack, bool bSystemDll, bool bLoadS
   if (m_bSystemDll)
     hModule = (HMODULE)this;
 
-  if (stricmp(sDll, "special://xbmcbin/system/python/python24.dll")==0 ||
-      strstr(sDll, ".pyd") != NULL)
-  {
-    m_bLoadSymbols=true;
-  }
 }
 
 DllLoader::~DllLoader()
@@ -672,7 +662,7 @@ bool DllLoader::Load()
     /* since we are handing execution over to unknown code, safeguard here */
     try
     {
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 	extend_stack_for_dll_alloca();
 #endif
       initdll((HINSTANCE)hModule, DLL_PROCESS_ATTACH , 0); //call "DllMain" with DLL_PROCESS_ATTACH

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,11 +25,10 @@
 #include "video/VideoInfoDownloader.h"
 #include "addons/AddonManager.h"
 #include "filesystem/File.h"
-#include "settings/GUISettings.h"
 #include "FileItem.h"
 #include "music/Album.h"
 #include "music/Artist.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "utils/log.h"
 
 #include <vector>
@@ -71,6 +70,8 @@ CNfoFile::NFOResult CNfoFile::Create(const CStdString& strPath, const ScraperPtr
     if (episode > -1 && bNfo && m_type == ADDON_SCRAPER_TVSHOWS)
     {
       int infos=0;
+      m_headofdoc = strstr(m_headofdoc,"<episodedetails");
+      bNfo = GetDetails(details);
       while (m_headofdoc && details.m_iEpisode != episode)
       {
         m_headofdoc = strstr(m_headofdoc+1,"<episodedetails");
@@ -131,6 +132,11 @@ CNfoFile::NFOResult CNfoFile::Create(const CStdString& strPath, const ScraperPtr
 // return value: 0 - success; 1 - no result; skip; 2 - error
 int CNfoFile::Scrape(ScraperPtr& scraper)
 {
+  if (scraper->IsNoop())
+  {
+    m_scurl = CScraperUrl();
+    return 0;
+  }
   if (scraper->Type() != m_type)
     return 1;
   scraper->ClearCache();
@@ -183,7 +189,7 @@ int CNfoFile::Load(const CStdString& strFile)
 
 void CNfoFile::Close()
 {
-  delete m_doc;
+  delete[] m_doc;
   m_doc = NULL;
   m_scurl.Clear();
 }

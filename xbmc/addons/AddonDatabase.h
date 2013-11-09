@@ -1,7 +1,7 @@
 #pragma once
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ public:
   int AddRepository(const CStdString& id, const ADDON::VECADDONS& addons, const CStdString& checksum);
   void DeleteRepository(const CStdString& id);
   void DeleteRepository(int id);
-  int GetRepoChecksum(const CStdString& id, CStdString& checksum);
+  int GetRepoChecksum(const std::string& id, std::string& checksum);
   bool GetRepository(const CStdString& id, ADDON::VECADDONS& addons);
   bool GetRepository(int id, ADDON::VECADDONS& addons);
   bool SetRepoTimestamp(const CStdString& id, const CStdString& timestamp);

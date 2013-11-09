@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -38,8 +38,9 @@ string CJSONVariantWriter::Write(const CVariant &value, bool compact)
 #endif
 
   // Set locale to classic ("C") to ensure valid JSON numbers
-  std::string currentLocale = setlocale(LC_NUMERIC, NULL);
-  setlocale(LC_NUMERIC, "C");
+  const char *currentLocale = setlocale(LC_NUMERIC, NULL);
+  if (currentLocale != NULL)
+    setlocale(LC_NUMERIC, "C");
 
   if (InternalWrite(g, value))
   {
@@ -56,7 +57,8 @@ string CJSONVariantWriter::Write(const CVariant &value, bool compact)
   }
 
   // Re-set locale to what it was before using yajl
-  setlocale(LC_NUMERIC, currentLocale.c_str());
+  if (currentLocale != NULL)
+    setlocale(LC_NUMERIC, currentLocale);
 
   yajl_gen_clear(g);
   yajl_gen_free(g);

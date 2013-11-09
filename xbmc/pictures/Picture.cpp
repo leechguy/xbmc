@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,21 +19,20 @@
  */
 
 #include "system.h"
-#if (defined HAVE_CONFIG_H) && (!defined WIN32)
+#if (defined HAVE_CONFIG_H) && (!defined TARGET_WINDOWS)
   #include "config.h"
 #endif
 
 #include "Picture.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "FileItem.h"
 #include "filesystem/File.h"
-#include "DllImageLib.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
 #include "DllSwScale.h"
-#include "guilib/JpegIO.h"
 #include "guilib/Texture.h"
+#include "guilib/imagefactory.h"
 #if defined(HAS_OMXPLAYER)
 #include "cores/omxplayer/OMXImage.h"
 #endif
@@ -43,24 +42,36 @@ using namespace XFILE;
 bool CPicture::CreateThumbnailFromSurface(const unsigned char *buffer, int width, int height, int stride, const CStdString &thumbFile)
 {
   CLog::Log(LOGDEBUG, "cached image '%s' size %dx%d", thumbFile.c_str(), width, height);
-  if (URIUtils::GetExtension(thumbFile).Equals(".jpg"))
+  if (URIUtils::HasExtension(thumbFile, ".jpg"))
   {
 #if defined(HAS_OMXPLAYER)
-    COMXImage *omxImage = new COMXImage();
-    if (omxImage && omxImage->CreateThumbnailFromSurface((BYTE *)buffer, width, height, XB_FMT_A8R8G8B8, stride, thumbFile.c_str()))
-    {
-      delete omxImage;
+    if (COMXImage::CreateThumbnailFromSurface((BYTE *)buffer, width, height, XB_FMT_A8R8G8B8, stride, thumbFile.c_str()))
       return true;
-    }
-    delete omxImage;
 #endif
-    CJpegIO jpegImage;
-    if (jpegImage.CreateThumbnailFromSurface((BYTE *)buffer, width, height, XB_FMT_A8R8G8B8, stride, thumbFile.c_str()))
-      return true;
   }
-  DllImageLib dll;
-  if (!buffer || !dll.Load()) return false;
-  return dll.CreateThumbnailFromSurface((BYTE *)buffer, width, height, stride, thumbFile.c_str());
+
+  unsigned char *thumb = NULL;
+  unsigned int thumbsize=0;
+  IImage* pImage = ImageFactory::CreateLoader(thumbFile);
+  if(pImage == NULL || !pImage->CreateThumbnailFromSurface((BYTE *)buffer, width, height, XB_FMT_A8R8G8B8, stride, thumbFile.c_str(), thumb, thumbsize))
+  {
+    CLog::Log(LOGERROR, "Failed to CreateThumbnailFromSurface for %s", thumbFile.c_str());
+    delete pImage;
+    return false;
+  }
+
+  XFILE::CFile file;
+  if (file.OpenForWrite(thumbFile, true))
+  {
+    file.Write(thumb, thumbsize);
+    file.Close();
+    pImage->ReleaseThumbnailBuffer();
+    delete pImage;
+    return true;
+  }
+  pImage->ReleaseThumbnailBuffer();
+  delete pImage;
+  return false;
 }
 
 CThumbnailWriter::CThumbnailWriter(unsigned char* buffer, int width, int height, int stride, const CStdString& thumbFile)
@@ -103,9 +114,9 @@ bool CPicture::CacheTexture(uint8_t *pixels, uint32_t width, uint32_t height, ui
 
   uint32_t max_height = g_advancedSettings.m_imageRes;
   if (g_advancedSettings.m_fanartRes > g_advancedSettings.m_imageRes)
-  { // a separate fanart resolution is specified - check if the image is exactly equal to this res
-    if (width * 9 == height * 16 && height >= g_advancedSettings.m_fanartRes)
-    { // special case for 16x9 images larger than the fanart res
+  { // 16x9 images larger than the fanart res use that rather than the image res
+    if (fabsf((float)width / (float)height / (16.0f/9.0f) - 1.0f) <= 0.01f && height >= g_advancedSettings.m_fanartRes)
+    {
       max_height = g_advancedSettings.m_fanartRes;
     }
   }
@@ -168,7 +179,7 @@ bool CPicture::CreateTiledThumb(const std::vector<std::string> &files, const std
     int y = i / num_across;
     // load in the image
     unsigned int width = tile_width - 2*tile_gap, height = tile_height - 2*tile_gap;
-    CBaseTexture *texture = CTexture::LoadFromFile(files[i], width, height, g_guiSettings.GetBool("pictures.useexifrotation"));
+    CBaseTexture *texture = CTexture::LoadFromFile(files[i], width, height, CSettings::Get().GetBool("pictures.useexifrotation"));
     if (texture && texture->GetWidth() && texture->GetHeight())
     {
       GetScale(texture->GetWidth(), texture->GetHeight(), width, height);

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2011-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2011-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
 #include "URL.h"
 #include "filesystem/File.h"
 #include "network/WebServer.h"
-#include "settings/Settings.h"
+#include "settings/MediaSourceSettings.h"
 #include "utils/URIUtils.h"
 
 using namespace std;
@@ -58,14 +58,14 @@ int CHTTPVfsHandler::HandleHTTPRequest(const HTTPRequest &request)
         VECSOURCES *sources = NULL;
         for (unsigned int index = 0; index < size && !accessible; index++)
         {
-          sources = g_settings.GetSourcesFromType(sourceTypes[index]);
+          sources = CMediaSourceSettings::Get().GetSources(sourceTypes[index]);
           if (sources == NULL)
             continue;
 
           for (VECSOURCES::const_iterator source = sources->begin(); source != sources->end() && !accessible; source++)
           {
-            // don't allow access to locked sources
-            if (source->m_iHasLock == 2)
+            // don't allow access to locked / disabled sharing sources
+            if (source->m_iHasLock == 2 || !source->m_allowSharing)
               continue;
 
             for (vector<CStdString>::const_iterator path = source->vecPaths.begin(); path != source->vecPaths.end(); path++)

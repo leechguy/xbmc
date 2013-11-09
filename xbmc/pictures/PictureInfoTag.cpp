@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "Util.h"
 #include "utils/Variant.h"
 #include "utils/CharsetConverter.h"
+#include "utils/StringUtils.h"
 
 using namespace std;
 
@@ -31,6 +32,8 @@ void CPictureInfoTag::Reset()
   memset(&m_exifInfo, 0, sizeof(m_exifInfo));
   memset(&m_iptcInfo, 0, sizeof(m_iptcInfo));
   m_isLoaded = false;
+  m_isInfoSetExternally = false;
+  m_dateTimeTaken.Reset();
 }
 
 const CPictureInfoTag& CPictureInfoTag::operator=(const CPictureInfoTag& right)
@@ -39,6 +42,8 @@ const CPictureInfoTag& CPictureInfoTag::operator=(const CPictureInfoTag& right)
   memcpy(&m_exifInfo, &right.m_exifInfo, sizeof(m_exifInfo));
   memcpy(&m_iptcInfo, &right.m_iptcInfo, sizeof(m_iptcInfo));
   m_isLoaded = right.m_isLoaded;
+  m_isInfoSetExternally = right.m_isInfoSetExternally;
+  m_dateTimeTaken = right.m_dateTimeTaken;
   return *this;
 }
 
@@ -53,6 +58,8 @@ bool CPictureInfoTag::Load(const CStdString &path)
   if (exifDll.process_jpeg(path.c_str(), &m_exifInfo, &m_iptcInfo))
     m_isLoaded = true;
 
+  ConvertDateTime();
+
   return m_isLoaded;
 }
 
@@ -61,6 +68,7 @@ void CPictureInfoTag::Archive(CArchive& ar)
   if (ar.IsStoring())
   {
     ar << m_isLoaded;
+    ar << m_isInfoSetExternally;
     ar << m_exifInfo.ApertureFNumber;
     ar << CStdString(m_exifInfo.CameraMake);
     ar << CStdString(m_exifInfo.CameraModel);
@@ -98,6 +106,7 @@ void CPictureInfoTag::Archive(CArchive& ar)
     ar << m_exifInfo.ThumbnailSizeOffset;
     ar << m_exifInfo.Whitebalance;
     ar << m_exifInfo.Width;
+    ar << m_dateTimeTaken;
 
     ar << CStdString(m_iptcInfo.Author);
     ar << CStdString(m_iptcInfo.Byline);
@@ -105,7 +114,7 @@ void CPictureInfoTag::Archive(CArchive& ar)
     ar << CStdString(m_iptcInfo.Caption);
     ar << CStdString(m_iptcInfo.Category);
     ar << CStdString(m_iptcInfo.City);
-    ar << CStdString(m_iptcInfo.Copyright);
+    ar << CStdString(m_iptcInfo.Urgency);
     ar << CStdString(m_iptcInfo.CopyrightNotice);
     ar << CStdString(m_iptcInfo.Country);
     ar << CStdString(m_iptcInfo.CountryCode);
@@ -120,10 +129,14 @@ void CPictureInfoTag::Archive(CArchive& ar)
     ar << CStdString(m_iptcInfo.State);
     ar << CStdString(m_iptcInfo.SupplementalCategories);
     ar << CStdString(m_iptcInfo.TransmissionReference);
+    ar << CStdString(m_iptcInfo.TimeCreated);
+    ar << CStdString(m_iptcInfo.SubLocation);
+    ar << CStdString(m_iptcInfo.ImageType);
   }
   else
   {
     ar >> m_isLoaded;
+    ar >> m_isInfoSetExternally;
     ar >> m_exifInfo.ApertureFNumber;
     GetStringFromArchive(ar, m_exifInfo.CameraMake, sizeof(m_exifInfo.CameraMake));
     GetStringFromArchive(ar, m_exifInfo.CameraModel, sizeof(m_exifInfo.CameraModel));
@@ -162,6 +175,7 @@ void CPictureInfoTag::Archive(CArchive& ar)
     ar >> m_exifInfo.ThumbnailSizeOffset;
     ar >> m_exifInfo.Whitebalance;
     ar >> m_exifInfo.Width;
+    ar >> m_dateTimeTaken;
 
     GetStringFromArchive(ar, m_iptcInfo.Author, sizeof(m_iptcInfo.Author));
     GetStringFromArchive(ar, m_iptcInfo.Byline, sizeof(m_iptcInfo.Byline));
@@ -169,7 +183,7 @@ void CPictureInfoTag::Archive(CArchive& ar)
     GetStringFromArchive(ar, m_iptcInfo.Caption, sizeof(m_iptcInfo.Caption));
     GetStringFromArchive(ar, m_iptcInfo.Category, sizeof(m_iptcInfo.Category));
     GetStringFromArchive(ar, m_iptcInfo.City, sizeof(m_iptcInfo.City));
-    GetStringFromArchive(ar, m_iptcInfo.Copyright, sizeof(m_iptcInfo.Copyright));
+    GetStringFromArchive(ar, m_iptcInfo.Urgency, sizeof(m_iptcInfo.Urgency));
     GetStringFromArchive(ar, m_iptcInfo.CopyrightNotice, sizeof(m_iptcInfo.CopyrightNotice));
     GetStringFromArchive(ar, m_iptcInfo.Country, sizeof(m_iptcInfo.Country));
     GetStringFromArchive(ar, m_iptcInfo.CountryCode, sizeof(m_iptcInfo.CountryCode));
@@ -184,6 +198,9 @@ void CPictureInfoTag::Archive(CArchive& ar)
     GetStringFromArchive(ar, m_iptcInfo.State, sizeof(m_iptcInfo.State));
     GetStringFromArchive(ar, m_iptcInfo.SupplementalCategories, sizeof(m_iptcInfo.SupplementalCategories));
     GetStringFromArchive(ar, m_iptcInfo.TransmissionReference, sizeof(m_iptcInfo.TransmissionReference));
+    GetStringFromArchive(ar, m_iptcInfo.TimeCreated, sizeof(m_iptcInfo.TimeCreated));
+    GetStringFromArchive(ar, m_iptcInfo.SubLocation, sizeof(m_iptcInfo.SubLocation));
+    GetStringFromArchive(ar, m_iptcInfo.ImageType, sizeof(m_iptcInfo.ImageType));
   }
 }
 
@@ -233,7 +250,7 @@ void CPictureInfoTag::Serialize(CVariant& value) const
   value["caption"] = CStdString(m_iptcInfo.Caption);
   value["category"] = CStdString(m_iptcInfo.Category);
   value["city"] = CStdString(m_iptcInfo.City);
-  value["copyright"] = CStdString(m_iptcInfo.Copyright);
+  value["urgency"] = CStdString(m_iptcInfo.Urgency);
   value["copyrightnotice"] = CStdString(m_iptcInfo.CopyrightNotice);
   value["country"] = CStdString(m_iptcInfo.Country);
   value["countrycode"] = CStdString(m_iptcInfo.CountryCode);
@@ -248,11 +265,15 @@ void CPictureInfoTag::Serialize(CVariant& value) const
   value["state"] = CStdString(m_iptcInfo.State);
   value["supplementalcategories"] = CStdString(m_iptcInfo.SupplementalCategories);
   value["transmissionreference"] = CStdString(m_iptcInfo.TransmissionReference);
+  value["timecreated"] = CStdString(m_iptcInfo.TimeCreated);
+  value["sublocation"] = CStdString(m_iptcInfo.SubLocation);
+  value["imagetype"] = CStdString(m_iptcInfo.ImageType);
 }
 
-void CPictureInfoTag::ToSortable(SortItem& sortable)
+void CPictureInfoTag::ToSortable(SortItem& sortable, Field field) const
 {
-  
+  if (field == FieldDateTaken && m_dateTimeTaken.IsValid())
+    sortable[FieldDateTaken] = m_dateTimeTaken.GetAsDBDateTime();
 }
 
 void CPictureInfoTag::GetStringFromArchive(CArchive &ar, char *string, size_t length)
@@ -267,7 +288,7 @@ void CPictureInfoTag::GetStringFromArchive(CArchive &ar, char *string, size_t le
 
 const CStdString CPictureInfoTag::GetInfo(int info) const
 {
-  if (!m_isLoaded)
+  if (!m_isLoaded && !m_isInfoSetExternally) // If no metadata has been loaded from the picture file or set with SetInfo(), just return
     return "";
 
   CStdString value;
@@ -308,7 +329,7 @@ const CStdString CPictureInfoTag::GetInfo(int info) const
     // Ascii, Unicode (UCS2), JIS (X208-1990), Unknown (application specific)
     if (m_exifInfo.CommentsCharset == EXIF_COMMENT_CHARSET_UNICODE)
     {
-      g_charsetConverter.ucs2ToUTF8(CStdString16((uint16_t*)m_exifInfo.Comments), value);
+      g_charsetConverter.ucs2ToUTF8(std::u16string((char16_t*)m_exifInfo.Comments), value);
     }
     else
     {
@@ -319,23 +340,21 @@ const CStdString CPictureInfoTag::GetInfo(int info) const
       value = m_exifInfo.Comments;
     }
     break;
+  case SLIDE_EXIF_LONG_DATE_TIME:
+    if (m_dateTimeTaken.IsValid())
+      value = m_dateTimeTaken.GetAsLocalizedDateTime(true);
+    break;
   case SLIDE_EXIF_DATE_TIME:
+    if (m_dateTimeTaken.IsValid())
+      value = m_dateTimeTaken.GetAsLocalizedDateTime();
+    break;
+  case SLIDE_EXIF_LONG_DATE:
+    if (m_dateTimeTaken.IsValid())
+      value = m_dateTimeTaken.GetAsLocalizedDate(true);
+    break;
   case SLIDE_EXIF_DATE:
-    if (strlen(m_exifInfo.DateTime) >= 19 && m_exifInfo.DateTime[0] != ' ')
-    {
-      CStdString dateTime = m_exifInfo.DateTime;
-      int year  = atoi(dateTime.Mid(0, 4).c_str());
-      int month = atoi(dateTime.Mid(5, 2).c_str());
-      int day   = atoi(dateTime.Mid(8, 2).c_str());
-      int hour  = atoi(dateTime.Mid(11,2).c_str());
-      int min   = atoi(dateTime.Mid(14,2).c_str());
-      int sec   = atoi(dateTime.Mid(17,2).c_str());
-      CDateTime date(year, month, day, hour, min, sec);
-      if(SLIDE_EXIF_DATE_TIME == info)
-          value = date.GetAsLocalizedDateTime();
-      else
-          value = date.GetAsLocalizedDate();
-    }
+    if (m_dateTimeTaken.IsValid())
+      value = m_dateTimeTaken.GetAsLocalizedDate();
     break;
   case SLIDE_EXIF_DESCRIPTION:
     value = m_exifInfo.Description;
@@ -405,7 +424,7 @@ const CStdString CPictureInfoTag::GetInfo(int info) const
     break;
   case SLIDE_EXIF_EXPOSURE_BIAS:
     if (m_exifInfo.ExposureBias != 0)
-      value.Format("%4.2", m_exifInfo.ExposureBias);
+      value.Format("%4.2f EV", m_exifInfo.ExposureBias);
     break;
   case SLIDE_EXIF_EXPOSURE_MODE:
     switch (m_exifInfo.ExposureMode)
@@ -509,9 +528,12 @@ const CStdString CPictureInfoTag::GetInfo(int info) const
   case SLIDE_IPTC_COUNTRY:          value = m_iptcInfo.Country;                 break;
   case SLIDE_IPTC_TX_REFERENCE:     value = m_iptcInfo.TransmissionReference;   break;
   case SLIDE_IPTC_DATE:             value = m_iptcInfo.Date;                    break;
-  case SLIDE_IPTC_COPYRIGHT:        value = m_iptcInfo.Copyright;               break;
+  case SLIDE_IPTC_URGENCY:          value = m_iptcInfo.Urgency;                 break;
   case SLIDE_IPTC_COUNTRY_CODE:     value = m_iptcInfo.CountryCode;             break;
   case SLIDE_IPTC_REF_SERVICE:      value = m_iptcInfo.ReferenceService;        break;
+  case SLIDE_IPTC_TIMECREATED:      value = m_iptcInfo.TimeCreated;             break;
+  case SLIDE_IPTC_SUBLOCATION:      value = m_iptcInfo.SubLocation;             break;
+  case SLIDE_IPTC_IMAGETYPE:        value = m_iptcInfo.ImageType;               break;
   default:
     break;
   }
@@ -531,12 +553,14 @@ int CPictureInfoTag::TranslateString(const CStdString &info)
   else if (info.Equals("process")) return SLIDE_PROCESS;
   else if (info.Equals("exiftime")) return SLIDE_EXIF_DATE_TIME;
   else if (info.Equals("exifdate")) return SLIDE_EXIF_DATE;
+  else if (info.Equals("longexiftime")) return SLIDE_EXIF_LONG_DATE_TIME;
+  else if (info.Equals("longexifdate")) return SLIDE_EXIF_LONG_DATE;
   else if (info.Equals("exifdescription")) return SLIDE_EXIF_DESCRIPTION;
   else if (info.Equals("cameramake")) return SLIDE_EXIF_CAMERA_MAKE;
   else if (info.Equals("cameramodel")) return SLIDE_EXIF_CAMERA_MODEL;
   else if (info.Equals("exifcomment")) return SLIDE_EXIF_COMMENT;
   else if (info.Equals("exifsoftware")) return SLIDE_EXIF_SOFTWARE;
-  else if (info.Equals("apreture")) return SLIDE_EXIF_APERTURE;
+  else if (info.Equals("aperture")) return SLIDE_EXIF_APERTURE;
   else if (info.Equals("focallength")) return SLIDE_EXIF_FOCAL_LENGTH;
   else if (info.Equals("focusdistance")) return SLIDE_EXIF_FOCUS_DIST;
   else if (info.Equals("exposure")) return SLIDE_EXIF_EXPOSURE;
@@ -555,7 +579,7 @@ int CPictureInfoTag::TranslateString(const CStdString &info)
   else if (info.Equals("keywords")) return SLIDE_IPTC_KEYWORDS;
   else if (info.Equals("caption")) return SLIDE_IPTC_CAPTION;
   else if (info.Equals("author")) return SLIDE_IPTC_AUTHOR;
-  else if (info.Equals("healine")) return SLIDE_IPTC_HEADLINE;
+  else if (info.Equals("headline")) return SLIDE_IPTC_HEADLINE;
   else if (info.Equals("specialinstructions")) return SLIDE_IPTC_SPEC_INSTR;
   else if (info.Equals("category")) return SLIDE_IPTC_CATEGORY;
   else if (info.Equals("byline")) return SLIDE_IPTC_BYLINE;
@@ -569,12 +593,15 @@ int CPictureInfoTag::TranslateString(const CStdString &info)
   else if (info.Equals("country")) return SLIDE_IPTC_COUNTRY;
   else if (info.Equals("transmissionreference")) return SLIDE_IPTC_TX_REFERENCE;
   else if (info.Equals("iptcdate")) return SLIDE_IPTC_DATE;
-  else if (info.Equals("copyright")) return SLIDE_IPTC_COPYRIGHT;
+  else if (info.Equals("urgency")) return SLIDE_IPTC_URGENCY;
   else if (info.Equals("countrycode")) return SLIDE_IPTC_COUNTRY_CODE;
   else if (info.Equals("referenceservice")) return SLIDE_IPTC_REF_SERVICE;
   else if (info.Equals("latitude")) return SLIDE_EXIF_GPS_LATITUDE;
   else if (info.Equals("longitude")) return SLIDE_EXIF_GPS_LONGITUDE;
   else if (info.Equals("altitude")) return SLIDE_EXIF_GPS_ALTITUDE;
+  else if (info.Equals("timecreated")) return SLIDE_IPTC_TIMECREATED;
+  else if (info.Equals("sublocation")) return SLIDE_IPTC_SUBLOCATION;
+  else if (info.Equals("imagetype")) return SLIDE_IPTC_IMAGETYPE;
   return 0;
 }
 
@@ -584,18 +611,21 @@ void CPictureInfoTag::SetInfo(int info, const CStdString& value)
   {
   case SLIDE_RESOLUTION:
     {
-      vector<CStdString> dimension;
-      CUtil::Tokenize(value, dimension, ",");
+      vector<std::string> dimension;
+      StringUtils::Tokenize(value, dimension, ",");
       if (dimension.size() == 2)
       {
         m_exifInfo.Width = atoi(dimension[0].c_str());
         m_exifInfo.Height = atoi(dimension[1].c_str());
+        m_isInfoSetExternally = true; // Set the internal state to show metadata has been set by call to SetInfo
       }
       break;
     }
   case SLIDE_EXIF_DATE_TIME:
     {
       strcpy(m_exifInfo.DateTime, value.c_str());
+      m_isInfoSetExternally = true; // Set the internal state to show metadata has been set by call to SetInfo
+      ConvertDateTime();
       break;
     }
   default:
@@ -603,8 +633,22 @@ void CPictureInfoTag::SetInfo(int info, const CStdString& value)
   }
 }
 
-void CPictureInfoTag::SetLoaded(bool loaded)
+const CDateTime& CPictureInfoTag::GetDateTimeTaken() const
 {
-  m_isLoaded = loaded;
+  return m_dateTimeTaken;
 }
 
+void CPictureInfoTag::ConvertDateTime()
+{
+  if (strlen(m_exifInfo.DateTime) >= 19 && m_exifInfo.DateTime[0] != ' ')
+  {
+    CStdString dateTime = m_exifInfo.DateTime;
+    int year  = atoi(dateTime.Mid(0, 4).c_str());
+    int month = atoi(dateTime.Mid(5, 2).c_str());
+    int day   = atoi(dateTime.Mid(8, 2).c_str());
+    int hour  = atoi(dateTime.Mid(11,2).c_str());
+    int min   = atoi(dateTime.Mid(14,2).c_str());
+    int sec   = atoi(dateTime.Mid(17,2).c_str());
+    m_dateTimeTaken.SetDateTime(year, month, day, hour, min, sec);
+  }
+}

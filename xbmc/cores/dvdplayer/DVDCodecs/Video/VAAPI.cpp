@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -12,9 +12,9 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  *  Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ *  You should have received a copy of the GNU General Public License
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
  *
  */
 #include "system.h"
@@ -106,6 +106,7 @@ static CDisplayPtr GetGlobalDisplay()
 
   bool deinterlace = true;
   int major, minor, micro;
+  bool support_4k = true;
   if(sscanf(vendor,  "Intel i965 driver - %d.%d.%d", &major, &minor, &micro) == 3)
   {
     /* older version will crash and burn */
@@ -114,9 +115,16 @@ static CDisplayPtr GetGlobalDisplay()
       CLog::Log(LOGDEBUG, "VAAPI - deinterlace not support on this intel driver version");
       deinterlace = false;
     }
+    // do the same check for 4K decoding: version < 1.2.0 (stable) and 1.0.21 (staging)
+    // cannot decode 4K and will crash the GPU
+    if((compare_version(major, minor, micro, 1, 2, 0) < 0) && (compare_version(major, minor, micro, 1, 0, 21) < 0))
+    {
+      support_4k = false;
+    }
   }
 
   display = CDisplayPtr(new CDisplay(disp, deinterlace));
+  display->support_4k(support_4k);
   display_global = display;
   return display;
 }
@@ -161,7 +169,7 @@ void CDecoder::RelBuffer(AVCodecContext *avctx, AVFrame *pic)
 {
   VASurfaceID surface = GetSurfaceID(pic);
 
-  for(std::list<CSurfacePtr>::iterator it = m_surfaces_used.begin(); it != m_surfaces_used.end(); it++)
+  for(std::list<CSurfacePtr>::iterator it = m_surfaces_used.begin(); it != m_surfaces_used.end(); ++it)
   {    
     if((*it)->m_id == surface)
     {
@@ -184,7 +192,7 @@ int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic)
   if(surface)
   {
     /* reget call */
-    for(; it != m_surfaces_free.end(); it++)
+    for(; it != m_surfaces_free.end(); ++it)
     {
       if((*it)->m_id == surface)
       {
@@ -204,7 +212,7 @@ int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic)
   {
     // To avoid stutter, we scan the free surface pool (provided by decoder) for surfaces
     // that are 100% not in use by renderer. The pointers to these surfaces have a use_count of 1.
-    for (; it != m_surfaces_free.end() && it->use_count() > 1; it++) {}
+    for (; it != m_surfaces_free.end() && it->use_count() > 1; ++it) {}
 
     // If we have zero free surface from decoder OR all free surfaces are in use by renderer, we allocate a new surface
     if (it == m_surfaces_free.end())
@@ -217,7 +225,7 @@ int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic)
         return -1;
       }
       // Set itarator position to the newly allocated surface (end-1)
-      it = m_surfaces_free.end(); it--;
+      it = m_surfaces_free.end(); --it;
     }
     /* getbuffer call */
     wrapper = it->get();
@@ -268,14 +276,14 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
 
   vector<VAProfile> accepted;
   switch (avctx->codec_id) {
-    case CODEC_ID_MPEG2VIDEO:
+    case AV_CODEC_ID_MPEG2VIDEO:
       accepted.push_back(VAProfileMPEG2Main);
       break;
-    case CODEC_ID_MPEG4:
-    case CODEC_ID_H263:
+    case AV_CODEC_ID_MPEG4:
+    case AV_CODEC_ID_H263:
       accepted.push_back(VAProfileMPEG4AdvancedSimple);
       break;
-    case CODEC_ID_H264:
+    case AV_CODEC_ID_H264:
     {
 #ifdef FF_PROFILE_H264_BASELINE
       if  (avctx->profile == FF_PROFILE_H264_BASELINE)
@@ -294,10 +302,10 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
       }
       break;
     }
-    case CODEC_ID_WMV3:
+    case AV_CODEC_ID_WMV3:
       accepted.push_back(VAProfileVC1Main);
       break;
-    case CODEC_ID_VC1:
+    case AV_CODEC_ID_VC1:
       accepted.push_back(VAProfileVC1Advanced);
       break;
     default:
@@ -307,6 +315,12 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
   m_display = GetGlobalDisplay();
   if(!m_display)
     return false;
+
+  if(!m_display->support_4k() && (avctx->width > 1920 || avctx->height > 1088))
+  {
+    CLog::Log(LOGDEBUG, "VAAPI - frame size (%dx%d) too large - disallowing", avctx->width, avctx->height);
+    return false;
+  }
 
   int num_display_attrs = 0;
   scoped_array<VADisplayAttribute> display_attrs(new VADisplayAttribute[vaMaxNumDisplayAttributes(m_display->get())]);
@@ -357,6 +371,7 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
   CHECK(vaCreateConfig(m_display->get(), profile, entrypoint, &attrib, 1, &m_hwaccel->config_id))
   m_config = m_hwaccel->config_id;
 
+  m_renderbuffers_count = surfaces;
   if (!EnsureContext(avctx))
     return false;
 
@@ -383,17 +398,23 @@ bool CDecoder::EnsureContext(AVCodecContext *avctx)
   m_refs = avctx->refs;
   if(m_refs == 0)
   {
-    if(avctx->codec_id == CODEC_ID_H264)
+    if(avctx->codec_id == AV_CODEC_ID_H264)
       m_refs = 16;
     else
       m_refs = 2;
   }
-  return EnsureSurfaces(avctx, m_refs + 3);
+  return EnsureSurfaces(avctx, m_refs + m_renderbuffers_count + 1);
 }
 
 bool CDecoder::EnsureSurfaces(AVCodecContext *avctx, unsigned n_surfaces_count)
 {
   CLog::Log(LOGDEBUG, "VAAPI - making sure %d surfaces are allocated for given %d references", n_surfaces_count, avctx->refs);
+
+  if(n_surfaces_count > m_surfaces_max)
+  {
+    CLog::Log(LOGERROR, "VAAPI - Failed to ensure surfaces! Requested %d surfaces. Maximum possible count is %d!", n_surfaces_count, m_surfaces_max);
+    return false;
+  }
 
   if(n_surfaces_count <= m_surfaces_count)
     return true;
@@ -452,7 +473,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, AVFrame* frame, DVDVideoPicture
   m_holder.surface.reset();
 
   std::list<CSurfacePtr>::iterator it;
-  for(it = m_surfaces_used.begin(); it != m_surfaces_used.end() && !m_holder.surface; it++)
+  for(it = m_surfaces_used.begin(); it != m_surfaces_used.end() && !m_holder.surface; ++it)
   {    
     if((*it)->m_id == surface)
     {
@@ -461,7 +482,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, AVFrame* frame, DVDVideoPicture
     }
   }
 
-  for(it = m_surfaces_free.begin(); it != m_surfaces_free.end() && !m_holder.surface; it++)
+  for(it = m_surfaces_free.begin(); it != m_surfaces_free.end() && !m_holder.surface; ++it)
   {    
     if((*it)->m_id == surface)
     {
@@ -509,6 +530,11 @@ int CDecoder::Check(AVCodecContext* avctx)
 
   m_holder.surface.reset();
   return 0;
+}
+
+unsigned CDecoder::GetAllowedReferences()
+{
+  return m_renderbuffers_count;
 }
 
 #endif

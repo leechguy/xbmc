@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@
  */
 
 #include "GUIInfoTypes.h"
-#include "utils/CharsetConverter.h"
 #include "GUIInfoManager.h"
 #include "addons/AddonManager.h"
 #include "utils/log.h"
@@ -68,14 +67,14 @@ CGUIInfoColor::CGUIInfoColor(uint32_t color)
   m_info = 0;
 }
 
-const CGUIInfoColor &CGUIInfoColor::operator=(color_t color)
+CGUIInfoColor &CGUIInfoColor::operator=(color_t color)
 {
   m_color = color;
   m_info = 0;
   return *this;
 }
 
-const CGUIInfoColor &CGUIInfoColor::operator=(const CGUIInfoColor &color)
+CGUIInfoColor &CGUIInfoColor::operator=(const CGUIInfoColor &color)
 {
   m_color = color.m_color;
   m_info = color.m_info;
@@ -106,7 +105,7 @@ void CGUIInfoColor::Parse(const CStdString &label, int context)
   if (label.Equals("-", false))
     return;
 
-  if (label.Left(4).Equals("$VAR", false))
+  if (StringUtils::StartsWithNoCase(label, "$var"))
   {
     label2 = label.Mid(5, label.length() - 6);
     m_info = g_infoManager.TranslateSkinVariableString(label2, context);
@@ -115,7 +114,7 @@ void CGUIInfoColor::Parse(const CStdString &label, int context)
     return;
   }
 
-  if (label.Left(5).Equals("$INFO", false))
+  if (StringUtils::StartsWithNoCase(label, "$info"))
     label2 = label.Mid(6, label.length()-7);
 
   m_info = g_infoManager.TranslateString(label2);

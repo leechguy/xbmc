@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2011-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2011-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,7 +20,6 @@
 
 #include "PipesManager.h"
 #include "threads/SingleLock.h"
-#include "Application.h"
 
 #ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))

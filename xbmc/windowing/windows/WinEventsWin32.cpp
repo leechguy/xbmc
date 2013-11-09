@@ -1,31 +1,38 @@
 /*
-*      Copyright (C) 2005-2012 Team XBMC
-*      http://www.xbmc.org
-*
-*  This Program is free software; you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation; either version 2, or (at your option)
-*  any later version.
-*
-*  This Program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-*  GNU General Public License for more details.
-*
-*  You should have received a copy of the GNU General Public License
-*  along with XBMC; see the file COPYING.  If not, see
-*  <http://www.gnu.org/licenses/>.
-*
-*/
+*      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
+ *
+ *  This Program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2, or (at your option)
+ *  any later version.
+ *
+ *  This Program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
+#include <math.h>
 
 #include "utils/log.h"
 #include "Windowsx.h"
-#include "windowing/WinEvents.h"
+#include "WinEventsWin32.h"
 #include "WIN32Util.h"
 #include "storage/windows/Win32StorageProvider.h"
 #include "Application.h"
 #include "input/XBMC_vkeys.h"
 #include "input/MouseStat.h"
+#include "input/touch/generic/GenericTouchActionHandler.h"
+#include "input/touch/generic/GenericTouchSwipeDetector.h"
 #include "input/windows/WINJoystick.h"
 #include "storage/MediaManager.h"
 #include "windowing/WindowingFactory.h"
@@ -36,18 +43,26 @@
 #include "guilib/GUIControl.h"       // for EVENT_RESULT
 #include "powermanagement/windows/Win32PowerSyscall.h"
 #include "Shlobj.h"
-#include "settings/Settings.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 #include "peripherals/Peripherals.h"
 #include "utils/JobManager.h"
 #include "network/Zeroconf.h"
 #include "network/ZeroconfBrowser.h"
+#include "GUIUserMessages.h"
+#include "utils/CharsetConverter.h"
 
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 
 using namespace PERIPHERALS;
 
 HWND g_hWnd = NULL;
+
+#ifndef LODWORD
+#define LODWORD(longval) ((DWORD)((DWORDLONG)(longval)))
+#endif
+
+#define ROTATE_ANGLE_DEGREE(arg) GID_ROTATE_ANGLE_FROM_ARGUMENT(LODWORD(arg)) * 180 / M_PI
 
 #define XBMC_arraysize(array)	(sizeof(array)/sizeof(array[0]))
 
@@ -64,9 +79,10 @@ uint32_t g_uQueryCancelAutoPlay = 0;
 
 int XBMC_TranslateUNICODE = 1;
 
-PHANDLE_EVENT_FUNC CWinEventsBase::m_pEventFunc = NULL;
-int CWinEventsWin32::m_lastGesturePosX = 0;
-int CWinEventsWin32::m_lastGesturePosY = 0;
+PHANDLE_EVENT_FUNC CWinEventsWin32::m_pEventFunc = NULL;
+int CWinEventsWin32::m_originalZoomDistance = 0;
+Pointer CWinEventsWin32::m_touchPointer;
+CGenericTouchSwipeDetector* CWinEventsWin32::m_touchSwipeDetector = NULL;
 
 // register to receive SD card events (insert/remove)
 // seen at http://www.codeproject.com/Messages/2897423/Re-No-message-triggered-on-SD-card-insertion-remov.aspx
@@ -355,6 +371,16 @@ static XBMC_keysym *TranslateKey(WPARAM vkey, UINT scancode, XBMC_keysym *keysym
   return(keysym);
 }
 
+void CWinEventsWin32::MessagePush(XBMC_Event *newEvent)
+{
+  // m_pEventFunc should be set because MessagePush is only executed by
+  // methods called from WndProc()
+  if (m_pEventFunc == NULL)
+    return;
+
+  m_pEventFunc(*newEvent);
+}
+
 bool CWinEventsWin32::MessagePump()
 {
   MSG  msg;
@@ -364,6 +390,12 @@ bool CWinEventsWin32::MessagePump()
     DispatchMessage( &msg );
   }
   return true;
+}
+
+size_t CWinEventsWin32::GetQueueSize()
+{
+  MSG  msg;
+  return PeekMessage( &msg, NULL, 0U, 0U, PM_NOREMOVE );
 }
 
 LRESULT CALLBACK CWinEventsWin32::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -408,11 +440,11 @@ LRESULT CALLBACK CWinEventsWin32::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
       break;
     case WM_SHOWWINDOW:
       {
-        bool active = g_application.m_AppActive;
-        g_application.m_AppActive = wParam != 0;
-        if (g_application.m_AppActive != active)
-          g_Windowing.NotifyAppActiveChange(g_application.m_AppActive);
-        CLog::Log(LOGDEBUG, __FUNCTION__"Window is %s", g_application.m_AppActive ? "shown" : "hidden");
+        bool active = g_application.GetRenderGUI();
+        g_application.SetRenderGUI(wParam != 0);
+        if (g_application.GetRenderGUI() != active)
+          g_Windowing.NotifyAppActiveChange(g_application.GetRenderGUI());
+        CLog::Log(LOGDEBUG, __FUNCTION__"Window is %s", g_application.GetRenderGUI() ? "shown" : "hidden");
       }
       break;
     case WM_ACTIVATE:
@@ -420,10 +452,10 @@ LRESULT CALLBACK CWinEventsWin32::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         if( WA_INACTIVE != wParam )
           g_Joystick.Reinitialize();
 
-        bool active = g_application.m_AppActive;
+        bool active = g_application.GetRenderGUI();
         if (HIWORD(wParam))
         {
-          g_application.m_AppActive = false;
+          g_application.SetRenderGUI(false);
         }
         else
         {
@@ -432,16 +464,16 @@ LRESULT CALLBACK CWinEventsWin32::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
           if (LOWORD(wParam) != WA_INACTIVE)
           {
             if (GetWindowPlacement(hWnd, &lpwndpl))
-              g_application.m_AppActive = lpwndpl.showCmd != SW_HIDE;
+              g_application.SetRenderGUI(lpwndpl.showCmd != SW_HIDE);
           }
           else
           {
-            g_application.m_AppActive = g_Windowing.WindowedMode();
+            g_application.SetRenderGUI(g_Windowing.WindowedMode());
           }
         }
-        if (g_application.m_AppActive != active)
-          g_Windowing.NotifyAppActiveChange(g_application.m_AppActive);
-        CLog::Log(LOGDEBUG, __FUNCTION__"Window is %s", g_application.m_AppActive ? "active" : "inactive");
+        if (g_application.GetRenderGUI() != active)
+          g_Windowing.NotifyAppActiveChange(g_application.GetRenderGUI());
+        CLog::Log(LOGDEBUG, __FUNCTION__"Window is %s", g_application.GetRenderGUI() ? "active" : "inactive");
       }
       break;
     case WM_SETFOCUS:
@@ -461,9 +493,9 @@ LRESULT CALLBACK CWinEventsWin32::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
       switch( wParam&0xFFF0 )
       {
         case SC_MONITORPOWER:
-          if (g_application.IsPlaying() || g_application.IsPaused())
+          if (g_application.m_pPlayer->IsPlaying() || g_application.m_pPlayer->IsPausedPlayback())
             return 0;
-          else if(g_guiSettings.GetInt("powermanagement.displaysoff") == 0)
+          else if(CSettings::Get().GetInt("powermanagement.displaysoff") == 0)
             return 0;
           break;
         case SC_SCREENSAVE:
@@ -805,33 +837,41 @@ void CWinEventsWin32::OnGestureNotify(HWND hWnd, LPARAM lParam)
   POINT point = { gn->ptsLocation.x, gn->ptsLocation.y };
   WindowFromScreenCoords(hWnd, &point);
 
-  // by default that we want no gestures
+  // by default we only want twofingertap and pressandtap gestures
+  // the other gestures are enabled best on supported gestures
   GESTURECONFIG gc[] = {{ GID_ZOOM, 0, GC_ZOOM},
                         { GID_ROTATE, 0, GC_ROTATE},
                         { GID_PAN, 0, GC_PAN},
-                        { GID_TWOFINGERTAP, 0, GC_TWOFINGERTAP },
-                        { GID_PRESSANDTAP, 0, GC_PRESSANDTAP }};
+                        { GID_TWOFINGERTAP, GC_TWOFINGERTAP, GC_TWOFINGERTAP },
+                        { GID_PRESSANDTAP, GC_PRESSANDTAP, GC_PRESSANDTAP }};
 
   // send a message to see if a control wants any
-  CGUIMessage message(GUI_MSG_GESTURE_NOTIFY, 0, 0, point.x, point.y);
-  if (g_windowManager.SendMessage(message))
+  int gestures = 0;
+  if ((gestures = CGenericTouchActionHandler::Get().QuerySupportedGestures((float)point.x, (float)point.y)) != EVENT_RESULT_UNHANDLED)
   {
-    int gestures = message.GetParam1();
-    if (gestures == EVENT_RESULT_ZOOM)
+    if (gestures & EVENT_RESULT_ZOOM)
       gc[0].dwWant |= GC_ZOOM;
-    if (gestures == EVENT_RESULT_ROTATE)
+    if (gestures & EVENT_RESULT_ROTATE)
       gc[1].dwWant |= GC_ROTATE;
-    if (gestures == EVENT_RESULT_PAN_VERTICAL)
-      gc[2].dwWant |= GC_PAN_WITH_SINGLE_FINGER_VERTICALLY | GC_PAN_WITH_GUTTER | GC_PAN_WITH_INERTIA;
-    if (gestures == EVENT_RESULT_PAN_VERTICAL_WITHOUT_INERTIA)
-      gc[2].dwWant |= GC_PAN_WITH_SINGLE_FINGER_VERTICALLY;
-    if (gestures == EVENT_RESULT_PAN_HORIZONTAL)
-      gc[2].dwWant |= GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY | GC_PAN_WITH_GUTTER | GC_PAN_WITH_INERTIA;
-    if (gestures == EVENT_RESULT_PAN_HORIZONTAL_WITHOUT_INERTIA)
-      gc[2].dwWant |= GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY;
-    gc[0].dwBlock = gc[0].dwWant ^ 1;
-    gc[1].dwBlock = gc[1].dwWant ^ 1;
-    gc[2].dwBlock = gc[2].dwWant ^ 30;
+    if (gestures & EVENT_RESULT_PAN_VERTICAL)
+      gc[2].dwWant |= GC_PAN | GC_PAN_WITH_SINGLE_FINGER_VERTICALLY | GC_PAN_WITH_GUTTER | GC_PAN_WITH_INERTIA;
+    if (gestures & EVENT_RESULT_PAN_VERTICAL_WITHOUT_INERTIA)
+      gc[2].dwWant |= GC_PAN | GC_PAN_WITH_SINGLE_FINGER_VERTICALLY;
+    if (gestures & EVENT_RESULT_PAN_HORIZONTAL)
+      gc[2].dwWant |= GC_PAN | GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY | GC_PAN_WITH_GUTTER | GC_PAN_WITH_INERTIA;
+    if (gestures & EVENT_RESULT_PAN_HORIZONTAL_WITHOUT_INERTIA)
+      gc[2].dwWant |= GC_PAN | GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY;
+    if (gestures & EVENT_RESULT_SWIPE)
+    {
+      gc[2].dwWant |= GC_PAN | GC_PAN_WITH_SINGLE_FINGER_VERTICALLY | GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY | GC_PAN_WITH_GUTTER;
+
+      // create a new touch swipe detector
+      m_touchSwipeDetector = new CGenericTouchSwipeDetector(&CGenericTouchActionHandler::Get(), 160.0f);
+    }
+
+    gc[0].dwBlock = gc[0].dwWant ^ 0x01;
+    gc[1].dwBlock = gc[1].dwWant ^ 0x01;
+    gc[2].dwBlock = gc[2].dwWant ^ 0x1F;
   }
   if (g_Windowing.PtrSetGestureConfig)
     g_Windowing.PtrSetGestureConfig(hWnd, 0, 5, gc, sizeof(GESTURECONFIG));
@@ -849,35 +889,99 @@ void CWinEventsWin32::OnGesture(HWND hWnd, LPARAM lParam)
   // convert to window coordinates
   POINT point = { gi.ptsLocation.x, gi.ptsLocation.y };
   WindowFromScreenCoords(hWnd, &point);
+
+  if (gi.dwID == GID_BEGIN)
+    m_touchPointer.reset();
+
+  // if there's a "current" touch from a previous event, copy it to "last"
+  if (m_touchPointer.current.valid())
+    m_touchPointer.last = m_touchPointer.current;
+
+  // set the "current" touch
+  m_touchPointer.current.x = (float)point.x;
+  m_touchPointer.current.y = (float)point.y;
+  m_touchPointer.current.time = time(NULL);
+
   switch (gi.dwID)
   {
   case GID_BEGIN:
     {
-      m_lastGesturePosX = point.x;
-      m_lastGesturePosY = point.y;
-      g_application.OnAction(CAction(ACTION_GESTURE_BEGIN, 0, (float)point.x, (float)point.y, 0, 0));
+      // set the "down" touch
+      m_touchPointer.down = m_touchPointer.current;
+      m_originalZoomDistance = 0;
+
+      CGenericTouchActionHandler::Get().OnTouchGestureStart((float)point.x, (float)point.y);
     }
     break;
+
   case GID_END:
-    {
-      g_application.OnAction(CAction(ACTION_GESTURE_END));
-    }
+    CGenericTouchActionHandler::Get().OnTouchGestureEnd((float)point.x, (float)point.y, 0.0f, 0.0f, 0.0f, 0.0f);
     break;
+
   case GID_PAN:
     {
-      g_application.OnAction(CAction(ACTION_GESTURE_PAN, 0, (float)point.x, (float)point.y,
-                                    (float)(point.x - m_lastGesturePosX), (float)(point.y - m_lastGesturePosY)));
-      m_lastGesturePosX = point.x;
-      m_lastGesturePosY = point.y;
+      if (!m_touchPointer.moving)
+        m_touchPointer.moving = true;
+
+      // calculate the velocity of the pan gesture
+      float velocityX, velocityY;
+      m_touchPointer.velocity(velocityX, velocityY);
+
+      CGenericTouchActionHandler::Get().OnTouchGesturePan(m_touchPointer.current.x, m_touchPointer.current.y,
+                                                          m_touchPointer.current.x - m_touchPointer.last.x, m_touchPointer.current.y - m_touchPointer.last.y,
+                                                          velocityX, velocityY);
+
+      if (m_touchSwipeDetector != NULL)
+      {
+        if (gi.dwFlags & GF_BEGIN)
+        {
+          m_touchPointer.down = m_touchPointer.current;
+          m_touchSwipeDetector->OnTouchDown(0, m_touchPointer);
+        }
+        else if (gi.dwFlags & GF_END)
+        {
+          m_touchSwipeDetector->OnTouchUp(0, m_touchPointer);
+
+          delete m_touchSwipeDetector;
+          m_touchSwipeDetector = NULL;
+        }
+        else
+          m_touchSwipeDetector->OnTouchMove(0, m_touchPointer);
+      }
     }
     break;
+
   case GID_ROTATE:
-    CLog::Log(LOGDEBUG, "%s - Rotating", __FUNCTION__);
+    {
+      if (gi.dwFlags == GF_BEGIN)
+        break;
+
+      CGenericTouchActionHandler::Get().OnRotate((float)point.x, (float)point.y,
+                                                 -(float)ROTATE_ANGLE_DEGREE(gi.ullArguments));
+    }
     break;
+
   case GID_ZOOM:
-    CLog::Log(LOGDEBUG, "%s - Zooming", __FUNCTION__);
+    {
+      if (gi.dwFlags == GF_BEGIN)
+      {
+        m_originalZoomDistance = (int)LODWORD(gi.ullArguments);
+        break;
+      }
+
+      // avoid division by 0
+      if (m_originalZoomDistance == 0)
+        break;
+
+      CGenericTouchActionHandler::Get().OnZoomPinch((float)point.x, (float)point.y,
+                                                    (float)LODWORD(gi.ullArguments) / (float)m_originalZoomDistance);
+    }
     break;
+
   case GID_TWOFINGERTAP:
+    CGenericTouchActionHandler::Get().OnTap((float)point.x, (float)point.y, 2);
+    break;
+
   case GID_PRESSANDTAP:
   default:
     // You have encountered an unknown gesture

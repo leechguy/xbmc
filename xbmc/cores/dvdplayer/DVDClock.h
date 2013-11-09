@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ public:
   //the rendermanager needs to know about that because it can synchronize the videoreferenceclock to the video timestamps
   static void SetMasterClock(bool ismasterclock) { m_ismasterclock = ismasterclock; }
   static bool IsMasterClock()                    { return m_ismasterclock;          }
-
+  static CDVDClock* GetMasterClock();
 protected:
   static void   CheckSystemClock();
   static double SystemToAbsolute(int64_t system);
@@ -87,4 +87,5 @@ protected:
   bool             m_speedadjust;
   CCriticalSection m_speedsection;
   static bool      m_ismasterclock;
+  static CDVDClock *m_playerclock;
 };

@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@
  */
 
 #include "GUISpinControl.h"
-#include "utils/CharsetConverter.h"
 #include "Key.h"
 
 using namespace std;
@@ -208,8 +207,9 @@ void CGUISpinControl::OnRight()
 
 void CGUISpinControl::Clear()
 {
-  m_vecLabels.erase(m_vecLabels.begin(), m_vecLabels.end());
-  m_vecValues.erase(m_vecValues.begin(), m_vecValues.end());
+  m_vecLabels.clear();
+  m_vecValues.clear();
+  m_vecStrValues.clear();
   SetValue(0);
 }
 
@@ -410,12 +410,12 @@ void CGUISpinControl::Process(unsigned int currentTime, CDirtyRegionList &dirtyr
 
   changed |= m_label.SetText(text);
 
-  const float space = 5;
   float textWidth = m_label.GetTextWidth() + 2 * m_label.GetLabelInfo().offsetX;
   // Position the arrows
   bool arrowsOnRight(0 != (m_label.GetLabelInfo().align & (XBFONT_RIGHT | XBFONT_CENTER_X)));
   if (!arrowsOnRight)
   {
+    const float space = 5;
     changed |= m_imgspinDownFocus.SetPosition(m_posX + textWidth + space, m_posY);
     changed |= m_imgspinDown.SetPosition(m_posX + textWidth + space, m_posY);
     changed |= m_imgspinUpFocus.SetPosition(m_posX + textWidth + space + m_imgspinDown.GetWidth(), m_posY);
@@ -493,7 +493,6 @@ void CGUISpinControl::SetRange(int iStart, int iEnd)
   m_iEnd = iEnd;
 }
 
-
 void CGUISpinControl::SetFloatRange(float fStart, float fEnd)
 {
   m_fStart = fStart;
@@ -533,6 +532,19 @@ void CGUISpinControl::SetFloatValue(float fValue)
   m_fValue = fValue;
 }
 
+void CGUISpinControl::SetStringValue(const std::string& strValue)
+{
+  if (m_iType == SPIN_CONTROL_TYPE_TEXT)
+  {
+    m_iValue = 0;
+    for (unsigned int i = 0; i < m_vecStrValues.size(); i++)
+      if (strValue == m_vecStrValues[i])
+        m_iValue = i;
+  }
+
+  SetInvalid();
+}
+
 int CGUISpinControl::GetValue() const
 {
   if (m_iType == SPIN_CONTROL_TYPE_TEXT)
@@ -548,6 +560,17 @@ float CGUISpinControl::GetFloatValue() const
   return m_fValue;
 }
 
+std::string CGUISpinControl::GetStringValue() const
+{
+  if (m_iType == SPIN_CONTROL_TYPE_TEXT && m_iValue >= 0 && m_iValue < (int)m_vecLabels.size())
+  {
+    if (m_iValue < (int)m_vecStrValues.size())
+      return m_vecStrValues[m_iValue];
+
+    return m_vecLabels[m_iValue];
+  }
+  return "";
+}
 
 void CGUISpinControl::AddLabel(const string& strLabel, int iValue)
 {
@@ -555,11 +578,17 @@ void CGUISpinControl::AddLabel(const string& strLabel, int iValue)
   m_vecValues.push_back(iValue);
 }
 
+void CGUISpinControl::AddLabel(const string& strLabel, const string& strValue)
+{
+  m_vecLabels.push_back(strLabel);
+  m_vecStrValues.push_back(strValue);
+}
+
 const string CGUISpinControl::GetLabel() const
 {
   if (m_iValue >= 0 && m_iValue < (int)m_vecLabels.size())
   {
-    return m_vecLabels[ m_iValue];
+    return m_vecLabels[m_iValue];
   }
   return "";
 }

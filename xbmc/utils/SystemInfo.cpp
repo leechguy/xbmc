@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,10 +18,12 @@
  *
  */
 
+#include <limits.h>
+
 #include "threads/SystemClock.h"
 #include "system.h"
 #include "SystemInfo.h"
-#ifndef _LINUX
+#ifndef TARGET_POSIX
 #include <conio.h>
 #else
 #include <sys/utsname.h>
@@ -31,12 +33,11 @@
 #include "network/Network.h"
 #include "Application.h"
 #include "windowing/WindowingFactory.h"
-#include "settings/Settings.h"
 #include "guilib/LocalizeStrings.h"
 #include "CPUInfo.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
 #include "dwmapi.h"
 #endif
 #if defined(TARGET_DARWIN)
@@ -45,6 +46,21 @@
 #endif
 #include "powermanagement/PowerManager.h"
 #include "utils/StringUtils.h"
+#include "utils/XMLUtils.h"
+#if defined(TARGET_ANDROID)
+#include "android/jni/Build.h"
+#endif
+
+/* Target identification */
+#if defined(TARGET_DARWIN)
+#include <Availability.h>
+#elif defined(TARGET_ANDROID)
+#include <android/api-level.h>
+#elif defined(TARGET_FREEBSD)
+#include <sys/param.h>
+#elif defined(TARGET_LINUX)
+#include <linux/version.h>
+#endif
 
 CSysInfo g_sysinfo;
 
@@ -113,7 +129,7 @@ CStdString CSysInfoJob::GetBatteryLevel()
 
 double CSysInfoJob::GetCPUFrequency()
 {
-#if defined (_LINUX) || defined(_WIN32)
+#if defined (TARGET_POSIX) || defined(TARGET_WINDOWS)
   return double (g_cpuInfo.getCPUFrequency());
 #else
   return 0;
@@ -145,7 +161,7 @@ CStdString CSysInfoJob::GetSystemUpTime(bool bTotalUptime)
   if(bTotalUptime)
   {
     //Total Uptime
-    iInputMinutes = g_settings.m_iSystemTimeTotalUp + ((int)(XbmcThreads::SystemClockMillis() / 60000));
+    iInputMinutes = g_sysinfo.GetTotalUptime() + ((int)(XbmcThreads::SystemClockMillis() / 60000));
   }
   else
   {
@@ -213,10 +229,41 @@ void CSysInfo::Reset()
 CSysInfo::CSysInfo(void) : CInfoLoader(15 * 1000)
 {
   memset(MD5_Sign, 0, sizeof(MD5_Sign));
+  m_iSystemTimeTotalUp = 0;
 }
 
 CSysInfo::~CSysInfo()
 {
+}
+
+bool CSysInfo::Load(const TiXmlNode *settings)
+{
+  if (settings == NULL)
+    return false;
+  
+  const TiXmlElement *pElement = settings->FirstChildElement("general");
+  if (pElement)
+    XMLUtils::GetInt(pElement, "systemtotaluptime", m_iSystemTimeTotalUp, 0, INT_MAX);
+
+  return true;
+}
+
+bool CSysInfo::Save(TiXmlNode *settings) const
+{
+  if (settings == NULL)
+    return false;
+
+  TiXmlNode *generalNode = settings->FirstChild("general");
+  if (generalNode == NULL)
+  {
+    TiXmlElement generalNodeNew("general");
+    generalNode = settings->InsertEndChild(generalNodeNew);
+    if (generalNode == NULL)
+      return false;
+  }
+  XMLUtils::SetInt(generalNode, "systemtotaluptime", m_iSystemTimeTotalUp);
+
+  return true;
 }
 
 bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree, int& iTotalUsed, int& iPercentFree, int& iPercentUsed)
@@ -227,7 +274,7 @@ bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree,
 
   if( !drive.IsEmpty() && !drive.Equals("*") )
   {
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
     UINT uidriveType = GetDriveType(( drive + ":\\" ));
     if(uidriveType != DRIVE_UNKNOWN && uidriveType != DRIVE_NO_ROOT_DIR)
 #endif
@@ -237,7 +284,7 @@ bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree,
   {
     ULARGE_INTEGER ULTotalTmp= { { 0 } };
     ULARGE_INTEGER ULTotalFreeTmp= { { 0 } };
-#ifdef _WIN32
+#ifdef TARGET_WINDOWS
     char* pcBuffer= NULL;
     DWORD dwStrLength= GetLogicalDriveStrings( 0, pcBuffer );
     if( dwStrLength != 0 )
@@ -320,31 +367,42 @@ CStdString CSysInfo::GetCPUSerial()
   return "Serial: " + g_cpuInfo.getCPUSerial();
 }
 
-bool CSysInfo::IsAeroDisabled()
+CStdString CSysInfo::GetManufacturer()
 {
-#ifdef _WIN32
-  if (IsVistaOrHigher())
-  {
-    BOOL aeroEnabled = FALSE;
-    HRESULT res = DwmIsCompositionEnabled(&aeroEnabled);
-    if (SUCCEEDED(res))
-      return !aeroEnabled;
-  }
-  else
-  {
-    return true;
-  }
+  CStdString manufacturer = "";
+#if defined(TARGET_ANDROID)
+  manufacturer = CJNIBuild::MANUFACTURER;
 #endif
-  return false;
+  return manufacturer;
 }
 
-bool CSysInfo::IsVistaOrHigher()
+CStdString CSysInfo::GetModel()
+{
+  CStdString model = "";
+#if defined(TARGET_ANDROID)
+  model = CJNIBuild::MODEL;
+#endif
+  return model;
+}
+
+CStdString CSysInfo::GetProduct()
+{
+  CStdString product = "";
+#if defined(TARGET_ANDROID)
+  product = CJNIBuild::PRODUCT;
+#endif
+  return product;
+}
+
+bool CSysInfo::IsAeroDisabled()
 {
 #ifdef TARGET_WINDOWS
-  return IsWindowsVersionAtLeast(WindowsVersionVista);
-#else // TARGET_WINDOWS
+  BOOL aeroEnabled = FALSE;
+  HRESULT res = DwmIsCompositionEnabled(&aeroEnabled);
+  if (SUCCEEDED(res))
+    return !aeroEnabled;
+#endif
   return false;
-#endif // TARGET_WINDOWS
 }
 
 CSysInfo::WindowsVersion CSysInfo::m_WinVer = WindowsVersionUnknown;
@@ -373,16 +431,16 @@ CSysInfo::WindowsVersion CSysInfo::GetWindowsVersion()
     osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
     if (GetVersionEx((OSVERSIONINFO *)&osvi))
     {
-      if (osvi.dwMajorVersion == 5 && (osvi.dwMinorVersion == 1 || osvi.dwMinorVersion == 2 ))
-        m_WinVer = WindowsVersionWinXP;
-      else if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0)
+      if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0)
         m_WinVer = WindowsVersionVista;
       else if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 1)
         m_WinVer = WindowsVersionWin7;
       else if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 2)
         m_WinVer = WindowsVersionWin8;
+      else if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 3) 
+        m_WinVer = WindowsVersionWin8_1;
       /* Insert checks for new Windows versions here */
-      else if ( (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion > 2) || osvi.dwMajorVersion > 6)
+      else if ( (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion > 3) || osvi.dwMajorVersion > 6)
         m_WinVer = WindowsVersionFuture;
     }
   }
@@ -390,32 +448,56 @@ CSysInfo::WindowsVersion CSysInfo::GetWindowsVersion()
   return m_WinVer;
 }
 
-bool CSysInfo::IsOS64bit()
+int CSysInfo::GetKernelBitness(void)
 {
 #ifdef TARGET_WINDOWS
   SYSTEM_INFO si;
   GetSystemInfo(&si);
   if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
-    return true;
+    return 64;
   
   BOOL (WINAPI *ptrIsWow64) (HANDLE, PBOOL);
   HMODULE hKernel32 = GetModuleHandleA("kernel32");
   if (hKernel32 == NULL)
-    return false; // Can't detect OS
+    return 0; // Can't detect OS
   ptrIsWow64 = (BOOL (WINAPI *) (HANDLE, PBOOL)) GetProcAddress(hKernel32, "IsWow64Process");
   BOOL wow64proc = FALSE;
   if (ptrIsWow64 == NULL || ptrIsWow64(GetCurrentProcess(), &wow64proc) == FALSE)
-    return false; // Can't detect OS
-  return wow64proc != FALSE;
-#else // TARGET_WINDOWS
-  // TODO: Implement Linux, FreeBSD, Android, OSX
-  return false;
-#endif // TARGET_WINDOWS
+    return 0; // Can't detect OS
+  return (wow64proc == FALSE) ? 32 : 64;
+#elif defined(TARGET_POSIX)
+  struct utsname un;
+  if (uname(&un) == 0)
+  {
+    std::string machine(un.machine);
+    if (machine == "x86_64" || machine == "amd64" || machine == "arm64" || machine == "aarch64" || machine == "ppc64" || machine == "ia64")
+      return 64;
+    return 32;
+  }
+  return 0; // can't detect
+#else
+  return 0; // unknown
+#endif
+}
+
+int CSysInfo::GetXbmcBitness(void)
+{
+#if defined (__aarch64__) || defined(__arm64__) || defined(__amd64__) || defined(__amd64) || defined(__x86_64__) || defined(__x86_64) || defined(_M_X64) || defined(_M_AMD64) || defined(__ppc64__)
+  return 64;
+#elif defined(__thumb__) || defined(_M_ARMT) || defined(__arm__) || defined(_M_ARM) || defined(__mips__) || defined(mips) || defined(__mips) || defined(i386) || \
+  defined(__i386) || defined(__i386__) || defined(__i486__) || defined(__i586__) || defined(__i686__) || defined(_M_IX86) || defined(_X86_) || defined(__powerpc) || \
+  defined(__powerpc__) || defined(__ppc__) || defined(_M_PPC)
+  return 32;
+#else
+  return 0; // Unknown
+#endif
 }
 
 CStdString CSysInfo::GetKernelVersion()
 {
-#if defined (_LINUX)
+#if defined(TARGET_DARWIN)
+  return g_sysinfo.GetUnameVersion();
+#elif defined (TARGET_POSIX)
   struct utsname un;
   if (uname(&un)==0)
   {
@@ -435,22 +517,6 @@ CStdString CSysInfo::GetKernelVersion()
   {
     switch (GetWindowsVersion())
     {
-    case WindowsVersionWinXP:
-      if (GetSystemMetrics(SM_SERVERR2))
-        strKernel.append(" Server 2003 R2");
-      else if (osvi.wSuiteMask & VER_SUITE_STORAGE_SERVER)
-        strKernel.append(" Storage Server 2003");
-      else if (osvi.wSuiteMask & VER_SUITE_WH_SERVER)
-        strKernel.append(" Home Server");
-      else if (osvi.wProductType == VER_NT_WORKSTATION && IsOS64bit())
-        strKernel.append(" XP Professional");
-      else if (osvi.wProductType != VER_NT_WORKSTATION)
-        strKernel.append(" Server 2003");
-      else if (osvi.wSuiteMask & VER_SUITE_PERSONAL)
-        strKernel.append("XP Home Edition" );
-      else
-        strKernel.append("XP Professional" );
-      break;
     case WindowsVersionVista:
       if (osvi.wProductType == VER_NT_WORKSTATION)
         strKernel.append(" Vista");
@@ -468,6 +534,12 @@ CStdString CSysInfo::GetKernelVersion()
         strKernel.append(" 8");
       else
         strKernel.append(" Server 2012");
+      break;
+    case WindowsVersionWin8_1:
+      if (osvi.wProductType == VER_NT_WORKSTATION)
+        strKernel.append(" 8.1");
+      else
+        strKernel.append(" Server 2012 R2");
       break;
     case WindowsVersionFuture:
       strKernel.append(" Unknown Future Version");
@@ -487,20 +559,14 @@ CStdString CSysInfo::GetKernelVersion()
       }
     }
 
-    if (IsOS64bit())
-      strKernel.append(" 64-bit");
-    else
-      strKernel.append(" 32-bit");
+    strKernel.append(StringUtils::Format(" %d-bit", GetKernelBitness()));
 
     strKernel.append(StringUtils::Format(", build %d", osvi.dwBuildNumber));
   }
   else
   {
     strKernel.append(" unknown");
-    if (IsOS64bit())
-      strKernel.append(" 64-bit");
-    else
-      strKernel.append(" 32-bit");
+    strKernel.append(StringUtils::Format(" %d-bit", GetKernelBitness()));
   }
 
   return strKernel;
@@ -571,7 +637,7 @@ CStdString CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
   return strRet;
 }
 
-#if defined(_LINUX) && !defined(TARGET_DARWIN) && !defined(__FreeBSD__)
+#if defined(TARGET_LINUX)
 CStdString CSysInfo::GetLinuxDistro()
 {
 #if defined(TARGET_ANDROID)
@@ -588,11 +654,72 @@ CStdString CSysInfo::GetLinuxDistro()
                                         "/etc/buildroot-release",
                                         NULL };
   CStdString result("");
+  char buffer[256] = {'\0'};
+
+  /* Try reading PRETTY_NAME from /etc/os-release first.
+   * If this fails, fall back to lsb_release or distro-specific release-file. */
+
+  FILE *os_release = fopen("/etc/os-release", "r");
+
+  if (os_release)
+  {
+    char *key = NULL;
+    char *val = NULL;
+
+    while (fgets(buffer, sizeof(buffer), os_release))
+    {
+      key = val = buffer;
+      strsep(&val, "=");
+
+      if (strcmp(key, "PRETTY_NAME") == 0)
+      {
+        char *pretty_name = val;
+
+        // remove newline and enclosing quotes
+        if (pretty_name[strlen(pretty_name) - 1] == '\n')
+          pretty_name[strlen(pretty_name) - 1] = '\0';
+
+        if (pretty_name[0] == '\'' || pretty_name[0] == '\"')
+        {
+          pretty_name++;
+          pretty_name[strlen(pretty_name) - 1] = '\0';
+        }
+
+        // unescape quotes and backslashes
+        char *p = pretty_name;
+        while (*p)
+        {
+          char *this_char = p;
+          char *next_char = p + 1;
+
+          if (*this_char == '\\' &&
+              (*next_char == '\'' || *next_char == '\"' || *next_char == '\\'))
+          {
+            while (*this_char)
+            {
+              *this_char = *next_char;
+              this_char++;
+              next_char++;
+            }
+          }
+
+          p++;
+        }
+
+        result = pretty_name;
+        break;
+      }
+    }
+
+    fclose(os_release);
+
+    if (!result.IsEmpty())
+      return result;
+  }
 
   FILE* pipe = popen("unset PYTHONHOME; unset PYTHONPATH; lsb_release -d  2>/dev/null | cut -f2", "r");
   if (pipe)
   {
-    char buffer[256] = {'\0'};
     if (fread(buffer, sizeof(char), sizeof(buffer), pipe) > 0 && !ferror(pipe))
       result = buffer;
     pclose(pipe);
@@ -606,7 +733,6 @@ CStdString CSysInfo::GetLinuxDistro()
     file = fopen(release_file[i], "r");
     if (file)
     {
-      char buffer[256] = {'\0'};
       if (fgets(buffer, sizeof(buffer), file))
       {
         result = buffer;
@@ -622,7 +748,7 @@ CStdString CSysInfo::GetLinuxDistro()
 }
 #endif
 
-#ifdef _LINUX
+#ifdef TARGET_POSIX
 CStdString CSysInfo::GetUnameVersion()
 {
   CStdString result = "";
@@ -634,12 +760,16 @@ CStdString CSysInfo::GetUnameVersion()
   result += name.release;
   result += " ";
   result += name.machine;
+#elif defined(TARGET_DARWIN_IOS)
+  result = GetDarwinOSReleaseString();
+  result += ", ";
+  result += GetDarwinVersionString();
 #else
   FILE* pipe = popen("uname -rm", "r");
   if (pipe)
   {
-    char buffer[256] = {'\0'};
-    if (fread(buffer, sizeof(char), sizeof(buffer), pipe) > 0 && !ferror(pipe))
+    char buffer[256];
+    if (fgets(buffer, sizeof(buffer), pipe))
     {
       result = buffer;
 #if defined(TARGET_DARWIN)
@@ -698,7 +828,7 @@ CStdString CSysInfo::GetUserAgent()
 {
   CStdString result;
   result = "XBMC/" + g_infoManager.GetLabel(SYSTEM_BUILD_VERSION) + " (";
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   result += GetUAWindowsVersion();
 #elif defined(TARGET_DARWIN)
 #if defined(TARGET_DARWIN_IOS)
@@ -707,16 +837,16 @@ CStdString CSysInfo::GetUserAgent()
   result += "Mac OS X; ";
 #endif
   result += GetUnameVersion();
-#elif defined(__FreeBSD__)
+#elif defined(TARGET_FREEBSD)
   result += "FreeBSD; ";
   result += GetUnameVersion();
-#elif defined(_LINUX)
+#elif defined(TARGET_POSIX)
   result += "Linux; ";
   result += GetLinuxDistro();
   result += "; ";
   result += GetUnameVersion();
 #endif
-  result += "; http://www.xbmc.org)";
+  result += "; http://xbmc.org)";
 
   return result;
 }
@@ -740,15 +870,69 @@ bool CSysInfo::HasVideoToolBoxDecoder()
   return result;
 }
 
-bool CSysInfo::HasVDADecoder()
+std::string CSysInfo::GetBuildTargetPlatformName(void)
 {
-  bool        result = false;
+#if defined(TARGET_DARWIN_OSX)
+  return "Darwin OSX";
+#elif defined(TARGET_DARWIN_IOS_ATV2)
+  return "Darwin iOS ATV2";
+#elif defined(TARGET_DARWIN_IOS)
+  return "Darwin iOS";
+#elif defined(TARGET_FREEBSD)
+  return "FreeBSD";
+#elif defined(TARGET_ANDROID)
+  return "Android";
+#elif defined(TARGET_LINUX)
+  return "Linux";
+#elif defined(TARGET_WINDOWS)
+  return "Win32";
+#else
+  return "unknown platform";
+#endif
+}
+
+std::string CSysInfo::GetBuildTargetPlatformVersion(void)
+{
+/* Expand macro before stringify */
+#define STR_MACRO(x) #x
+#define XSTR_MACRO(x) STR_MACRO(x)
 
 #if defined(TARGET_DARWIN_OSX)
-  result = Cocoa_HasVDADecoder();
+  return "version " XSTR_MACRO(__MAC_OS_X_VERSION_MIN_REQUIRED);
+#elif defined(TARGET_DARWIN_IOS)
+  return "version " XSTR_MACRO(__IPHONE_OS_VERSION_MIN_REQUIRED);
+#elif defined(TARGET_FREEBSD)
+  return "version " XSTR_MACRO(__FreeBSD_version);
+#elif defined(TARGET_ANDROID)
+  return "API level " XSTR_MACRO(__ANDROID_API__);
+#elif defined(TARGET_LINUX)
+  std::string ver = StringUtils::Format("%i.%i.%i", LINUX_VERSION_CODE >> 16, (LINUX_VERSION_CODE >> 8) & 0xff, LINUX_VERSION_CODE & 0xff);
+  return ver;
+#elif defined(TARGET_WINDOWS)
+  return "version " XSTR_MACRO(NTDDI_VERSION);
+#else
+  return "(unknown platform)";
 #endif
-  return result;
 }
+
+std::string CSysInfo::GetBuildTargetCpuFamily(void)
+{
+#if defined(__thumb__) || defined(_M_ARMT) 
+  return "ARM (Thumb)";
+#elif defined(__arm__) || defined(_M_ARM) || defined (__aarch64__)
+  return "ARM";
+#elif defined(__mips__) || defined(mips) || defined(__mips)
+  return "MIPS";
+#elif defined(__amd64__) || defined(__amd64) || defined(__x86_64__) || defined(__x86_64) || defined(_M_X64) || defined(_M_AMD64) || \
+   defined(i386) || defined(__i386) || defined(__i386__) || defined(__i486__) || defined(__i586__) || defined(__i686__) || defined(_M_IX86) || defined(_X86_)
+  return "x86";
+#elif defined(__powerpc) || defined(__powerpc__) || defined(__powerpc64__) || defined(__ppc__) || defined(__ppc64__) || defined(_M_PPC)
+  return "PowerPC";
+#else
+  return "unknown CPU family";
+#endif
+}
+
 
 CJob *CSysInfo::GetJob() const
 {

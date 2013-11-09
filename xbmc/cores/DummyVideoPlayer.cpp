@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@
 
 CDummyVideoPlayer::CDummyVideoPlayer(IPlayerCallback& callback)
     : IPlayer(callback),
-      CThread("CDummyVideoPlayer")
+      CThread("DummyVideoPlayer")
 {
   m_paused = false;
   m_clock = 0;
@@ -141,7 +141,7 @@ bool CDummyVideoPlayer::CanSeek()
   return GetTotalTime() > 0;
 }
 
-void CDummyVideoPlayer::Seek(bool bPlus, bool bLargeStep)
+void CDummyVideoPlayer::Seek(bool bPlus, bool bLargeStep, bool bChapterOverride)
 {
   if (g_advancedSettings.m_videoUseTimeSeeking && GetTotalTime() > 2000*g_advancedSettings.m_videoTimeSeekForwardBig)
   {

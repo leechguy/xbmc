@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,28 +21,26 @@
 #include "FileOperations.h"
 #include "VideoLibrary.h"
 #include "AudioLibrary.h"
-#include "settings/Settings.h"
 #include "MediaSource.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "FileItem.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/MediaSourceSettings.h"
 #include "Util.h"
 #include "URL.h"
 #include "utils/URIUtils.h"
+#include "utils/FileUtils.h"
 
 using namespace XFILE;
 using namespace JSONRPC;
-
-static const unsigned int SourcesSize = 5;
-static CStdString SourceNames[] = { "programs", "files", "video", "music", "pictures" };
 
 JSONRPC_STATUS CFileOperations::GetRootDirectory(const CStdString &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   CStdString media = parameterObject["media"].asString();
   media = media.ToLower();
 
-  VECSOURCES *sources = g_settings.GetSourcesFromType(media);
+  VECSOURCES *sources = CMediaSourceSettings::Get().GetSources(media);
   if (sources)
   {
     CFileItemList items;
@@ -82,38 +80,30 @@ JSONRPC_STATUS CFileOperations::GetDirectory(const CStdString &method, ITranspor
   CFileItemList items;
   CStdString strPath = parameterObject["directory"].asString();
 
-  // Check if this directory is part of a source and whether it's locked
-  VECSOURCES *sources;
-  bool isSource;
-  for (unsigned int index = 0; index < SourcesSize; index++)
-  {
-    sources = g_settings.GetSourcesFromType(SourceNames[index]);
-    int sourceIndex = CUtil::GetMatchingSource(strPath, *sources, isSource);
-    if (sourceIndex >= 0 && sourceIndex < (int)sources->size() && sources->at(sourceIndex).m_iHasLock == 2)
-      return InvalidParams;
-  }
+  if (!CFileUtils::RemoteAccessAllowed(strPath))
+    return InvalidParams;
 
   CStdStringArray regexps;
   CStdString extensions = "";
   if (media.Equals("video"))
   {
     regexps = g_advancedSettings.m_videoExcludeFromListingRegExps;
-    extensions = g_settings.m_videoExtensions;
+    extensions = g_advancedSettings.m_videoExtensions;
   }
   else if (media.Equals("music"))
   {
     regexps = g_advancedSettings.m_audioExcludeFromListingRegExps;
-    extensions = g_settings.m_musicExtensions;
+    extensions = g_advancedSettings.m_musicExtensions;
   }
   else if (media.Equals("pictures"))
   {
     regexps = g_advancedSettings.m_pictureExcludeFromListingRegExps;
-    extensions = g_settings.m_pictureExtensions;
+    extensions = g_advancedSettings.m_pictureExtensions;
   }
 
   if (CDirectory::GetDirectory(strPath, items, extensions))
   {
-    CFileItemList filteredDirectories, filteredFiles;
+    CFileItemList filteredFiles;
     for (unsigned int i = 0; i < (unsigned int)items.Size(); i++)
     {
       if (CUtil::ExcludeFileOrFolder(items[i]->GetPath(), regexps))
@@ -130,35 +120,20 @@ JSONRPC_STATUS CFileOperations::GetDirectory(const CStdString &method, ITranspor
           (media == "picture" && items[i]->HasPictureInfoTag()) ||
            media == "files" ||
            URIUtils::IsUPnP(items.GetPath()))
-      {
-        if (items[i]->m_bIsFolder)
-          filteredDirectories.Add(items[i]);
-        else 
           filteredFiles.Add(items[i]);
-      }
       else
       {
         CFileItemPtr fileItem(new CFileItem());
         if (FillFileItem(items[i], fileItem, media, parameterObject))
-        {
-          if (items[i]->m_bIsFolder)
-            filteredDirectories.Add(fileItem);
-          else
             filteredFiles.Add(fileItem);
-        }
         else
-        {
-          if (items[i]->m_bIsFolder)
-            filteredDirectories.Add(items[i]);
-          else
             filteredFiles.Add(items[i]);
-        }
       }
     }
 
     // Check if the "properties" list exists
-    // and make sure it contains the "file"
-    // field
+    // and make sure it contains the "file" and "filetype"
+    // fields
     CVariant param = parameterObject;
     if (!param.isMember("properties"))
       param["properties"] = CVariant(CVariant::VariantTypeArray);
@@ -175,23 +150,9 @@ JSONRPC_STATUS CFileOperations::GetDirectory(const CStdString &method, ITranspor
 
     if (!hasFileField)
       param["properties"].append("file");
-
-    HandleFileItemList("id", true, "files", filteredDirectories, param, result);
-    for (unsigned int index = 0; index < result["files"].size(); index++)
-    {
-      result["files"][index]["filetype"] = "directory";
-    }
-    int count = (int)result["limits"]["total"].asInteger();
+    param["properties"].append("filetype");
 
     HandleFileItemList("id", true, "files", filteredFiles, param, result);
-    for (unsigned int index = count; index < result["files"].size(); index++)
-    {
-      result["files"][index]["filetype"] = "file";
-    }
-    count += (int)result["limits"]["total"].asInteger();
-
-    result["limits"]["end"] = count;
-    result["limits"]["total"] = count;
 
     return OK;
   }
@@ -205,8 +166,10 @@ JSONRPC_STATUS CFileOperations::GetFileDetails(const CStdString &method, ITransp
   if (!CFile::Exists(file))
     return InvalidParams;
 
-  CStdString path;
-  URIUtils::GetDirectory(file, path);
+  if (!CFileUtils::RemoteAccessAllowed(file))
+    return InvalidParams;
+
+  CStdString path = URIUtils::GetDirectory(file);
 
   CFileItemList items;
   if (path.empty() || !CDirectory::GetDirectory(path, items) || !items.Contains(file))
@@ -235,6 +198,7 @@ JSONRPC_STATUS CFileOperations::GetFileDetails(const CStdString &method, ITransp
 
   if (!hasFileField)
     param["properties"].append("file");
+  param["properties"].append("filetype");
 
   HandleFileItem("id", true, "filedetails", item, parameterObject, param["properties"], result, false);
   return OK;
@@ -333,23 +297,23 @@ bool CFileOperations::FillFileItemList(const CVariant &parameterObject, CFileIte
       if (media.Equals("video"))
       {
         regexps = g_advancedSettings.m_videoExcludeFromListingRegExps;
-        extensions = g_settings.m_videoExtensions;
+        extensions = g_advancedSettings.m_videoExtensions;
       }
       else if (media.Equals("music"))
       {
         regexps = g_advancedSettings.m_audioExcludeFromListingRegExps;
-        extensions = g_settings.m_musicExtensions;
+        extensions = g_advancedSettings.m_musicExtensions;
       }
       else if (media.Equals("pictures"))
       {
         regexps = g_advancedSettings.m_pictureExcludeFromListingRegExps;
-        extensions = g_settings.m_pictureExtensions;
+        extensions = g_advancedSettings.m_pictureExtensions;
       }
 
       CDirectory directory;
       if (directory.GetDirectory(strPath, items, extensions))
       {
-        items.Sort(SORT_METHOD_FILE, SortOrderAscending);
+        items.Sort(SortByFile, SortOrderAscending);
         CFileItemList filteredDirectories;
         for (unsigned int i = 0; i < (unsigned int)items.Size(); i++)
         {

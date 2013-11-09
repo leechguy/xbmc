@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2012-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 
 #include "guilib/LocalizeStrings.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/GUISettings.h"
+#include "settings/Settings.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
 #include "utils/TimeUtils.h"
@@ -96,7 +96,10 @@ CEpg &CEpg::operator =(const CEpg &right)
   m_pvrChannel        = right.m_pvrChannel;
 
   for (map<CDateTime, CEpgInfoTagPtr>::const_iterator it = right.m_tags.begin(); it != right.m_tags.end(); it++)
-    m_tags.insert(make_pair(it->first, new CEpgInfoTag(*it->second)));
+  {
+    CEpgInfoTagPtr EITPtr (new CEpgInfoTag(*it->second));
+    m_tags.insert(make_pair(it->first, EITPtr));
+  }
 
   return *this;
 }
@@ -147,7 +150,7 @@ bool CEpg::HasValidEntries(void) const
   CSingleLock lock(m_critSection);
 
   return (m_iEpgID > 0 && /* valid EPG ID */
-      m_tags.size() > 0 && /* contains at least 1 tag */
+      !m_tags.empty()  && /* contains at least 1 tag */
       m_tags.rbegin()->second->EndAsUTC() >= CDateTime::GetCurrentDateTime().GetAsUTCDateTime()); /* the last end time hasn't passed yet */
 }
 
@@ -300,7 +303,7 @@ CEpgInfoTagPtr CEpg::GetTagAround(const CDateTime &time) const
   CSingleLock lock(m_critSection);
   for (map<CDateTime, CEpgInfoTagPtr>::const_iterator it = m_tags.begin(); it != m_tags.end(); it++)
   {
-    if ((it->second->StartAsUTC() <= time) && (it->second->EndAsUTC() >= time))
+    if ((it->second->StartAsUTC() < time) && (it->second->EndAsUTC() > time))
       return it->second;
   }
 
@@ -354,7 +357,7 @@ bool CEpg::UpdateEntry(const CEpgInfoTag &tag, bool bUpdateDatabase /* = false *
   infoTag->m_pvrChannel   = m_pvrChannel;
 
   if (bUpdateDatabase)
-    m_changedTags.insert(make_pair<int, CEpgInfoTagPtr>(infoTag->UniqueBroadcastID(), infoTag));
+    m_changedTags.insert(make_pair(infoTag->UniqueBroadcastID(), infoTag));
 
   return true;
 }
@@ -425,7 +428,7 @@ CDateTime CEpg::GetLastScanTime(void)
 
     if (!m_lastScanTime.IsValid())
     {
-      if (!g_guiSettings.GetBool("epg.ignoredbforclient"))
+      if (!CSettings::Get().GetBool("epg.ignoredbforclient"))
       {
         CEpgDatabase *database = g_EpgContainer.GetDatabase();
         CDateTime dtReturn; dtReturn.SetValid(false);
@@ -530,7 +533,7 @@ int CEpg::Get(CFileItemList &results, const EpgSearchFilter &filter) const
 
 bool CEpg::Persist(void)
 {
-  if (g_guiSettings.GetBool("epg.ignoredbforclient") || !NeedsSave())
+  if (CSettings::Get().GetBool("epg.ignoredbforclient") || !NeedsSave())
     return true;
 
 #if EPG_DEBUGGING
@@ -577,7 +580,7 @@ CDateTime CEpg::GetFirstDate(void) const
   CDateTime first;
 
   CSingleLock lock(m_critSection);
-  if (m_tags.size() > 0)
+  if (!m_tags.empty())
     first = m_tags.begin()->second->StartAsUTC();
 
   return first;
@@ -588,7 +591,7 @@ CDateTime CEpg::GetLastDate(void) const
   CDateTime last;
 
   CSingleLock lock(m_critSection);
-  if (m_tags.size() > 0)
+  if (!m_tags.empty())
     last = m_tags.rbegin()->second->StartAsUTC();
 
   return last;
@@ -617,7 +620,7 @@ bool CEpg::FixOverlappingEvents(bool bUpdateDb /* = false */)
     {
       // delete the current tag. it's completely overlapped
       if (bUpdateDb)
-        m_deletedTags.insert(make_pair<int, CEpgInfoTagPtr>(currentTag->UniqueBroadcastID(), currentTag));
+        m_deletedTags.insert(make_pair(currentTag->UniqueBroadcastID(), currentTag));
 
       if (m_nowActiveStart == it->first)
         m_nowActiveStart.SetValid(false);
@@ -625,33 +628,11 @@ bool CEpg::FixOverlappingEvents(bool bUpdateDb /* = false */)
       it->second->ClearTimer();
       m_tags.erase(it++);
     }
-    else if (previousTag->EndAsUTC() > currentTag->StartAsUTC())
+    else if (previousTag->EndAsUTC() != currentTag->StartAsUTC())
     {
-      currentTag->SetStartFromUTC(previousTag->EndAsUTC());
+      previousTag->SetEndFromUTC(currentTag->StartAsUTC());
       if (bUpdateDb)
-        m_changedTags.insert(make_pair<int, CEpgInfoTagPtr>(currentTag->UniqueBroadcastID(), currentTag));
-
-      previousTag = it->second;
-    }
-    else if (previousTag->EndAsUTC() < currentTag->StartAsUTC())
-    {
-      time_t start, end, middle;
-      previousTag->EndAsUTC().GetAsTime(start);
-      currentTag->StartAsUTC().GetAsTime(end);
-      middle = start + ((end - start) / 2);
-      CDateTime newTime(middle);
-
-      currentTag->SetStartFromUTC(newTime);
-      previousTag->SetEndFromUTC(newTime);
-
-      if (m_nowActiveStart == it->first)
-        m_nowActiveStart = currentTag->StartAsUTC();
-
-      if (bUpdateDb)
-      {
-        m_changedTags.insert(make_pair<int, CEpgInfoTagPtr>(currentTag->UniqueBroadcastID(), currentTag));
-        m_changedTags.insert(make_pair<int, CEpgInfoTagPtr>(previousTag->UniqueBroadcastID(), previousTag));
-      }
+        m_changedTags.insert(make_pair(previousTag->UniqueBroadcastID(), previousTag));
 
       previousTag = it->second;
     }
@@ -694,7 +675,7 @@ bool CEpg::UpdateFromScraper(time_t start, time_t end)
     }
     else
     {
-      CLog::Log(LOGINFO, "EPG - %s - updating EPG for channel '%s' from client '%i'", __FUNCTION__, channel->ChannelName().c_str(), channel->ClientID());
+      CLog::Log(LOGDEBUG, "EPG - %s - updating EPG for channel '%s' from client '%i'", __FUNCTION__, channel->ChannelName().c_str(), channel->ClientID());
       bGrabSuccess = (g_PVRClients->GetEPGForChannel(*channel, this, start, end) == PVR_ERROR_NO_ERROR);
     }
   }
@@ -788,13 +769,13 @@ bool CEpg::LoadFromClients(time_t start, time_t end)
   {
     CEpg tmpEpg(channel);
     if (tmpEpg.UpdateFromScraper(start, end))
-      bReturn = UpdateEntries(tmpEpg, !g_guiSettings.GetBool("epg.ignoredbforclient"));
+      bReturn = UpdateEntries(tmpEpg, !CSettings::Get().GetBool("epg.ignoredbforclient"));
   }
   else
   {
     CEpg tmpEpg(m_iEpgID, m_strName, m_strScraperName);
     if (tmpEpg.UpdateFromScraper(start, end))
-      bReturn = UpdateEntries(tmpEpg, !g_guiSettings.GetBool("epg.ignoredbforclient"));
+      bReturn = UpdateEntries(tmpEpg, !CSettings::Get().GetBool("epg.ignoredbforclient"));
   }
 
   return bReturn;

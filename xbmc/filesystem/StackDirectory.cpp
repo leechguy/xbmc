@@ -1,6 +1,6 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -48,7 +48,6 @@ namespace XFILE
     {
       CStdString file = files[i];
       CFileItemPtr item(new CFileItem(file));
-      //URIUtils::AddFileToFolder(folder, file, item->GetPath());
       item->SetPath(file);
       item->m_bIsFolder = false;
       items.Add(item);
@@ -60,7 +59,7 @@ namespace XFILE
   {
     // Load up our REs
     VECCREGEXP  RegExps;
-    CRegExp     tempRE(true);
+    CRegExp     tempRE(true, true);
     const CStdStringArray& strRegExps = g_advancedSettings.m_videoStackRegExps;
     CStdStringArray::const_iterator itRegExp = strRegExps.begin();
     vector<pair<int, CStdString> > badStacks;
@@ -159,7 +158,7 @@ namespace XFILE
   {
     // the stacked files are always in volume order, so just get up to the first filename
     // occurence of " , "
-    CStdString path, file, folder;
+    CStdString file, folder;
     int pos = strPath.Find(" , ");
     if (pos > 0)
       URIUtils::Split(strPath.Left(pos), folder, file);
@@ -169,9 +168,8 @@ namespace XFILE
     // remove "stack://" from the folder
     folder = folder.Mid(8);
     file.Replace(",,", ",");
-    URIUtils::AddFileToFolder(folder, file, path);
 
-    return path;
+    return URIUtils::AddFileToFolder(folder, file);
   }
 
   bool CStackDirectory::GetPaths(const CStdString& strPath, vector<CStdString>& vecPaths)
@@ -221,14 +219,29 @@ namespace XFILE
 
   bool CStackDirectory::ConstructStackPath(const vector<CStdString> &paths, CStdString& stackedPath)
   {
+    vector<string> pathsT;
+    pathsT.reserve(paths.size());
+    for (vector<CStdString>::const_iterator path = paths.begin();
+         path != paths.end(); ++path)
+    {
+      pathsT.push_back(*path);
+    }
+    std::string stackedPathT = stackedPath;
+    bool retVal = ConstructStackPath(pathsT, stackedPathT);
+    stackedPath = stackedPathT;
+    return retVal;
+  }
+
+  bool CStackDirectory::ConstructStackPath(const vector<std::string> &paths, std::string& stackedPath)
+  {
     if (paths.size() < 2)
       return false;
     stackedPath = "stack://";
-    CStdString folder, file;
+    std::string folder, file;
     URIUtils::Split(paths[0], folder, file);
     stackedPath += folder;
     // double escape any occurence of commas
-    file.Replace(",", ",,");
+    StringUtils::Replace(file, ",", ",,");
     stackedPath += file;
     for (unsigned int i = 1; i < paths.size(); ++i)
     {
@@ -236,7 +249,7 @@ namespace XFILE
       file = paths[i];
 
       // double escape any occurence of commas
-      file.Replace(",", ",,");
+      StringUtils::Replace(file, ",", ",,");
       stackedPath += file;
     }
     return true;
