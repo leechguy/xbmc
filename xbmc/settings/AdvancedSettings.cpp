@@ -28,7 +28,7 @@
 #include "utils/LangCodeExpander.h"
 #include "LangInfo.h"
 #include "profiles/ProfilesManager.h"
-#include "settings/Setting.h"
+#include "settings/lib/Setting.h"
 #include "settings/Settings.h"
 #include "utils/StringUtils.h"
 #include "utils/SystemInfo.h"
@@ -439,7 +439,7 @@ bool CAdvancedSettings::Load()
   ParseSettingsFile(CProfilesManager::Get().GetUserDataItem("advancedsettings.xml"));
 
   // Add the list of disc stub extensions (if any) to the list of video extensions
-  if (!m_discStubExtensions.IsEmpty())
+  if (!m_discStubExtensions.empty())
     m_videoExtensions += "|" + m_discStubExtensions;
 
   return true;
@@ -1015,7 +1015,7 @@ void CAdvancedSettings::ParseSettingsFile(const CStdString &file)
       if (pTo)
         strTo = pTo->FirstChild()->Value();
 
-      if (!strFrom.IsEmpty() && !strTo.IsEmpty())
+      if (!strFrom.empty() && !strTo.empty())
       {
         CLog::Log(LOGDEBUG,"  Registering substition pair:");
         CLog::Log(LOGDEBUG,"    From: [%s]", strFrom.c_str());
@@ -1025,7 +1025,7 @@ void CAdvancedSettings::ParseSettingsFile(const CStdString &file)
       else
       {
         // error message about missing tag
-        if (strFrom.IsEmpty())
+        if (strFrom.empty())
           CLog::Log(LOGERROR,"  Missing <from> tag");
         else
           CLog::Log(LOGERROR,"  Missing <to> tag");
@@ -1040,8 +1040,9 @@ void CAdvancedSettings::ParseSettingsFile(const CStdString &file)
   XMLUtils::GetFloat(pRootElement, "controllerdeadzone", m_controllerDeadzone, 0.0f, 1.0f);
   XMLUtils::GetUInt(pRootElement, "fanartres", m_fanartRes, 0, 1080);
   XMLUtils::GetUInt(pRootElement, "imageres", m_imageRes, 0, 1080);
+#if !defined(TARGET_RASPBERRY_PI)
   XMLUtils::GetBoolean(pRootElement, "useddsfanart", m_useDDSFanart);
-
+#endif
   XMLUtils::GetBoolean(pRootElement, "playlistasfolders", m_playlistAsFolders);
   XMLUtils::GetBoolean(pRootElement, "detectasudf", m_detectAsUdf);
 
@@ -1318,8 +1319,8 @@ void CAdvancedSettings::GetCustomExtensions(TiXmlElement *pRootElement, CStdStri
     StringUtils::SplitString(extraExtensions,"|",exts);
     for (unsigned int i=0;i<exts.size();++i)
     {
-      int iPos = extensions.Find(exts[i]);
-      if (iPos == -1)
+      size_t iPos = extensions.find(exts[i]);
+      if (iPos == std::string::npos)
         continue;
       extensions.erase(iPos,exts[i].size()+1);
     }
@@ -1367,8 +1368,7 @@ void CAdvancedSettings::SetExtraLogsFromAddon(ADDON::IAddon* addon)
   m_extraLogLevels = 0;
   for (int i=LOGMASKBIT;i<31;++i)
   {
-    CStdString str;
-    str.Format("bit%i", i-LOGMASKBIT+1);
+    CStdString str = StringUtils::Format("bit%i", i-LOGMASKBIT+1);
     if (addon->GetSetting(str) == "true")
       m_extraLogLevels |= (1 << i);
   }

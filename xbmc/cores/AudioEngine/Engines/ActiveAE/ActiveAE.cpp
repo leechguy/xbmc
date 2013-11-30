@@ -1300,13 +1300,10 @@ void CActiveAE::ApplySettingsToFormat(AEAudioFormat &format, AudioSettings &sett
     // consider user channel layout for those cases
     // 1. input stream is multichannel
     // 2. stereo upmix is selected
-    // 3. already playing > 2 channels and "audiophile" is not set
-    //    this is the case if e.g. a stream changes config from 5.1 to 2.0
-    //    which would cause a short audio drop-out if we changed the sink
+    // 3. fixed mode
     if ((format.m_channelLayout.Count() > 2) ||
          settings.stereoupmix ||
-         (settings.config == AE_CONFIG_FIXED) ||
-         (m_stats.GetWaterLevel() > 0 && m_internalFormat.m_channelLayout.Count() > 2 && (settings.config != AE_CONFIG_MATCH)))
+         (settings.config == AE_CONFIG_FIXED))
     {
       CAEChannelInfo stdLayout;
       switch (settings.channels)
@@ -1325,10 +1322,16 @@ void CActiveAE::ApplySettingsToFormat(AEAudioFormat &format, AudioSettings &sett
         case 10: stdLayout = AE_CH_LAYOUT_7_1; break;
       }
 
-      if (m_settings.config == AE_CONFIG_MATCH)
-        format.m_channelLayout.ResolveChannels(stdLayout);
-      else
+      if (m_settings.config == AE_CONFIG_FIXED || (settings.stereoupmix && format.m_channelLayout.Count() <= 2))
         format.m_channelLayout = stdLayout;
+      else
+        format.m_channelLayout.ResolveChannels(stdLayout);;
+    }
+    // don't change from multi to stereo in AUTO mode
+    else if ((settings.config == AE_CONFIG_AUTO) &&
+              m_stats.GetWaterLevel() > 0 && m_internalFormat.m_channelLayout.Count() > 2)
+    {
+      format.m_channelLayout = m_internalFormat.m_channelLayout;
     }
 
     if (m_sink.GetDeviceType(m_settings.device) == AE_DEVTYPE_IEC958)
@@ -1646,9 +1649,11 @@ bool CActiveAE::RunStages()
               fadingStep = delta / samples;
             }
 
-            // for streams amplification of turned off downmix normalization
+            // for stream amplification, 
+            // turned off downmix normalization,
+            // or if sink format is float (in order to prevent from clipping)
             // we need to run on a per sample basis
-            if ((*it)->m_amplify != 1.0 || !(*it)->m_resampleBuffers->m_normalize)
+            if ((*it)->m_amplify != 1.0 || !(*it)->m_resampleBuffers->m_normalize || (m_sinkFormat.m_dataFormat == AE_FMT_FLOAT))
             {
               nb_floats = out->pkt->config.channels / out->pkt->planes;
               nb_loops = out->pkt->nb_samples;
@@ -1991,10 +1996,10 @@ void CActiveAE::LoadSettings()
   m_settings.passthoughdevice = CSettings::Get().GetString("audiooutput.passthroughdevice");
 
   m_settings.config = CSettings::Get().GetInt("audiooutput.config");
-  m_settings.channels = CSettings::Get().GetInt("audiooutput.channels");
+  m_settings.channels = (m_sink.GetDeviceType(m_settings.device) == AE_DEVTYPE_IEC958) ? AE_CH_LAYOUT_2_0 : CSettings::Get().GetInt("audiooutput.channels");
   m_settings.samplerate = CSettings::Get().GetInt("audiooutput.samplerate");
 
-  m_settings.stereoupmix = CSettings::Get().GetBool("audiooutput.stereoupmix");
+  m_settings.stereoupmix = (m_settings.channels > AE_CH_LAYOUT_2_0) ? CSettings::Get().GetBool("audiooutput.stereoupmix") : false;
   m_settings.normalizelevels = CSettings::Get().GetBool("audiooutput.normalizelevels");
 
   m_settings.passthrough = m_settings.config == AE_CONFIG_FIXED ? false : CSettings::Get().GetBool("audiooutput.passthrough");
