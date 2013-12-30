@@ -41,18 +41,16 @@ public:
 
   virtual bool Initialize  (AEAudioFormat &format, std::string &device);
   virtual void Deinitialize();
-  virtual bool IsCompatible(const AEAudioFormat &format, const std::string &device);
 
   virtual void         Stop            ();
   virtual double       GetDelay        ();
-  virtual double       GetCacheTime    ();
   virtual double       GetCacheTotal   ();
   virtual unsigned int AddPackets      (uint8_t *data, unsigned int frames, bool hasAudio, bool blocking = false);
   virtual void         Drain           ();
 
   static void EnumerateDevicesEx(AEDeviceInfoList &list, bool force = false);
 private:
-  CAEChannelInfo GetChannelLayout(AEAudioFormat format, unsigned int maxChannels);
+  CAEChannelInfo GetChannelLayout(AEAudioFormat format, unsigned int minChannels, unsigned int maxChannels);
   void           GetAESParams(const AEAudioFormat format, std::string& params);
   void           HandleError(const char* name, int err);
 

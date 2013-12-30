@@ -38,6 +38,8 @@ void CEngineStats::Reset(unsigned int sampleRate)
   CSingleLock lock(m_lock);
   m_sinkUpdate = XbmcThreads::SystemClockMillis();
   m_sinkDelay = 0;
+  m_sinkCacheTotal = 0;
+  m_sinkLatency = 0;
   m_sinkSampleRate = sampleRate;
   m_bufferedSamples = 0;
   m_suspended = false;
@@ -89,11 +91,13 @@ float CEngineStats::GetDelay()
   return delay;
 }
 
+// this is used to sync a/v so we need to add sink latency here
 float CEngineStats::GetDelay(CActiveAEStream *stream)
 {
   CSingleLock lock(m_lock);
   unsigned int now = XbmcThreads::SystemClockMillis();
   float delay = m_sinkDelay - (double)(now-m_sinkUpdate) / 1000;
+  delay += m_sinkLatency;
   delay += (float)m_bufferedSamples / m_sinkSampleRate;
 
   if (delay < 0)
@@ -220,9 +224,6 @@ void CActiveAE::StateMachine(int signal, Protocol *port, Message *msg)
         case CActiveAEControlProtocol::GETSTATE:
           msg->Reply(CActiveAEControlProtocol::ACC, &m_state, sizeof(m_state));
           return;
-        case CActiveAEControlProtocol::SOUNDMODE:
-          m_soundMode = *(int*)msg->data;
-          return;
         case CActiveAEControlProtocol::VOLUME:
           m_volume = *(float*)msg->data;
           if (m_sinkHasVolume)
@@ -233,6 +234,8 @@ void CActiveAE::StateMachine(int signal, Protocol *port, Message *msg)
           return;
         case CActiveAEControlProtocol::KEEPCONFIG:
           m_extKeepConfig = *(unsigned int*)msg->data;
+          return;
+        case CActiveAEControlProtocol::DISPLAYRESET:
           return;
         default:
           break;
@@ -422,6 +425,7 @@ void CActiveAE::StateMachine(int signal, Protocol *port, Message *msg)
             m_state = AE_TOP_CONFIGURED_SUSPEND;
             m_extDeferData = true;
           }
+          msg->Reply(CActiveAEControlProtocol::ACC);
           return;
         case CActiveAEControlProtocol::PAUSESTREAM:
           CActiveAEStream *stream;
@@ -488,8 +492,8 @@ void CActiveAE::StateMachine(int signal, Protocol *port, Message *msg)
         case CActiveAEDataProtocol::PLAYSOUND:
           CActiveAESound *sound;
           sound = *(CActiveAESound**)msg->data;
-          if (m_soundMode == AE_SOUND_OFF ||
-             (m_soundMode == AE_SOUND_IDLE && !m_streams.empty()))
+          if (m_settings.guisoundmode == AE_SOUND_OFF ||
+             (m_settings.guisoundmode == AE_SOUND_IDLE && !m_streams.empty()))
             return;
           if (sound)
           {
@@ -635,6 +639,17 @@ void CActiveAE::StateMachine(int signal, Protocol *port, Message *msg)
           break;
         }
       }
+      else if (port == NULL) // timeout
+      {
+        switch (signal)
+        {
+        case CActiveAEControlProtocol::TIMEOUT:
+          m_extTimeout = 1000;
+          return;
+        default:
+          break;
+        }
+      }
       break;
 
     case AE_TOP_CONFIGURED_IDLE:
@@ -692,7 +707,6 @@ void CActiveAE::StateMachine(int signal, Protocol *port, Message *msg)
           }
           if (!m_extDrain && HasWork())
           {
-            ResampleSounds();
             ClearDiscardedBuffers();
             m_extTimeout = 100;
             return;
@@ -856,6 +870,7 @@ void CActiveAE::Configure(AEAudioFormat *desiredFmt)
 
   AEAudioFormat sinkInputFormat, inputFormat;
   AEAudioFormat oldInternalFormat = m_internalFormat;
+  AEAudioFormat oldSinkRequestFormat = m_sinkRequestFormat;
 
   inputFormat = GetInputFormat(desiredFmt);
 
@@ -866,11 +881,14 @@ void CActiveAE::Configure(AEAudioFormat *desiredFmt)
   std::string device = AE_IS_RAW(m_sinkRequestFormat.m_dataFormat) ? m_settings.passthoughdevice : m_settings.device;
   std::string driver;
   CAESinkFactory::ParseDevice(device, driver);
-  if (!IsSinkCompatible(m_sinkRequestFormat, device) || m_settings.driver.compare(driver) != 0)
+  if ((!CompareFormat(m_sinkRequestFormat, m_sinkFormat) && !CompareFormat(m_sinkRequestFormat, oldSinkRequestFormat)) ||
+      m_currDevice.compare(device) != 0 ||
+      m_settings.driver.compare(driver) != 0)
   {
     if (!InitSink())
       return;
     m_settings.driver = driver;
+    m_currDevice = device;
     initSink = true;
     m_stats.Reset(m_sinkFormat.m_sampleRate);
     m_sink.m_controlPort.SendOutMessage(CSinkControlProtocol::VOLUME, &m_volume, sizeof(float));
@@ -1011,6 +1029,9 @@ void CActiveAE::Configure(AEAudioFormat *desiredFmt)
         (*it)->m_inputBuffers = new CActiveAEBufferPool((*it)->m_format);
         (*it)->m_inputBuffers->Create(MAX_CACHE_LEVEL*1000);
         (*it)->m_streamSpace = (*it)->m_format.m_frameSize * (*it)->m_format.m_frames;
+
+        // if input format does not follow ffmpeg channel mask, we may need to remap channels
+        (*it)->InitRemapper();
       }
       if (initSink && (*it)->m_resampleBuffers)
       {
@@ -1075,10 +1096,14 @@ void CActiveAE::Configure(AEAudioFormat *desiredFmt)
   // reset gui sounds
   if (!CompareFormat(oldInternalFormat, m_internalFormat))
   {
-    std::vector<CActiveAESound*>::iterator it;
-    for (it = m_sounds.begin(); it != m_sounds.end(); ++it)
+    if (m_settings.guisoundmode == AE_SOUND_ALWAYS ||
+       (m_settings.guisoundmode == AE_SOUND_IDLE && m_streams.empty()))
     {
-      (*it)->SetConverted(false);
+      std::vector<CActiveAESound*>::iterator it;
+      for (it = m_sounds.begin(); it != m_sounds.end(); ++it)
+      {
+        (*it)->SetConverted(false);
+      }
     }
     m_sounds_playing.clear();
   }
@@ -1396,10 +1421,10 @@ bool CActiveAE::NeedReconfigureSink()
   std::string device = AE_IS_RAW(newFormat.m_dataFormat) ? m_settings.passthoughdevice : m_settings.device;
   std::string driver;
   CAESinkFactory::ParseDevice(device, driver);
-  if (m_settings.driver.compare(driver) != 0)
-    return true;
 
-  if (!IsSinkCompatible(newFormat, device))
+  if (!CompareFormat(newFormat, m_sinkFormat) ||
+      m_currDevice.compare(device) != 0 ||
+      m_settings.driver.compare(driver) != 0)
     return true;
 
   return false;
@@ -1474,40 +1499,6 @@ void CActiveAE::DrainSink()
   }
 }
 
-bool CActiveAE::IsSinkCompatible(const AEAudioFormat format, const std::string &device)
-{
-  bool compatible = false;
-  SinkConfig config;
-  config.format = format;
-  config.device = &device;
-
-  // send message to sink
-  Message *reply;
-  if (m_sink.m_controlPort.SendOutMessageSync(CSinkControlProtocol::ISCOMPATIBLE,
-                                                 &reply,
-                                                 1000,
-                                                 &config, sizeof(config)))
-  {
-    bool success = reply->signal == CSinkControlProtocol::ACC ? true : false;
-    if (!success)
-    {
-      reply->Release();
-      CLog::Log(LOGERROR, "ActiveAE::%s - returned error", __FUNCTION__);
-      m_extError = true;
-      return false;
-    }
-    compatible = *(bool*)reply->data;
-    reply->Release();
-  }
-  else
-  {
-    CLog::Log(LOGERROR, "ActiveAE::%s - failed to query compatibility", __FUNCTION__);
-    m_extError = true;
-    return false;
-  }
-  return compatible;
-}
-
 void CActiveAE::UnconfigureSink()
 {
   // send message to sink
@@ -1529,6 +1520,9 @@ void CActiveAE::UnconfigureSink()
     CLog::Log(LOGERROR, "ActiveAE::%s - failed to unconfigure", __FUNCTION__);
     m_extError = true;
   }
+
+  // make sure we open sink on next configure
+  m_currDevice = "";
 
   m_inMsgEvent.Reset();
 }
@@ -2018,6 +2012,7 @@ void CActiveAE::LoadSettings()
 
   m_settings.stereoupmix = IsSettingVisible("audiooutput.stereoupmix") ? CSettings::Get().GetBool("audiooutput.stereoupmix") : false;
   m_settings.normalizelevels = CSettings::Get().GetBool("audiooutput.normalizelevels");
+  m_settings.guisoundmode = CSettings::Get().GetInt("audiooutput.guisoundmode");
 
   m_settings.passthrough = m_settings.config == AE_CONFIG_FIXED ? false : CSettings::Get().GetBool("audiooutput.passthrough");
   m_settings.ac3passthrough = CSettings::Get().GetBool("audiooutput.ac3passthrough");
@@ -2095,7 +2090,8 @@ void CActiveAE::OnSettingsChange(const std::string& setting)
       setting == "audiooutput.processquality"    ||
       setting == "audiooutput.passthrough"       ||
       setting == "audiooutput.samplerate"        ||
-      setting == "audiooutput.normalizelevels")
+      setting == "audiooutput.normalizelevels"   ||
+      setting == "audiooutput.guisoundmode")
   {
     m_controlPort.SendOutMessage(CActiveAEControlProtocol::RECONFIGURE);
   }
@@ -2245,8 +2241,7 @@ bool CActiveAE::IsMuted()
 
 void CActiveAE::SetSoundMode(const int mode)
 {
-  int soundmode = mode;
-  m_controlPort.SendOutMessage(CActiveAEControlProtocol::SOUNDMODE, &soundmode, sizeof(int));
+  return;
 }
 
 void CActiveAE::KeepConfiguration(unsigned int millis)
@@ -2257,12 +2252,27 @@ void CActiveAE::KeepConfiguration(unsigned int millis)
 
 void CActiveAE::OnLostDevice()
 {
-//  m_controlPort.SendOutMessage(CActiveAEControlProtocol::DISPLAYLOST);
+  Message *reply;
+  if (m_controlPort.SendOutMessageSync(CActiveAEControlProtocol::DISPLAYLOST,
+                                                 &reply,
+                                                 5000))
+  {
+    bool success = reply->signal == CActiveAEControlProtocol::ACC ? true : false;
+    reply->Release();
+    if (!success)
+    {
+      CLog::Log(LOGERROR, "ActiveAE::%s - returned error", __FUNCTION__);
+    }
+  }
+  else
+  {
+    CLog::Log(LOGERROR, "ActiveAE::%s - timed out", __FUNCTION__);
+  }
 }
 
 void CActiveAE::OnResetDevice()
 {
-//  m_controlPort.SendOutMessage(CActiveAEControlProtocol::DISPLAYRESET);
+  m_controlPort.SendOutMessage(CActiveAEControlProtocol::DISPLAYRESET);
 }
 
 //-----------------------------------------------------------------------------
@@ -2292,8 +2302,7 @@ bool CActiveAE::CompareFormat(AEAudioFormat &lhs, AEAudioFormat &rhs)
 {
   if (lhs.m_channelLayout != rhs.m_channelLayout ||
       lhs.m_dataFormat != rhs.m_dataFormat ||
-      lhs.m_sampleRate != rhs.m_sampleRate ||
-      lhs.m_frames != rhs.m_frames)
+      lhs.m_sampleRate != rhs.m_sampleRate)
     return false;
   else
     return true;
@@ -2452,6 +2461,10 @@ void CActiveAE::StopSound(CActiveAESound *sound)
  */
 void CActiveAE::ResampleSounds()
 {
+  if (m_settings.guisoundmode == AE_SOUND_OFF ||
+     (m_settings.guisoundmode == AE_SOUND_IDLE && !m_streams.empty()))
+    return;
+
   std::vector<CActiveAESound*>::iterator it;
   for (it = m_sounds.begin(); it != m_sounds.end(); ++it)
   {
@@ -2498,7 +2511,7 @@ bool CActiveAE::ResampleSound(CActiveAESound *sound)
                   false,
                   true,
                   NULL,
-                  AE_QUALITY_MID);
+                  m_settings.resampleQuality);
 
   dst_samples = resampler->CalcDstSampleCount(sound->GetSound(true)->nb_samples,
                                               m_internalFormat.m_sampleRate,
