@@ -241,28 +241,18 @@ bool CGUIWindowSettingsProfile::GetAutoLoginProfileChoice(int &iProfile)
   // "Last used profile" option comes first, so up indices by 1
   int autoLoginProfileId = CProfilesManager::Get().GetAutoLoginProfileId() + 1;
   CFileItemList items;
-  CFileItemPtr item(new CFileItem());
-  item->SetLabel(g_localizeStrings.Get(37014)); // Last used profile
-  item->SetIconImage("unknown-user.png");
+  CFileItemPtr item(new CFileItem(g_localizeStrings.Get(37014))); // Last used profile
   items.Add(item);
 
   for (unsigned int i = 0; i < CProfilesManager::Get().GetNumberOfProfiles(); i++)
   {
     const CProfile *profile = CProfilesManager::Get().GetProfile(i);
-    CStdString locked = g_localizeStrings.Get(profile->getLockMode() > 0 ? 20166 : 20165);
     CFileItemPtr item(new CFileItem(profile->getName()));
-    item->SetProperty("Addon.Summary", locked); // lock setting
-    CStdString thumb = profile->getThumb();
-    if (thumb.empty())
-      thumb = "unknown-user.png";
-    item->SetIconImage(thumb);
     items.Add(item);
   }
 
   dialog->SetHeading(20093); // Profile name
   dialog->Reset();
-  dialog->SetUseDetails(true);
-  dialog->EnableButton(true, 222); // Cancel
   dialog->SetItems(&items);
   dialog->SetSelected(autoLoginProfileId);
   dialog->DoModal();
