@@ -33,6 +33,7 @@
 #include "GUICheckMarkControl.h"
 #include "GUIToggleButtonControl.h"
 #include "GUITextBox.h"
+#include "GUIVideoBackground.h"
 #include "GUIVideoControl.h"
 #include "GUIProgressControl.h"
 #include "GUISliderControl.h"
@@ -97,6 +98,7 @@ static const ControlMapping controls[] =
     {"spincontrolex",     CGUIControl::GUICONTROL_SPINEX},
     {"textbox",           CGUIControl::GUICONTROL_TEXTBOX},
     {"togglebutton",      CGUIControl::GUICONTROL_TOGGLEBUTTON},
+    {"videobackground",   CGUIControl::GUICONTROL_VIDEOBACKGROUND},
     {"videowindow",       CGUIControl::GUICONTROL_VIDEO},
     {"mover",             CGUIControl::GUICONTROL_MOVER},
     {"resize",            CGUIControl::GUICONTROL_RESIZE},
@@ -790,6 +792,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   bool bPassword = false;
   CStdString visibleCondition;
 
+  CGUIInfoLabel filename;
+
   /////////////////////////////////////////////////////////////////////////////
   // Read control properties from XML
   //
@@ -1034,6 +1038,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
 
   XMLUtils::GetBoolean(pControlNode, "password", bPassword);
 
+  GetInfoLabel(pControlNode, "filename", filename, parentID);
+
   // view type
   VIEW_TYPE viewType = VIEW_TYPE_NONE;
   CStdString viewLabel;
@@ -1155,6 +1161,12 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
     if (bPassword)
       ((CGUIEditControl *) control)->SetInputType(CGUIEditControl::INPUT_TYPE_PASSWORD, 0);
     ((CGUIEditControl *) control)->SetTextChangeActions(textChangeActions);
+  }
+  else if (type == CGUIControl::GUICONTROL_VIDEOBACKGROUND)
+  {
+    control = new CGUIVideoBackground(
+      parentID, id, posX, posY, width, height);
+    ((CGUIVideoBackground *)control)->SetInfo(filename);
   }
   else if (type == CGUIControl::GUICONTROL_VIDEO)
   {

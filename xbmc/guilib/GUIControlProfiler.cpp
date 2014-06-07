@@ -125,6 +125,8 @@ void CGUIControlProfilerItem::SaveToXML(TiXmlElement *parent)
     lpszType = "textbox"; break;
   case CGUIControl::GUICONTROL_TOGGLEBUTTON:
     lpszType = "togglebutton"; break;
+  case CGUIControl::GUICONTROL_VIDEOBACKGROUND:
+    lpszType = "videobackground"; break;
   case CGUIControl::GUICONTROL_VIDEO:
     lpszType = "videowindow"; break;
   case CGUIControl::GUICONTROL_MOVER:

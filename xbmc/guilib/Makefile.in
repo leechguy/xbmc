@@ -57,6 +57,7 @@ SRCS += GUITextBox.cpp
 SRCS += GUITextLayout.cpp
 SRCS += GUITexture.cpp
 SRCS += GUIToggleButtonControl.cpp
+SRCS += GUIVideoBackground.cpp
 SRCS += GUIVideoControl.cpp
 SRCS += GUIVisualisationControl.cpp
 SRCS += GUIWindow.cpp
